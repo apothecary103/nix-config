@@ -1,41 +1,21 @@
 { pkgs, username, ... }:
 
 {
+  imports = [
+    ./modules/home/base.nix
+  ] ++ lib.optional pkgs.stdenv.isLinux ./modules/home/nixos.nix
+    ++ lib.optional pkgs.stdenv.isDarwin ./modules/home/darwin.nix;
+  
   # Home Manager needs a bit of information about you and the paths it should manage.
   home.username = username;
-  home.homeDirectory = "/Users/${username}";
+  home.homeDirectory = if pkgs.stdenv.isDarwin then "/Users/${username}" else "/home/${username}";
 
   # This value determines the Home Manager release that your configuration is
   # compatible with. This helps avoid breakage when a new Home Manager release
   # introduces backwards incompatible changes.
   home.stateVersion = "25.11"; 
 
-  # 3. Install Apps/Packages
-  home.packages = with pkgs; [
-    # CLI Tools
-    ripgrep
-    fd
-    yazi
-    eza
-    aria2
-    fastfetch
-    chafa
-    zellij
-    wget
-    
-    # GUI Applications 
-    prismlauncher
-    signal-desktop
-    vesktop
-    mpv
-    cinny-desktop
-    
-    # Fonts (See next section for more font config)
-    maple-mono.NF-CN
-    aporetic
-  ];
-
-  # 4. Configure Fonts
+  # Configure Fonts
   # On macOS, this tells Home Manager to link fonts to ~/Library/Fonts
   fonts.fontconfig.enable = true;
 
@@ -143,7 +123,7 @@
 
   programs.ghostty = {
     enable = true;
-    package = pkgs.ghostty-bin;
+    package = if pkgs.stdenv.isDarwin then pkgs.ghostty-bin else pkgs.ghostty;
     settings = {
       theme = "Catppuccin Macchiato";
       font-family = "Maple Mono NF CN";
