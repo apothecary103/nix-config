@@ -2,6 +2,6 @@
 
 {
   imports = [
-    # ./niri.nix
+    ./modules/default.nix
   ];
 }

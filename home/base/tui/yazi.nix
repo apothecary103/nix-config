@@ -1,5 +1,9 @@
-{ ... }:
+{ config, inputs, ... }:
 {
+  imports = [
+    inputs.catppuccin.homeModules.catppuccin
+  ];
+  
   programs.yazi = {
     enable = true;
     enableBashIntegration = true;
@@ -11,5 +15,11 @@
         sort_dir_first = true;
       };
     };
+  };
+
+  catppuccin.yazi = {
+    enable = true;
+    flavor = "mocha";
+    accent = "blue";
   };
 }

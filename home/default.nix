@@ -1,10 +1,11 @@
-{ pkgs, lib, username, ... }:
+{ lib, pkgs, username, ... }:
 
 {
-  imports =
-    [ ./base ]
-    ++ lib.optionals pkgs.stdenv.isDarwin [ ./darwin ]
-    ++ lib.optionals pkgs.stdenv.isLinux [ ./nixos ];
+  imports = [
+    ./base
+    ./nixos
+    ./darwin
+  ];
 
   home.username = username;
   home.homeDirectory = if pkgs.stdenv.isDarwin then "/Users/${username}" else "/home/${username}";
