@@ -4,7 +4,7 @@
   imports = [
     ../../modules/base
     ../../modules/darwin
-    inputs.home-manager.nixosModules.home-manager
+    inputs.home-manager.darwinModules.home-manager
   ];
 
   networking.hostName = "fern";
@@ -19,9 +19,9 @@
   home-manager = {
     useGlobalPkgs = true;
     useUserPackages = true;
-    useExtraSpecialArgs = { inherit inputs username; hostname = "fern"; };
+    extraSpecialArgs = { inherit inputs username; hostname = "fern"; };
     users.${username} = import ../../home/default.nix;
   };
 
-  system.stateVersion = "5";
+  system.stateVersion = 6;
 }
