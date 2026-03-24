@@ -12,6 +12,7 @@
 
     casks = [
       "helium-browser"
+      "obs"
     ];
 
     # You can also install standard brew formulas here if they aren't in nixpkgs

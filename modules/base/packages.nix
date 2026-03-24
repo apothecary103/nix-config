@@ -13,6 +13,9 @@
       chafa
       zellij
       wget
+      ffmpeg
+      broot
+      btop
     
       # GUI Applications 
       prismlauncher
