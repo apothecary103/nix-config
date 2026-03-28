@@ -19,7 +19,7 @@
 
   catppuccin.yazi = {
     enable = true;
-    flavor = "mocha";
+    flavor = "macchiato";
     accent = "blue";
   };
 }
