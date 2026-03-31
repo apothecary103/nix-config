@@ -14,6 +14,11 @@
     apple-silicon.url = "github:tpwrules/nixos-apple-silicon";
     awww.url = "git+https://codeberg.org/LGFae/awww";
     catppuccin.url = "github:catppuccin/nix";
+    hyprland.url = "github:hyprwm/Hyprland";
+    asahi-firmware = {
+      url = "path:/home/apothecary/.config/asahi-firmware";
+      flake = false;
+    };
   };
 
   outputs = inputs @ { self, nixpkgs, darwin, home-manager, apple-silicon, awww, catppuccin, ... }:
