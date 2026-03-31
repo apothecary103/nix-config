@@ -11,11 +11,12 @@
       url = "github:nix-community/home-manager";
       inputs.nixpkgs.follows = "nixpkgs";
     };
+    apple-silicon.url = "github:tpwrules/nixos-apple-silicon";
     awww.url = "git+https://codeberg.org/LGFae/awww";
     catppuccin.url = "github:catppuccin/nix";
   };
 
-  outputs = inputs @ { self, nixpkgs, darwin, home-manager, awww, catppuccin, ... }:
+  outputs = inputs @ { self, nixpkgs, darwin, home-manager, apple-silicon, awww, catppuccin, ... }:
   let
     username = "apothecary";
   in {

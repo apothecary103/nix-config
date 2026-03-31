@@ -5,14 +5,16 @@
     ./hardware-configuration.nix
     ../../modules/base
     ../../modules/nixos
-    ./apple-silicon-support
     inputs.home-manager.nixosModules.home-manager
+    inputs.apple-silicon.nixosModules.apple-silicon-support
   ];
 
   networking.hostName = "frieren";
 
   boot.loader.systemd-boot.enable = true;
   boot.loader.efi.canTouchEfiVariables = false;
+
+  time.timeZone = "Europe/Vilnius";
 
   # NOTE: You must have the firmware files extracted on your EFI partition
   hardware.asahi.peripheralFirmwareDirectory = /home/apothecary/nix-config/hosts/frieren/firmware;
