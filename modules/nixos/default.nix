@@ -1,6 +1,7 @@
 { pkgs, ... }: {
   imports = [
     ./packages.nix
+    ./typography.nix
   ];
 
   networking.networkmanager.enable = true;
