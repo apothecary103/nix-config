@@ -9,19 +9,18 @@ in {
   home-manager.users.${username} = {
     home.packages = with pkgs; [
       niri
-      grim
-      stable-pkgs.blender
-      video-trimmer
-      wf-recorder
-      slurp
       fuzzel
-      tuigreet
-      librewolf
-      brightnessctl
       waybar
-      hyprland
-      # inputs.hyprland.packages.${pkgs.stdenv.hostPlatform.system}.hyprland
       inputs.awww.packages.${pkgs.stdenv.hostPlatform.system}.awww
+      brightnessctl
+      wf-recorder
+      tuigreet
+
+      # Apps
+      keypunch
+      video-trimmer
+      stable-pkgs.blender
+      librewolf
     ];
   };
 }
