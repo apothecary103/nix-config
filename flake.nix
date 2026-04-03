@@ -23,7 +23,7 @@
     };
   };
 
-  outputs = inputs @ { self, nixpkgs, darwin, home-manager, apple-silicon, awww, neovim-nightly-overlay, catppuccin, niri, nixpkgs-stable, ... }:
+  outputs = inputs @ { self, nixpkgs, darwin, home-manager, ... }:
   let
     username = "apothecary";
   in {

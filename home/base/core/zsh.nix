@@ -1,4 +1,10 @@
 { ... }: {
+
+  programs.eza = {
+    enable = true;
+    enableZshIntegration = true;
+  };
+
   programs.zsh = {
     enable = true;
     enableCompletion = true;
@@ -47,6 +53,11 @@
       PROMPT='$(_nushell_left_prompt)%B%F{14}> %b%f'
       PROMPT2='::: '
       RPROMPT='$(_nushell_right_prompt)'
+
+      zstyle ':completion:*' menu select
+      # 'ma' sets the Match highlight. 
+      # 7 is 'reverse' (swaps fg/bg), or use 48;5;COLOR_CODE for a specific background
+      zstyle ':completion:*:default' list-colors "ma=7"
     '';
   };
 }

@@ -16,6 +16,8 @@
       ffmpeg
       broot
       btop
+      nixd
+      nixfmt
     
       # GUI Applications 
       prismlauncher
