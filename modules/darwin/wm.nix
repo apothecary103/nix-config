@@ -24,6 +24,8 @@
     extraConfig = ''
       yabai -m rule --add app="^System Settings$" manage=off
       yabai -m rule --add app="^Calculator$" manage=off
+
+      borders active_color=0xff8aadf4 inactive_color=0xff494d64 order=above width=3.0 &
     '';
   };
 
