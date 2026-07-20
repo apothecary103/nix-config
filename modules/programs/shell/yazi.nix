@@ -8,7 +8,11 @@
       settings = {
         mgr = {
           sort_dir_first = true;
-          ratio = [1 4 3];
+          ratio = [
+            1
+            4
+            3
+          ];
         };
         preview = {
           max_width = 3840;

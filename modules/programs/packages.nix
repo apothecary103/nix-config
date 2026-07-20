@@ -1,5 +1,5 @@
-{inputs, ...}: {
-  flake.modules.homeManager.base = {pkgs, ...}: {
+{ inputs, ... }: {
+  flake.modules.homeManager.base = { pkgs, ... }: {
     home.packages = with pkgs; [
       # CLI Tools
       ripgrep
@@ -12,14 +12,14 @@
       broot
       btop
       nixd
-      alejandra
+      nixfmt
       gh
-      bat
       tokei
       nh
       krabby
       opencode
       claude-code
+      glow
 
       # GUI Applications
       prismlauncher
@@ -27,6 +27,19 @@
       vesktop
       mpv
       inputs.zen-browser.packages."${pkgs.system}".default
+    ];
+  };
+
+  flake.modules.homeManager.darwin = { pkgs, ... }: {
+    home.packages = with pkgs; [
+      # CLI Tools
+      llama-cpp
+      qemu
+
+      # GUI Applications
+      aseprite
+      # steam
+      # moonlight-qt
     ];
   };
 }

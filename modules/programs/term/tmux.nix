@@ -1,28 +1,26 @@
 {
-  flake.modules.homeManager.base = {
-    pkgs,
-    palette,
-    ...
-  }: {
-    programs.tmux = {
-      enable = true;
-      shortcut = "a";
-      baseIndex = 1;
-      escapeTime = 0;
-      historyLimit = 50000;
-      keyMode = "vi";
-      mouse = true;
-      terminal = "tmux-256color";
+  flake.modules.homeManager.base =
+    {
+      pkgs,
+      palette,
+      ...
+    }:
+    {
+      programs.tmux = {
+        enable = true;
+        shortcut = "a";
+        baseIndex = 1;
+        escapeTime = 0;
+        historyLimit = 50000;
+        keyMode = "vi";
+        mouse = true;
+        terminal = "tmux-256color";
 
-      plugins = with pkgs.tmuxPlugins; [
-        yank
-      ];
+        plugins = with pkgs.tmuxPlugins; [
+          yank
+        ];
 
-      extraConfig =
-        /*
-        shell
-        */
-        ''
+        extraConfig = /* shell */ ''
           set -g window-style "bg=default"
           set -g window-active-style "bg=default"
           set -as terminal-features ",*:RGB"
@@ -75,6 +73,6 @@
           set -g pane-active-border-style "fg=${palette.mauve}"
           set -g message-style "bg=${palette.surface0},fg=${palette.text},bold"
         '';
+      };
     };
-  };
 }
