@@ -24,6 +24,8 @@
 
   nix.settings.cores = 0; # use all available cores
 
+  systemd.user.services.niri-flake-polkit.enable = false;
+
   hardware.bluetooth.enable = true;
   services.blueman.enable = true;
 

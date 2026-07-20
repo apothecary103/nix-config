@@ -8,7 +8,6 @@ let
 in {
   home-manager.users.${username} = {
     home.packages = with pkgs; [
-      niri
       fuzzel
       waybar
       inputs.awww.packages.${pkgs.stdenv.hostPlatform.system}.awww

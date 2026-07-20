@@ -15,13 +15,14 @@
     apple-silicon.url = "github:tpwrules/nixos-apple-silicon";
     awww.url = "git+https://codeberg.org/LGFae/awww";
     catppuccin.url = "github:catppuccin/nix";
+    niri.url = "github:sodiboo/niri-flake";
     asahi-firmware = {
       url = "path:/home/apothecary/.config/asahi-firmware";
       flake = false;
     };
   };
 
-  outputs = inputs @ { self, nixpkgs, darwin, home-manager, apple-silicon, awww, catppuccin, nixpkgs-stable, ... }:
+  outputs = inputs @ { self, nixpkgs, darwin, home-manager, apple-silicon, awww, catppuccin, niri, nixpkgs-stable, ... }:
   let
     username = "apothecary";
   in {
