@@ -25,7 +25,6 @@
       prismlauncher
       signal-desktop
       vesktop
-      mpv
       inputs.zen-browser.packages."${pkgs.system}".default
     ];
   };

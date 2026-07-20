@@ -93,8 +93,8 @@
             "network.trr.uri" = "https://dns.quad9.net/dns-query";
 
             # Parfait Eyecandy
-            "parfait.bg.transparent" = true;
-            "parfait.blur.enabled" = true;
+            # "parfait.bg.transparent" = true;
+            # "parfait.blur.enabled" = true;
 
             # Crucial for macOS Firefox engines to render system background transparency
             "browser.tabs.allow_transparent_browser" = true;
