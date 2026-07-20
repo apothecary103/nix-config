@@ -18,6 +18,8 @@
       btop
       nixd
       nixfmt
+      gh
+      bat
     
       # GUI Applications 
       prismlauncher

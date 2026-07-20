@@ -1,12 +1,17 @@
-{ ... }: {
+{ inputs, pkgs, ... }:
+{
   programs.helix = {
     enable = true;
     defaultEditor = true;
-    
+    package = inputs.helix.packages.${pkgs.system}.default;
+
     themes = {
       catppuccin_macchiato_transparent = {
+        # inherits = "catppuccin_macchiato";
         inherits = "mellow";
-        "ui.background" = { bg = "none"; };
+        "ui.background" = {
+          bg = "none";
+        };
       };
     };
 
@@ -21,12 +26,12 @@
         bufferline = "multiple";
         default-line-ending = "lf";
         lsp.display-messages = true;
-        
+
         cursor-shape = {
           insert = "bar";
           select = "underline";
         };
-        
+
         file-picker = {
           hidden = false;
           git-ignore = true;

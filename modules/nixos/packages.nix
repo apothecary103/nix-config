@@ -17,7 +17,6 @@
       slurp
       fuzzel
       waybar
-      wezterm
       hyprsunset
       wl-clipboard
       whitesur-cursors

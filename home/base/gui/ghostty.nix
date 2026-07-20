@@ -3,7 +3,8 @@
     enable = true;
     package = if pkgs.stdenv.isDarwin then pkgs.ghostty-bin else pkgs.ghostty;
     settings = {
-      theme = "Catppuccin Macchiato";
+      # theme = "Catppuccin Macchiato";
+      theme = "mellow";
       font-family = "Maple Mono NF CN";
       font-size = if pkgs.stdenv.isDarwin then 18 else 12;
 

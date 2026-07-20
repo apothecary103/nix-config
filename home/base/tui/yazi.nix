@@ -1,9 +1,9 @@
-{ config, inputs, ... }:
+{ inputs, ... }:
 {
   # imports = [
   #   inputs.catppuccin.homeModules.catppuccin
   # ];
-  
+
   programs.yazi = {
     enable = true;
     enableBashIntegration = true;
