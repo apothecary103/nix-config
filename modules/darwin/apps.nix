@@ -1,27 +1,45 @@
-{ pkgs, ... }:
 {
+  config,
+  inputs,
+  username,
+  ...
+}:
+{
+  imports = [
+    inputs.nix-homebrew.darwinModules.nix-homebrew
+  ];
+
+  nix-homebrew = {
+    enable = true;
+    enableRosetta = true;
+    user = username;
+
+    taps = {
+      "homebrew/homebrew-core" = inputs.homebrew-core;
+      "homebrew/homebrew-cask" = inputs.homebrew-cask;
+    };
+
+    mutableTaps = false;
+  };
+
   homebrew = {
     enable = true;
-
-    # Updates homebrew packages on activation,
-    # can make darwin-rebuild slower but keeps things up to date.
     onActivation.autoUpdate = true;
-
-    # 'zap' removes manually installed brews and casks that aren't in this file.
     onActivation.cleanup = "zap";
 
-    taps = [
-      "homebrew/homebrew-core"
-      "homebrew/homebrew-cask"
-    ];
+    taps = builtins.attrNames config.nix-homebrew.taps;
 
     casks = [
       "helium-browser"
       "obs"
       "colemak-dh"
+      "blender"
+      "linearmouse"
+      "foobar2000"
+      "background-music"
+      "zen"
     ];
 
-    # You can also install standard brew formulas here if they aren't in nixpkgs
     brews = [
       # "mas"
     ];

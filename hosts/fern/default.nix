@@ -1,4 +1,8 @@
-{ config, pkgs, inputs, username, ... }:
+{
+  inputs,
+  username,
+  ...
+}:
 
 {
   imports = [
@@ -6,6 +10,15 @@
     ../../modules/darwin
     inputs.home-manager.darwinModules.home-manager
   ];
+
+  nixpkgs.overlays = [
+    inputs.emacs-overlay.overlays.default
+  ];
+
+  nix.settings = {
+    substituters = [ "https://nix-community.cachix.org" ];
+    trusted-public-keys = [ "nix-community.cachix.org-1:mB9FSh9qf2dCimDSUo8Zy7bkq5CX+/rkCWyvRCYg3Fs=" ];
+  };
 
   networking.hostName = "fern";
 
@@ -19,9 +32,20 @@
   home-manager = {
     useGlobalPkgs = true;
     useUserPackages = true;
-    extraSpecialArgs = { inherit inputs username; hostname = "fern"; };
-    users.${username} = import ../../home/default.nix;
+    extraSpecialArgs = {
+      inherit inputs username;
+      hostname = "fern";
+    };
+
+    users.${username} = {
+      imports = [
+        ../../home/base
+        ../../home/darwin
+      ];
+    };
   };
+
+  # home-manager.backupFileExtension = "backup";
 
   system.stateVersion = 6;
 }
