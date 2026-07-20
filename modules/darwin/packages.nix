@@ -21,9 +21,6 @@ in
         inputs.tetro-tui.packages.${system}.default
         # steam
         emacs-unstable
-        mpd
-        mpc
-        rmpc
       ])
       ++ [
         teamspeak6-client
