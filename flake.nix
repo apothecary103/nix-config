@@ -25,10 +25,6 @@
     helix.url = "github:helix-editor/helix";
     neovim-nightly-overlay.url = "github:nix-community/neovim-nightly-overlay";
     catppuccin.url = "github:catppuccin/nix";
-    asahi-firmware = {
-      url = "path:/home/apothecary/.config/asahi-firmware";
-      flake = false;
-    };
     emacs-overlay = {
       url = "github:nix-community/emacs-overlay";
       inputs.nixpkgs.follows = "nixpkgs";

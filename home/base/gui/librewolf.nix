@@ -5,12 +5,12 @@ let
     owner = "reizumii";
     repo = "parfait";
     rev = "master";
-    hash = "sha256-kXKebHw7UrtP7bXw9uk3IfFZTdjfd2RR5WrXGjJnmig=";
+    hash = "sha256-C2zCAmY1cjDYLJctMu0yOfIhl1ZoO0ONYdy29jPDBSM=";
   };
 in
 {
   programs.librewolf = {
-    enable = true;
+    enable = false;
 
     policies = {
       Cookies = {
