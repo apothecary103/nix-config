@@ -1,7 +1,7 @@
-{ config, pkgs, inputs, theme, ... }:
+{ config, pkgs, inputs, ... }:
 
 {
-  imports = [
+  imports = [ 
     inputs.niri.homeModules.niri
   ];
     
@@ -58,7 +58,7 @@
 
       focus-ring = {
         width = 2;
-        active.color = theme.accentColor;
+        active.color = "#8aadf4";
         inactive.color = "#505050";
       };
 

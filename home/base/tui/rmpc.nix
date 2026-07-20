@@ -1,11 +1,18 @@
-{ config, inputs, rmpcLib, theme, ... }:
+{ config, inputs, rmpcLib, ... }:
 
 let
   inherit (rmpcLib) variant enum struct pane prop text tab;
   bold = fg: { inherit fg; modifiers = "Bold"; };
 
-  inherit (theme.colors) mauve lavender sapphire yellow base mantle overlay0;
-  fgText = theme.colors.text;
+  # catppuccin macchiato
+  mauve = "#c6a0f6";
+  lavender = "#b7bdf8";
+  sapphire = "#7dc4e4";
+  yellow = "#eed49f";
+  fgText = "#cad3f5";
+  base = "#24273a";
+  mantle = "#1e2030";
+  overlay0 = "#6e738d";
 in
 {
   imports = [ inputs.rmpc.homeManagerModules.default ];

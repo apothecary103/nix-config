@@ -1,8 +1,7 @@
-{ config, pkgs, theme, ... }:
+{ config, pkgs, ... }:
 
 let
   inherit (config.lib.formats.rasi) mkLiteral;
-  c = theme.colors;
 
   rofi-wallpaper = pkgs.writeShellApplication {
     name = "rofi-wallpaper";
@@ -28,12 +27,12 @@ in
 
     theme = {
       "*" = {
-        bg = mkLiteral c.base;
-        fg = mkLiteral c.text;
-        prompt-fg = mkLiteral c.subtext1;
-        placeholder-fg = mkLiteral c.surface2;
-        selected-bg = mkLiteral c.text;
-        selected-fg = mkLiteral c.base;
+        bg = mkLiteral "#24273a";
+        fg = mkLiteral "#cad3f5";
+        prompt-fg = mkLiteral "#b8c0e0";
+        placeholder-fg = mkLiteral "#5b6078";
+        selected-bg = mkLiteral "#cad3f5";
+        selected-fg = mkLiteral "#24273a";
 
         background-color = mkLiteral "transparent";
         text-color = mkLiteral "@fg";

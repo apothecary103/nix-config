@@ -1,4 +1,4 @@
-{ pkgs, inputs, theme, ... }:
+{ pkgs, inputs, ... }:
 
 {
   imports = [ inputs.nvf.homeManagerModules.default ];
@@ -46,7 +46,7 @@
         theme = {
           enable = true;
           name = "catppuccin";
-          style = theme.flavor;
+          style = "macchiato";
           transparent = true;
         };
 
@@ -81,7 +81,7 @@
           setupOpts.options.always_show_bufferline = false;
         };
 
-        # helix's statusline equivalent; theme follows catppuccin automatically
+        # helix's statusline equivalent; follows the active colorscheme
         statusline.lualine.enable = true;
 
         visuals = {

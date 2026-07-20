@@ -1,4 +1,4 @@
-{ theme, ... }:
+{ ... }:
 
 {
   programs.wezterm = {
@@ -9,7 +9,7 @@
       local config = wezterm.config_builder()
 
       -- Theme
-      config.color_scheme = "${theme.title}"
+      config.color_scheme = "Catppuccin Macchiato"
 
       -- Typography
       config.font = wezterm.font("Maple Mono NF CN")

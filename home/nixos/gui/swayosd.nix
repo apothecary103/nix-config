@@ -1,8 +1,5 @@
-{ theme, ... }:
+{ ... }:
 
-let
-  c = theme.colors;
-in
 {
   services.swayosd.enable = true;
 
@@ -29,8 +26,8 @@ in
 
     "swayosd/style.css".text = /* css */ ''
       window#osd {
-        /* background: alpha(${c.base}, 0.87); */
-        background: ${c.base};
+        /* background: alpha(#24273a, 0.87); */
+        background: #24273a;
         border-radius: 0;
       }
 
@@ -47,7 +44,7 @@ in
 
       window#osd image,
       window#osd label {
-        color: ${c.text};
+        color: #cad3f5;
         font-family: "MapleMono NF CN", monospace;
       }
 
@@ -67,14 +64,14 @@ in
         min-height: inherit;
         border-radius: 0;
         border: none;
-        background: alpha(${c.surface0}, 0.5);
+        background: alpha(#363a4f, 0.5);
       }
 
       window#osd progress {
         min-height: inherit;
         border-radius: 0;
         border: none;
-        background: ${c.mauve};
+        background: #c6a0f6;
       }
     '';
   };

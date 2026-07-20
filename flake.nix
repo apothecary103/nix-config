@@ -27,10 +27,6 @@
     };
     helix.url = "github:helix-editor/helix";
     catppuccin.url = "github:catppuccin/nix";
-    catppuccin-palette = {
-      url = "github:catppuccin/palette";
-      flake = false;
-    };
     zen-browser = {
       url = "github:0xc000022070/zen-browser-flake";
       inputs.nixpkgs.follows = "nixpkgs";
