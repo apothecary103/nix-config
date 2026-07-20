@@ -46,7 +46,7 @@
         theme = {
           enable = true;
           name = "catppuccin";
-          style = "macchiato";
+          style = if pkgs.stdenv.isDarwin then "macchiato" else "mocha";
           transparent = true;
         };
 

@@ -6,69 +6,49 @@
 }:
 
 {
-  # ────────────────────────────────────────────────────────────────────────
-  # GnuPG — pass encrypts each entry with your GPG key, so a working
-  # gpg + gpg-agent with a platform-appropriate pinentry is required.
-  # ────────────────────────────────────────────────────────────────────────
   programs.gpg.enable = true;
 
   services.gpg-agent = {
     enable = true;
-
-    # Native macOS prompt on darwin; Qt pinentry on Linux/Wayland
-    # (Hyprland/Niri). Swap for pkgs.pinentry-rofi / pinentry-gnome3 etc.
-    # home-manager resolves `pinentry.program` from meta.mainProgram.
     pinentry.package = if pkgs.stdenv.isDarwin then pkgs.pinentry_mac else pkgs.pinentry-gnome3;
-
-    # Cache passphrases so you aren't prompted on every `pass` invocation.
+    
     defaultCacheTtl = 3600;
     maxCacheTtl = 86400;
     defaultCacheTtlSsh = 1800;
     maxCacheTtlSsh = 86400;
 
-    # Export GPG_TTY in every shell so tty/curses pinentry fallbacks work.
     enableBashIntegration = true;
     enableFishIntegration = true;
     enableZshIntegration = true;
     enableNushellIntegration = true;
   };
 
-  # ────────────────────────────────────────────────────────────────────────
-  # pass — the standard unix password manager.
-  # ────────────────────────────────────────────────────────────────────────
   programs.password-store = {
     enable = true;
     package = pkgs.pass.withExtensions (exts: [
-      exts.pass-otp # TOTP/HOTP — replaces Bitwarden's built-in authenticator
-      exts.pass-import # `pass import bitwarden export.json` for migration
-      exts.pass-update # `pass update <entry>` for easy rotation
-      exts.pass-audit # `pass audit` checks entries against HaveIBeenPwned
+      exts.pass-otp
+      exts.pass-import
+      exts.pass-update
+      exts.pass-audit # Checks entries against the HaveIBeenPwned API
     ]);
 
     settings = {
       PASSWORD_STORE_DIR = "${config.home.homeDirectory}/.password-store";
       PASSWORD_STORE_CLIP_TIME = "45";
       PASSWORD_STORE_UMASK = "077";
-      # Set this to your key id/email after you generate/import a GPG key:
-      PASSWORD_STORE_KEY = "mail@apothecary.moe";
+      PASSWORD_STORE_KEY = "mail@apothecary.moe"; # Must match your GPG key ID/email
     };
   };
 
-  # ────────────────────────────────────────────────────────────────────────
-  # Browser autofill — closest equivalent to the Bitwarden browser
-  # extension. Install the "Browserpass" add-on in Firefox/LibreWolf/etc.
-  # and this wires up the native messaging host for it.
-  # ────────────────────────────────────────────────────────────────────────
+  # Wires up the native messaging host, but you still must install the 
+  # "Browserpass" add-on inside your browser for this to actually work.
   programs.browserpass = {
     enable = true;
-    browsers = [ "librewolf" ]; # defaults to all supported
+    browsers = [ "librewolf" ]; # Defaults to all supported browsers if omitted
   };
 
-  # ────────────────────────────────────────────────────────────────────────
-  # Secret Service (libsecret) D-Bus bridge — Linux only. Exposes pass to
-  # apps speaking the Freedesktop Secret Service API (Evolution, Epiphany,
-  # some Electron apps, ...). Conflicts with gnome-keyring (build-time error).
-  # ────────────────────────────────────────────────────────────────────────
+  # Exposes pass to the Freedesktop Secret Service API.
+  # WARNING: Causes a build-time error if gnome-keyring is also enabled.
   services.pass-secret-service = lib.mkIf pkgs.stdenv.isLinux {
     enable = true;
   };

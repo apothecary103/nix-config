@@ -1,4 +1,4 @@
-{ ... }:
+{ pkgs, ... }:
 
 {
   programs.wezterm = {
@@ -9,7 +9,7 @@
       local config = wezterm.config_builder()
 
       -- Theme
-      config.color_scheme = "Catppuccin Macchiato"
+      config.color_scheme = "${if pkgs.stdenv.isDarwin then "Catppuccin Macchiato" else "Catppuccin Mocha"}"
 
       -- Typography
       config.font = wezterm.font("Maple Mono NF CN")

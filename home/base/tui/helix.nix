@@ -1,4 +1,9 @@
 { inputs, pkgs, ... }:
+
+let
+  # Mirrors the flavor choice in ../core/theme.nix (darwin -> macchiato, else -> mocha)
+  flavor = if pkgs.stdenv.isDarwin then "macchiato" else "mocha";
+in
 {
   programs.helix = {
     enable = true;
@@ -6,9 +11,8 @@
     package = inputs.helix.packages.${pkgs.system}.default;
 
     themes = {
-      catppuccin_macchiato_transparent = {
-        inherits = "catppuccin_macchiato";
-        # inherits = "mellow";
+      "catppuccin_${flavor}_transparent" = {
+        inherits = "catppuccin_${flavor}";
         "ui.background" = {
           bg = "none";
         };
@@ -16,7 +20,7 @@
     };
 
     settings = {
-      theme = "catppuccin_macchiato_transparent";
+      theme = "catppuccin_${flavor}_transparent";
 
       editor = {
         true-color = true;

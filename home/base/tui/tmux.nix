@@ -1,4 +1,4 @@
-{ pkgs, ... }:
+{ pkgs, palette, ... }:
 {
   programs.tmux = {
     enable = true;
@@ -46,26 +46,26 @@
 
       # --- Statusline ---
       set -g status-position bottom
-      set -g status-justify left      
-      set -g status-style "bg=#1e2030,fg=#cad3f5"
+      set -g status-justify left
+      set -g status-style "bg=${palette.mantle},fg=${palette.text}"
 
       # Left side:
       set -g status-left ""
 
       # Right side:
       set -g status-right-length 50
-      set -g status-right "#[fg=#a5adce,bg=#1e2030] %H:%M "
+      set -g status-right "#[fg=${palette.subtext0},bg=${palette.mantle}] %H:%M "
 
       # Inactive Tab:
-      setw -g window-status-format "#[fg=#5b6078,bg=#1e2030] #I #W "
-      
+      setw -g window-status-format "#[fg=${palette.surface2},bg=${palette.mantle}] #I #W "
+
       # Active Tab:
-      setw -g window-status-current-format "#[fg=#1e2030,bg=#8aadf4,bold] #I #W#{?window_zoomed_flag, [Z],} "
+      setw -g window-status-current-format "#[fg=${palette.mantle},bg=${palette.blue},bold] #I #W#{?window_zoomed_flag, [Z],} "
 
       # --- Pane & Message Styling ---
-      set -g pane-border-style "fg=#363a4f"
-      set -g pane-active-border-style "fg=#c6a0f6"
-      set -g message-style "bg=#363a4f,fg=#cad3f5,bold"
+      set -g pane-border-style "fg=${palette.surface0}"
+      set -g pane-active-border-style "fg=${palette.mauve}"
+      set -g message-style "bg=${palette.surface0},fg=${palette.text},bold"
     '';
   };
 }
