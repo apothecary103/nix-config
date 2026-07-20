@@ -1,4 +1,4 @@
-{ inputs, ... }:
+{ inputs, pkgs, ... }:
 
 {
   imports = [
@@ -8,8 +8,7 @@
   catppuccin = {
     enable = true;
     autoEnable = true; 
-    flavor = "mocha";
-    # flavor = "macchiato";
+    flavor = if pkgs.stdenv.isDarwin then "macchiato" else "mocha";
     accent = "blue";
 
     helix.enable = false;

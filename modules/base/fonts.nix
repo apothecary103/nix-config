@@ -33,6 +33,9 @@
 
       # Azuki
       azuki
+
+      # Aporetic
+      aporetic
     ];
   };
 }
