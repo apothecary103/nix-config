@@ -31,6 +31,10 @@
       flake = false;
     };
     helix.url = "github:helix-editor/helix";
+    niri = {
+      url = "github:epireyn/niri-flake";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
     catppuccin.url = "github:catppuccin/nix";
     zen-browser = {
       url = "github:0xc000022070/zen-browser-flake";
