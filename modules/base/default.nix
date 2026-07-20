@@ -2,6 +2,6 @@
   imports = [
     ./fonts.nix
     ./core.nix
-    ./host-users.nix
+    ./packages.nix
   ];
 }
