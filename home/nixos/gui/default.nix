@@ -3,6 +3,7 @@
 {
   imports = [
     ./theming.nix
-    ./niri.nix
+    ./hyprland.nix
+    ./waybar.nix
   ];
 }

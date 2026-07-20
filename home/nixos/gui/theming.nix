@@ -1,7 +1,7 @@
-{ pkgs, ... }:
+{ ... }:
 
 {
-  # 1. Modern GSettings / Libadwaita
+  # 1. Modern GSettings / Libadwaita & Flatpak
   dconf.settings = {
     "org/gnome/desktop/interface" = {
       color-scheme = "prefer-dark";
@@ -11,26 +11,17 @@
   # 2. GTK 2/3/4 Themes
   gtk = {
     enable = true;
-    theme = {
-      name = "Adwaita-dark";
-      package = pkgs.gnome-themes-extra;
-    };
-    cursorTheme = {
-      name = "Adwaita";
-      package = pkgs.adwaita-icon-theme;
-    };
-    iconTheme = {
-      name = "Adwaita";
-      package = pkgs.adwaita-icon-theme;
-    };
+
+    # Let Home Manager automatically handle GTK4 theme alignment
+    gtk4.theme = null;
+
     gtk3.extraConfig.gtk-application-prefer-dark-theme = 1;
-    gtk4.extraConfig.gtk-application-prefer-dark-theme = 1;
   };
 
-  # Qt
+  # 3. Qt
   qt = {
     enable = true;
-    platformTheme.name = "adwaita";
-    style.name = "adwaita-dark";
+    platformTheme.name = "kvantum";
+    style.name = "kvantum";
   };
 }
