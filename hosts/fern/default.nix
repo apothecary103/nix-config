@@ -7,6 +7,4 @@
   ];
 
   networking.hostName = "fern";
-
-  system.stateVersion = 6;
 }
