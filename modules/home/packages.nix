@@ -1,10 +1,5 @@
-{
-  pkgs,
-  username,
-  inputs,
-  ...
-}: {
-  home-manager.users.${username} = {
+{inputs, ...}: {
+  flake.modules.homeManager.base = {pkgs, ...}: {
     home.packages = with pkgs; [
       # CLI Tools
       ripgrep
