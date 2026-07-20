@@ -25,9 +25,24 @@
   # nix.settings.cores = 0; # use all available cores
 
   hardware.bluetooth.enable = true;
-  hardware.blueman.enable = true;
+  services.blueman.enable = true;
 
   programs.zsh.enable = true;
+
+  xdg.portal = {
+    enable = true;
+    xdgOpenUsePortal = true;
+    extraPortals = [
+      pkgs.xdg-desktop-portal-gnome
+      pkgs.xdg-desktop-portal-gtk
+    ];
+    config = {
+      common.default = [ "gnome" "gtk" ];
+      niri.default = [ "gnome" "gtk" ];
+    };
+  };
+
+  programs.dconf.enable = true;
 
   users.users.${username} = {
     isNormalUser = true;

@@ -1,10 +1,18 @@
 { pkgs, username, inputs, ... }:
 
-{
+let
+  stable-pkgs = import inputs.nixpkgs-stable {
+    system = pkgs.system;
+    # config.allowUnfree = true;
+  };
+in {
   home-manager.users.${username} = {
     home.packages = with pkgs; [
       niri
       grim
+      stable-pkgs.blender
+      video-trimmer
+      wf-recorder
       slurp
       fuzzel
       tuigreet

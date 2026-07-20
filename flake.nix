@@ -3,6 +3,7 @@
 
   inputs = {
     nixpkgs.url = "github:nixos/nixpkgs/nixpkgs-unstable";
+    nixpkgs-stable.url = "github:nixos/nixpkgs/nixos-25.11";
     darwin = {
       url = "github:lnl7/nix-darwin";
       inputs.nixpkgs.follows = "nixpkgs";
@@ -21,7 +22,7 @@
     };
   };
 
-  outputs = inputs @ { self, nixpkgs, darwin, home-manager, apple-silicon, awww, catppuccin, ... }:
+  outputs = inputs @ { self, nixpkgs, darwin, home-manager, apple-silicon, awww, catppuccin, nixpkgs-stable, ... }:
   let
     username = "apothecary";
   in {
