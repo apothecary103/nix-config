@@ -45,7 +45,6 @@
         window#osd label {
           color: ${palette.text};
           font-family: "MapleMono NF CN", monospace;
-          font-weight: 500;
         }
 
         window#osd progressbar:disabled,

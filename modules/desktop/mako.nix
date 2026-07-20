@@ -5,7 +5,7 @@
 
       settings = {
         # Medium weight to match macOS UI heft (TrueType, so no stem darkening).
-        font = "MapleMono NF CN Medium 11";
+        font = "MapleMono NF CN 11";
         width = 350;
         height = 150;
         margin = "15";
