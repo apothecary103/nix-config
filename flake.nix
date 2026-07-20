@@ -30,7 +30,7 @@
       url = "git+ssh://git@codeberg.org/frieren/asahi-firmware?ref=main";
       flake = false;
     };
-    helix.url = "github:helix-editor/helix";
+    helix.url = "github:mattwparas/helix/steel-event-system";
     niri = {
       url = "github:epireyn/niri-flake";
       inputs.nixpkgs.follows = "nixpkgs";
