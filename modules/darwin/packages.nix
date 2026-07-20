@@ -5,7 +5,6 @@
     home.packages = with pkgs; [
       # CLI Tools
       llama-cpp
-      opencode
       qemu
       inputs.tetro-tui.packages.${system}.default
 

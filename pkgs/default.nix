@@ -7,11 +7,13 @@
       teamspeak6-client = final.callPackage ./teamspeak6-client { };
     })
 
+    # cargoDeps stays the stock zellij vendor set (overrideAttrs can't swap
+    # it), which works because the fork doesn't touch Cargo.lock — if it ever
+    # does, the build fails at compile time and cargoDeps must be re-vendored.
     (final: prev: {
       zellij-unwrapped = prev.zellij-unwrapped.overrideAttrs (old: {
         pname = "yazelix-zellij";
         src = inputs.yazelix-zellij;
-        cargoHash = prev.lib.fakeHash;
       });
     })
 

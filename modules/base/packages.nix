@@ -21,6 +21,7 @@
       nh
       krabby
       opencode
+      claude-code
     
       # GUI Applications 
       prismlauncher

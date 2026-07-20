@@ -2,3 +2,5 @@ registry.json
 nix.conf
 hosts/frieren/firmware/*
 .DS_STORE
+result
+result-*

@@ -3,7 +3,6 @@
 
   inputs = {
     nixpkgs.url = "github:nixos/nixpkgs/nixpkgs-unstable";
-    nixpkgs-stable.url = "github:nixos/nixpkgs/nixos-25.11";
     darwin = {
       url = "github:lnl7/nix-darwin";
       inputs.nixpkgs.follows = "nixpkgs";
@@ -28,6 +27,10 @@
     };
     helix.url = "github:helix-editor/helix";
     catppuccin.url = "github:catppuccin/nix";
+    catppuccin-palette = {
+      url = "github:catppuccin/palette";
+      flake = false;
+    };
     zen-browser = {
       url = "github:0xc000022070/zen-browser-flake";
       inputs.nixpkgs.follows = "nixpkgs";
@@ -46,6 +49,11 @@
       url = "github:nix-community/nix-index-database";
       inputs.nixpkgs.follows = "nixpkgs";
     };
+    rmpc.url = "github:apothecary103/rmpc/feat/home-manager-module";
+    zmk-nix = {
+      url = "github:lilyinstarlight/zmk-nix";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
   };
 
   outputs =
@@ -54,10 +62,12 @@
       nixpkgs,
       darwin,
       home-manager,
+      zmk-nix,
       ...
     }:
     let
       username = "apothecary";
+      forAllSystems = nixpkgs.lib.genAttrs (nixpkgs.lib.attrNames zmk-nix.packages);
     in
     {
       darwinConfigurations."fern" = darwin.lib.darwinSystem {
@@ -71,5 +81,17 @@
         specialArgs = { inherit inputs username; };
         modules = [ ./hosts/frieren ];
       };
+
+      packages = forAllSystems (
+        system:
+        import ./zmk {
+          inherit (nixpkgs) lib;
+          inherit zmk-nix system;
+        }
+      );
+
+      devShells = forAllSystems (system: {
+        zmk = zmk-nix.devShells.${system}.default;
+      });
     };
 }
