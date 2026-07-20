@@ -1,4 +1,4 @@
-{ config, pkgs, ... }:
+{ lib, config, pkgs, ... }:
 
 let
   musicDir = "${config.home.homeDirectory}/Music";
@@ -30,6 +30,14 @@ in
       }
     '';
   };
+
+  # Write the generated config to ~/.config/mpd/mpd.conf
+  xdg.configFile."mpd/mpd.conf".text = config.services.mpd.generatedConfig;
+
+  # Create data directories for mpd
+  home.activation.createMpdDir = lib.hm.dag.entryAfter ["writeBoundary"] ''
+    $DRY_RUN_CMD mkdir -p "${config.xdg.dataHome}/mpd/playlists"
+  '';
 
   launchd.agents.mpd = {
     enable = true;

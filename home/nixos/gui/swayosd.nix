@@ -4,7 +4,7 @@
   services.swayosd.enable = true;
 
   xdg.configFile = {
-    "swayosd/config.toml".text = ''
+    "swayosd/config.toml".text = /* toml */ ''
       [server]
       ## style file for the OSD
       # style = /etc/xdg/swayosd/style.css
@@ -24,7 +24,7 @@
       [client]
     '';
 
-    "swayosd/style.css".text = ''
+    "swayosd/style.css".text = /* css */ ''
       window#osd {
         /* background: alpha(#24273a, 0.87); */
         background: #24273a;
