@@ -42,7 +42,6 @@
       nixpkgs,
       darwin,
       home-manager,
-      nvf,
       ...
     }:
     let

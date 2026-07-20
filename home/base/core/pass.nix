@@ -61,7 +61,7 @@
   # ────────────────────────────────────────────────────────────────────────
   programs.browserpass = {
     enable = true;
-    # browsers = [ "firefox" "librewolf" ]; # defaults to all supported
+    browsers = [ "librewolf" ]; # defaults to all supported
   };
 
   # ────────────────────────────────────────────────────────────────────────

@@ -52,6 +52,8 @@
 
   services.blueman.enable = true;
 
+  services.power-profiles-daemon.enable = true;
+
   programs.fish.enable = true;
 
   # xdg.portal = {

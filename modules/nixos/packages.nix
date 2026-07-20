@@ -28,7 +28,6 @@
       eww
       vips
       inputs.helium.packages.${system}.default
-      firefox
     ];
   };
 }
