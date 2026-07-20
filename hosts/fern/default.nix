@@ -13,6 +13,7 @@ in
     ../../modules/base
     ../../modules/darwin
     inputs.home-manager.darwinModules.home-manager
+    inputs.nix-index-database.darwinModules.default
   ];
 
   nixpkgs.overlays = pkgsCfg.overlays;
@@ -25,6 +26,8 @@ in
   networking.hostName = "fern";
 
   programs.fish.enable = true;
+
+  programs.nix-index-database.comma.enable = true; 
 
   environment.shells = with pkgs; [
     fish

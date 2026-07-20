@@ -33,7 +33,6 @@
       inputs.nixpkgs.follows = "nixpkgs";
     };
     nvf.url = "github:notashelf/nvf";
-    helium.url = "gitlab:ntgn/helium-flake";
     tetro-tui.url = "github:Strophox/tetro-tui";
     yazelix-zellij = {
       url = "github:luccahuguet/yazelix-zellij";
@@ -41,6 +40,10 @@
     };
     emacs-overlay = {
       url = "github:nix-community/emacs-overlay";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
+    nix-index-database = {
+      url = "github:nix-community/nix-index-database";
       inputs.nixpkgs.follows = "nixpkgs";
     };
   };

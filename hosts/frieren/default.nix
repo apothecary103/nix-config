@@ -15,6 +15,7 @@ in
     ../../modules/nixos
     inputs.home-manager.nixosModules.home-manager
     inputs.apple-silicon.nixosModules.apple-silicon-support
+    inputs.nix-index-database.nixosModules.default
   ];
 
   nixpkgs.overlays = pkgsCfg.overlays;
@@ -55,7 +56,7 @@ in
 
   services.blueman.enable = true;
 
-  services.power-profiles-daemon.enable = true;
+  programs.nix-index-database.comma.enable = true; 
 
   programs.fish.enable = true;
 

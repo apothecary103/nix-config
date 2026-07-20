@@ -15,19 +15,14 @@
       grim
       slurp
       fuzzel
-      waybar
       hyprsunset
       wl-clipboard
       whitesur-cursors
       mako
       swayosd
-      hyprland
-      rofi
       wayfreeze
-      hyprshot
       eww
       vips
-      inputs.helium.packages.${system}.default
     ];
   };
 }
