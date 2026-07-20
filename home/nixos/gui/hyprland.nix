@@ -227,7 +227,11 @@ in {
 
         # Screenshots
         { _args = [ "${mainMod} + S"         (lua ''hl.dsp.exec_cmd("grim - | wl-copy")'') ]; }
-        { _args = [ "${mainMod} + SHIFT + S" (lua ''hl.dsp.exec_cmd('grim -g "$(slurp -d)" - | wl-copy')'') ]; }
+        { _args = [ "${mainMod} + SHIFT + S" (lua ''
+          hl.dsp.exec_cmd("wayfreeze --hide-cursor --after-freeze-cmd 'GEOM=$(slurp -d) || { pkill -x wayfreeze; exit; }; grim -g \"$GEOM\" - | wl-copy -t image/png; pkill -x wayfreeze'")
+          '')
+          ];
+        }
 
       ] ++ (
         # Idiomatic Nix list generation for Workspaces 1-10
