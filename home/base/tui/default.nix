@@ -6,5 +6,6 @@
     ./neovim.nix
     ./yazi.nix
     ./zellij.nix
+    ./tmux.nix
   ];
 }

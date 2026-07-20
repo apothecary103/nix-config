@@ -24,6 +24,7 @@
       swayosd
       hyprland
       rofi
+      wayfreeze
 
     ];
   };
