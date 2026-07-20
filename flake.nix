@@ -22,13 +22,17 @@
       flake = false;
     };
     apple-silicon.url = "github:tpwrules/nixos-apple-silicon";
+    asahi-firmware = {
+      url = "git+ssh://git@codeberg.org/frieren/asahi-firmware?ref=main";
+      flake = false;
+    };
     helix.url = "github:helix-editor/helix";
-    neovim-nightly-overlay.url = "github:nix-community/neovim-nightly-overlay";
     catppuccin.url = "github:catppuccin/nix";
-    emacs-overlay = {
-      url = "github:nix-community/emacs-overlay";
+    zen-browser = {
+      url = "github:0xc000022070/zen-browser-flake";
       inputs.nixpkgs.follows = "nixpkgs";
     };
+    nvf.url = "github:notashelf/nvf";
   };
 
   outputs =
@@ -37,6 +41,7 @@
       nixpkgs,
       darwin,
       home-manager,
+      nvf,
       ...
     }:
     let
