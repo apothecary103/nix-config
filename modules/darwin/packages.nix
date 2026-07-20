@@ -8,6 +8,7 @@
       # GUI Applications 
       yabai
       skhd
+      jankyborders
     ];
   };
 }
