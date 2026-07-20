@@ -3,6 +3,6 @@
 {
   imports = [
     ./theming.nix
-    # ./niri.nix
+    ./niri.nix
   ];
 }
