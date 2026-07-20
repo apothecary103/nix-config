@@ -70,22 +70,6 @@
         "type": "github"
       }
     },
-    "catppuccin-yazi": {
-      "flake": false,
-      "locked": {
-        "lastModified": 1767046972,
-        "narHash": "sha256-Og33IGS9pTim6LEH33CO102wpGnPomiperFbqfgrJjw=",
-        "owner": "catppuccin",
-        "repo": "yazi",
-        "rev": "fc69d6472d29b823c4980d23186c9c120a0ad32c",
-        "type": "github"
-      },
-      "original": {
-        "owner": "catppuccin",
-        "repo": "yazi",
-        "type": "github"
-      }
-    },
     "darwin": {
       "inputs": {
         "nixpkgs": [
@@ -404,7 +388,6 @@
         "asahi-firmware": "asahi-firmware",
         "awww": "awww",
         "catppuccin": "catppuccin",
-        "catppuccin-yazi": "catppuccin-yazi",
         "darwin": "darwin",
         "home-manager": "home-manager",
         "neovim-nightly-overlay": "neovim-nightly-overlay",
