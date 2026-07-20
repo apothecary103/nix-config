@@ -12,7 +12,7 @@
       padding = "15";
       
       border-size = 0;
-      border-radius = 4;
+      border-radius = 0;
 
       icons = true;
       max-icon-size = 48;
@@ -22,23 +22,23 @@
       ignore-timeout = true;
       sort = "-time";
 
-      background-color = "#161617e6";
-      text-color = "#c9c7cd";
-      progress-color = "over #e6b99d";
+      background-color = "#24273ae6";
+      text-color = "#cad3f5";
+      progress-color = "over #c6a0f6";
 
       "urgency=low" = {
-        text-color = "#90b99f";
+        text-color = "#a6da95";
         default-timeout = 3000;
       };
 
       "urgency=normal" = {
-        text-color = "#c9c7cd";
+        text-color = "#cad3f5";
         default-timeout = 5000;
       };
 
       "urgency=critical" = {
-        background-color = "#161617e6";
-        text-color = "#f5a191";
+        background-color = "#24273ae6";
+        text-color = "#ed8796";
         default-timeout = 0;
       };
     };

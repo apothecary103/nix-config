@@ -11,143 +11,166 @@
         height = 34;
         spacing = 0;
 
-        modules-left = [ "hyprland/workspaces" ];
-        modules-center = [ ];
-        modules-right = [ "tray" "wireplumber" "battery" "custom/clock" ];
+        modules-left = [
+          "hyprland/workspaces"
+          "custom/layout"
+          "hyprland/window"
+        ];
+        
+        modules-center = [];
+        
+        modules-right = [
+          "tray"
+          "network"
+          "battery"
+          "pulseaudio"
+          "clock"
+        ];
 
         "hyprland/workspaces" = {
+          format = "{name}";
           disable-scroll = true;
           all-outputs = true;
           active-only = false;
-          on-click = "activate";
-          format = "{icon}";
-          format-icons = {
-            "1" = "1";
-            "2" = "2";
-            "3" = "3";
-            "4" = "4";
-            "5" = "5";
-            "6" = "6";
-            urgent = "!";
-            default = "•";
-          };
           persistent-workspaces = {
-            "*" = [ 1 2 3 4 5 6 ];
+            "*" = 9;
+          };
+        };
+
+        "custom/layout" = {
+          exec = "echo '::[]'";
+          interval = "once";
+          format = "{}";
+        };
+
+        "hyprland/window" = {
+          format = "{class}";
+          max-length = 80;
+          rewrite = {
+            "com.mitchellh.ghostty" = "ghostty";
           };
         };
 
         tray = {
-          icon-size = 14;
-          spacing = 12;
+          spacing = 8;
         };
 
-        wireplumber = {
-          format = "<span color='#aca1cf'>󰕾</span> {volume}%";
-          format-muted = "<span color='#57565e'>󰖁</span> MUT";
-          on-click = "wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle";
-          on-scroll-up = "wpctl set-volume -l 1.0 @DEFAULT_AUDIO_SINK@ 2%+";
-          on-scroll-down = "wpctl set-volume -l 1.0 @DEFAULT_AUDIO_SINK@ 2%-";
+        network = {
+          format-wifi = "| {essid}";
+          format-ethernet = "| eth";
+          format-disconnected = "| n/a";
+          tooltip = false;
         };
 
         battery = {
-          states = {
-            warning = 30;
-            critical = 15;
-          };
-          format = "<span color='#90b99f'>{icon}</span> {capacity}%";
-          format-warning = "<span color='#e6b99d'>{icon}</span> {capacity}%";
-          format-critical = "<span color='#f5a191'>{icon}</span> {capacity}%";
-          format-charging = "<span color='#90b99f'>󰂄</span> {capacity}%";
-          format-plugged = "<span color='#90b99f'></span> {capacity}%";
-          format-icons = [ "󰂎" "󰁺" "󰁼" "󰁾" "󰂀" "󰁹" ];
+          format = " | bat {capacity}%";
+          format-charging = " | chr {capacity}%";
+          format-plugged = " | plg {capacity}%";
+          tooltip = false;
         };
 
-        "custom/clock" = {
-          exec = "echo \"<span color='#aca1cf'>󰃭</span> $(date +'%a, %b %e')  <span color='#aca1cf'>󰅐</span> $(date +'%H:%M')\"";
-          interval = 30;
-          format = "{}";
+        pulseaudio = {
+          format = " | vol {volume}%";
+          format-muted = " | mut";
+          tooltip = false;
+        };
+
+        clock = {
+          format = " | {:%d-%m-%Y | %H:%M:%S}";
+          interval = 1;
+          tooltip = false;
         };
       };
     };
 
     style = ''
-      @define-color bg       rgba(22, 22, 23, 0.88);
-      @define-color bg-alt   #2a2b30;
-      @define-color fg       #c9c7cd;
-      @define-color fg-dim   #57565e;
-      @define-color blue     #aca1cf;
-      @define-color red      #f5a191;
-
       * {
-          font-family: "MapleMono NF CN", monospace;
-          font-size: 13px;
-          font-weight: 700;
           border: none;
-          border-radius: 0px; 
+          border-radius: 0;
           min-height: 0;
-          transition: none;
+          margin: 0;
+          padding: 0;
+          box-shadow: none;
+          text-shadow: none;
+          transition-property: none; 
+          font-family: "Maple Mono NF CN", monospace;
+          font-size: 14px;
+          font-weight: 600;
       }
 
       window#waybar {
-          background-color: @bg;
-          color: @fg;
-          border-bottom: 1px solid @bg-alt;
+          background-color: #24273a;
+          color: #cad3f5;
       }
 
       .modules-left {
-          padding-left: 16px;
-      }
-
-      #workspaces button {
-          color: @fg-dim;
-          padding: 0px 6px;
-          margin: 0px;
-          border-bottom: 2px solid transparent;
-      }
-
-      #workspaces button:hover {
-          color: @fg;
-          background-color: @bg-alt;
-      }
-
-      #workspaces button.active {
-          color: @blue;
-          border-bottom: 2px solid @blue;
-      }
-
-      #workspaces button.urgent {
-          color: @red;
-          border-bottom: 2px solid @red;
+          padding-left: 20px;
       }
 
       .modules-right {
-          padding-right: 16px;
+          padding-right: 20px;
       }
 
-      #tray,
-      #wireplumber,
-      #battery,
-      #custom-clock {
-          color: @fg;
-          padding: 0px 12px;
-          margin: 0px;
-          background-color: transparent;
+      #workspaces button {
+          background-color: #24273a;
+          color: #cad3f5;
+          padding: 0 10px;
+          
+          background-image:
+              linear-gradient(#cad3f5, #cad3f5), /* top edge */
+              linear-gradient(#cad3f5, #cad3f5), /* bottom edge */
+              linear-gradient(#cad3f5, #cad3f5), /* left edge */
+              linear-gradient(#cad3f5, #cad3f5); /* right edge */
+          background-size:
+              5px 1px, /* top width/height */
+              5px 1px, /* bottom width/height */
+              1px 5px, /* left width/height */
+              1px 5px; /* right width/height */
+          background-position:
+              2px 2px, /* top x,y */
+              2px 6px, /* bottom x,y */
+              2px 2px, /* left x,y */
+              6px 2px; /* right x,y */
+          background-repeat: no-repeat;
+      }
+
+      #workspaces button.active {
+          background-color: #8aadf4;
+          color: #24273a;
+          
+          background-image: linear-gradient(#24273a, #24273a);
+          background-size: 5px 5px;
+          background-position: 2px 2px;
+      }
+
+      #workspaces button.empty {
+          background-image: none;
+      }
+
+      #workspaces button:hover {
+          box-shadow: none;
+          text-shadow: none;
+      }
+
+      #custom-layout {
+          padding: 0 8px;
+          color: #cad3f5;
+      }
+
+      #window {
+          padding: 0 12px;
+          background-color: #8aadf4;
+          color: #24273a;
+      }
+
+      #tray, #network, #battery, #pulseaudio, #clock {
+          background-color: #24273a;
+          color: #cad3f5;
+          padding: 0;
       }
 
       #tray {
-          padding-right: 14px;
-      }
-
-      #custom-clock {
-          padding-right: 0px;
-      }
-
-      tooltip {
-          background: #161617;
-          border: 1px solid @bg-alt;
-      }
-      tooltip label {
-          color: @fg;
+          padding-right: 8px;
       }
     '';
   };

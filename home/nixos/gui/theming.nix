@@ -19,9 +19,9 @@
   };
 
   # 3. Qt
-  qt = {
-    enable = true;
-    platformTheme.name = "kvantum";
-    style.name = "kvantum";
-  };
+  # qt = {
+  #   enable = true;
+  #   platformTheme.name = "kvantum";
+  #   style.name = "kvantum";
+  # };
 }

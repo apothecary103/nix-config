@@ -94,6 +94,7 @@
     extraGroups = [
       "wheel"
       "video"
+      "input"
     ];
   };
   nix.settings.trusted-users = [ username ];

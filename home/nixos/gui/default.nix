@@ -3,9 +3,10 @@
 {
   imports = [
     ./theming.nix
-    ./hyprland.nix
+    # ./hyprland.nix
     ./waybar.nix
     ./swayosd.nix
     ./mako.nix
+    ./rofi.nix
   ];
 }

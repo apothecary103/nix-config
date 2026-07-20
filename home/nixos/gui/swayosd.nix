@@ -1,9 +1,7 @@
 { ... }:
 
 {
-  services.swayosd = {
-    enable = true;
-  };
+  services.swayosd.enable = true;
 
   xdg.configFile = {
     "swayosd/config.toml".text = ''
@@ -28,15 +26,16 @@
 
     "swayosd/style.css".text = ''
       window#osd {
-        background: alpha(#161617, 0.87);
-        border-radius: 6px;
+        /* background: alpha(#24273a, 0.87); */
+        background: #24273a;
+        border-radius: 0;
       }
 
       window#osd #container {
         margin: 6px;
         padding: 2px;
         background: transparent;
-        border-radius: 6px;
+        border-radius: 0;
       }
 
       window#osd image {
@@ -45,7 +44,7 @@
 
       window#osd image,
       window#osd label {
-        color: #c9c7cd;
+        color: #cad3f5;
         font-family: "MapleMono NF CN", monospace;
       }
 
@@ -56,23 +55,23 @@
 
       window#osd progressbar {
         min-height: 6px;
-        border-radius: 6px;
+        border-radius: 0;
         background: transparent;
         border: none;
       }
 
       window#osd trough {
         min-height: inherit;
-        border-radius: inherit;
+        border-radius: 0;
         border: none;
-        background: alpha(#252038, 0.5);
+        background: alpha(#363a4f, 0.5);
       }
 
       window#osd progress {
         min-height: inherit;
-        border-radius: inherit;
+        border-radius: 0;
         border: none;
-        background: #b9aeda;
+        background: #c6a0f6;
       }
     '';
   };
