@@ -6,8 +6,6 @@
 }:
 
 let
-  yaagl = pkgs.callPackage ../../pkgs/yaagl { };
-
   gameOption = prettyName: lib.mkOption {
     type = lib.types.nullOr (lib.types.enum [ "os" "cn" "both" ]);
     default = null;
@@ -47,6 +45,6 @@ in
   };
 
   config.home.packages = lib.mkIf (selected != [ ]) (
-    map (name: yaagl.${name}) selected
+    map (name: pkgs.yaagl.${name}) selected
   );
 }
