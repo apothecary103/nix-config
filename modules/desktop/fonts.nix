@@ -25,6 +25,10 @@ let
       # Maple Mono NF CN
       maple-mono.NF-CN-unhinted
 
+      # Adwaita Sans/Mono — GNOME 48's Inter- and Iosevka-derived UI fonts,
+      # tuned for HiDPI panels. The system sans/serif/mono defaults below.
+      adwaita-fonts
+
       # Azuki
       azuki
 
