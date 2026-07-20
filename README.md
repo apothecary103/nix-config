@@ -21,7 +21,7 @@
 | Notifications      | mako |
 | Editor             | Helix, Neovim (via nvf) |
 | File Manager       | Yazi |
-| Multiplexer        | Tmux |
+| Multiplexer        | Zellij |
 | Web Browser        | LibreWolf |
 | Music              | MPD + mpdris2 + rmpc |
 | Secrets            | pass (password-store) |

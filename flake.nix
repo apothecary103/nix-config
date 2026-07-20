@@ -34,6 +34,15 @@
     };
     nvf.url = "github:notashelf/nvf";
     helium.url = "gitlab:ntgn/helium-flake";
+    tetro-tui.url = "github:Strophox/tetro-tui";
+    yazelix-zellij = {
+      url = "github:luccahuguet/yazelix-zellij";
+      flake = false;
+    };
+    emacs-overlay = {
+      url = "github:nix-community/emacs-overlay";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
   };
 
   outputs =
