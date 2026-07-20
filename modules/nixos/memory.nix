@@ -1,6 +1,4 @@
-{ ... }:
-
-{
+{...}: {
   zramSwap = {
     enable = true;
     memoryPercent = 100;
@@ -10,7 +8,7 @@
   swapDevices = [
     {
       # TODO: Create the /swap subvolume and point the device to /swap/swapfile
-      device = "/var/lib/swapfile"; 
+      device = "/var/lib/swapfile";
       size = 2 * 1024; # 2GB
       priority = 10; # Low priority: use this ONLY when Zram is full
     }

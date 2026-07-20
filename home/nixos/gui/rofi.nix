@@ -1,12 +1,13 @@
-{ config, palette, ... }:
-
-let
-  inherit (config.lib.formats.rasi) mkLiteral;
-in
 {
+  config,
+  palette,
+  ...
+}: let
+  inherit (config.lib.formats.rasi) mkLiteral;
+in {
   programs.rofi = {
     enable = true;
-    
+
     extraConfig = {
       modi = "drun";
       font = "MapleMono NF CN Medium 12";

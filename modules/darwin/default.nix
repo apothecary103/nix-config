@@ -1,5 +1,9 @@
-{ inputs, username, pkgs, ... }:
 {
+  inputs,
+  username,
+  pkgs,
+  ...
+}: {
   imports = [
     inputs.home-manager.darwinModules.home-manager
     inputs.nix-index-database.darwinModules.default
@@ -15,7 +19,7 @@
     description = username;
     shell = pkgs.fish;
   };
-  environment.shells = [ pkgs.fish ];
+  environment.shells = [pkgs.fish];
 
-  home-manager.users.${username}.imports = [ ../../home/darwin ];
+  home-manager.users.${username}.imports = [../../home/darwin];
 }

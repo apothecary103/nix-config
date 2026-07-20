@@ -1,5 +1,4 @@
-{ config, ... }:
-{
+{config, ...}: {
   fonts.fontconfig = {
     enable = true;
     antialias = true;

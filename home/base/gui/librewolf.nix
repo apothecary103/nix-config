@@ -1,6 +1,4 @@
-{ pkgs, ... }:
-
-let
+{pkgs, ...}: let
   parfaitTheme = pkgs.fetchFromGitHub {
     owner = "reizumii";
     repo = "parfait";
@@ -9,12 +7,10 @@ let
   };
 
   chromePath =
-    if pkgs.stdenv.isDarwin then
-      "Library/Application Support/LibreWolf/Profiles/default/chrome"
-    else
-      ".librewolf/default/chrome";
-in
-{
+    if pkgs.stdenv.isDarwin
+    then "Library/Application Support/LibreWolf/Profiles/default/chrome"
+    else ".librewolf/default/chrome";
+in {
   programs.librewolf = {
     enable = true;
 

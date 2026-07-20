@@ -1,6 +1,4 @@
-{ palette, ... }:
-
-{
+{palette, ...}: {
   services.mako = {
     enable = true;
 

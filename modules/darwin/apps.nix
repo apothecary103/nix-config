@@ -3,8 +3,7 @@
   inputs,
   username,
   ...
-}:
-{
+}: {
   imports = [
     inputs.nix-homebrew.darwinModules.nix-homebrew
   ];

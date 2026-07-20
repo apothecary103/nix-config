@@ -3,15 +3,16 @@
   config,
   lib,
   ...
-}:
-
-{
+}: {
   programs.gpg.enable = true;
 
   services.gpg-agent = {
     enable = true;
-    pinentry.package = if pkgs.stdenv.isDarwin then pkgs.pinentry_mac else pkgs.pinentry-gnome3;
-    
+    pinentry.package =
+      if pkgs.stdenv.isDarwin
+      then pkgs.pinentry_mac
+      else pkgs.pinentry-gnome3;
+
     defaultCacheTtl = 3600;
     maxCacheTtl = 86400;
     defaultCacheTtlSsh = 1800;
@@ -40,11 +41,11 @@
     };
   };
 
-  # Wires up the native messaging host, but you still must install the 
+  # Wires up the native messaging host, but you still must install the
   # "Browserpass" add-on inside your browser for this to actually work.
   programs.browserpass = {
     enable = true;
-    browsers = [ "librewolf" ]; # Defaults to all supported browsers if omitted
+    browsers = ["librewolf"]; # Defaults to all supported browsers if omitted
   };
 
   # Exposes pass to the Freedesktop Secret Service API.

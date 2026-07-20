@@ -1,6 +1,9 @@
-{ pkgs, username, inputs, ... }:
-
 {
+  pkgs,
+  username,
+  inputs,
+  ...
+}: {
   home-manager.users.${username} = {
     home.packages = with pkgs; [
       # CLI Tools
@@ -14,7 +17,7 @@
       broot
       btop
       nixd
-      nixfmt
+      alejandra
       gh
       bat
       tokei
@@ -22,8 +25,8 @@
       krabby
       opencode
       claude-code
-    
-      # GUI Applications 
+
+      # GUI Applications
       prismlauncher
       signal-desktop
       vesktop

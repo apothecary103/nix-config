@@ -1,9 +1,11 @@
-{ lib, config, pkgs, ... }:
-
-let
-  musicDir = "${config.home.homeDirectory}/Music";
-in
 {
+  lib,
+  config,
+  pkgs,
+  ...
+}: let
+  musicDir = "${config.home.homeDirectory}/Music";
+in {
   home.packages = with pkgs; [
     mpc
   ];

@@ -1,10 +1,8 @@
-{ pkgs, ... }:
-
-{
+{pkgs, ...}: {
   services.yabai = {
     enable = true;
     enableScriptingAddition = true;
-    
+
     config = {
       # Layout and gaps
       layout = "bsp";

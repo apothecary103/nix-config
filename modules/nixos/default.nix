@@ -1,5 +1,9 @@
-{ inputs, username, pkgs, ... }:
 {
+  inputs,
+  username,
+  pkgs,
+  ...
+}: {
   imports = [
     inputs.home-manager.nixosModules.home-manager
     inputs.nix-index-database.nixosModules.default
@@ -20,7 +24,7 @@
     ];
   };
 
-  home-manager.users.${username}.imports = [ ../../home/nixos ];
+  home-manager.users.${username}.imports = [../../home/nixos];
 
   networking.wireless.iwd.enable = true;
   networking.useDHCP = true;

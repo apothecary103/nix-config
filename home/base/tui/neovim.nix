@@ -1,7 +1,9 @@
-{ pkgs, inputs, ... }:
-
 {
-  imports = [ inputs.nvf.homeManagerModules.default ];
+  pkgs,
+  inputs,
+  ...
+}: {
+  imports = [inputs.nvf.homeManagerModules.default];
 
   programs.nvf = {
     enable = true;
@@ -46,7 +48,10 @@
         theme = {
           enable = true;
           name = "catppuccin";
-          style = if pkgs.stdenv.isDarwin then "macchiato" else "mocha";
+          style =
+            if pkgs.stdenv.isDarwin
+            then "macchiato"
+            else "mocha";
           transparent = true;
         };
 
@@ -58,13 +63,13 @@
 
         telescope = {
           enable = true;
-          setupOpts.defaults.borderchars = [ "─" "│" "─" "│" "┌" "┐" "┘" "└" ];
+          setupOpts.defaults.borderchars = ["─" "│" "─" "│" "┌" "┐" "┘" "└"];
         };
 
         binds.whichKey = {
           enable = true;
           setupOpts = {
-            preset = "helix"; 
+            preset = "helix";
           };
         };
 
@@ -124,4 +129,3 @@
     };
   };
 }
-

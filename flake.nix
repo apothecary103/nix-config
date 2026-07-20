@@ -47,42 +47,39 @@
     };
   };
 
-  outputs =
-    inputs@{
-      self,
-      nixpkgs,
-      darwin,
-      home-manager,
-      zmk-nix,
-      ...
-    }:
-    let
-      username = "apothecary";
-      forAllSystems = nixpkgs.lib.genAttrs (nixpkgs.lib.attrNames zmk-nix.packages);
-    in
-    {
-      darwinConfigurations."fern" = darwin.lib.darwinSystem {
-        system = "aarch64-darwin";
-        specialArgs = { inherit inputs username; };
-        modules = [ ./hosts/fern ];
-      };
+  outputs = inputs @ {
+    self,
+    nixpkgs,
+    darwin,
+    home-manager,
+    zmk-nix,
+    ...
+  }: let
+    username = "apothecary";
+    forAllSystems = nixpkgs.lib.genAttrs (nixpkgs.lib.attrNames zmk-nix.packages);
+  in {
+    darwinConfigurations."fern" = darwin.lib.darwinSystem {
+      system = "aarch64-darwin";
+      specialArgs = {inherit inputs username;};
+      modules = [./hosts/fern];
+    };
 
-      nixosConfigurations."frieren" = nixpkgs.lib.nixosSystem {
-        system = "aarch64-linux";
-        specialArgs = { inherit inputs username; };
-        modules = [ ./hosts/frieren ];
-      };
+    nixosConfigurations."frieren" = nixpkgs.lib.nixosSystem {
+      system = "aarch64-linux";
+      specialArgs = {inherit inputs username;};
+      modules = [./hosts/frieren];
+    };
 
-      packages = forAllSystems (
-        system:
+    packages = forAllSystems (
+      system:
         import ./zmk {
           inherit (nixpkgs) lib;
           inherit zmk-nix system;
         }
-      );
+    );
 
-      devShells = forAllSystems (system: {
-        zmk = zmk-nix.devShells.${system}.default;
-      });
-    };
+    devShells = forAllSystems (system: {
+      zmk = zmk-nix.devShells.${system}.default;
+    });
+  };
 }

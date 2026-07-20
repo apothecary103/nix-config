@@ -1,18 +1,35 @@
-{ inputs, pkgs, ... }:
-
-let
-  # Mirrors the flavor choice in ../core/theme.nix (darwin -> macchiato, else -> mocha)
-  flavor = if pkgs.stdenv.isDarwin then "macchiato" else "mocha";
-in
 {
+  inputs,
+  pkgs,
+  ...
+}: let
+  # Mirrors the flavour choice in ../core/theme.nix (darwin -> macchiato, else -> mocha)
+  flavour =
+    if pkgs.stdenv.isDarwin
+    then "macchiato"
+    else "mocha";
+in {
   programs.helix = {
     enable = true;
     defaultEditor = true;
     package = inputs.helix.packages.${pkgs.system}.default;
 
+    languages = {
+      language = [
+        {
+          name = "nix";
+          auto-format = true;
+          formatter = {
+            command = "${pkgs.alejandra}/bin/alejandra";
+            args = ["--quiet"];
+          };
+        }
+      ];
+    };
+
     themes = {
-      "catppuccin_${flavor}_transparent" = {
-        inherits = "catppuccin_${flavor}";
+      "catppuccin_${flavour}_transparent" = {
+        inherits = "catppuccin_${flavour}";
         "ui.background" = {
           bg = "none";
         };
@@ -20,7 +37,7 @@ in
     };
 
     settings = {
-      theme = "catppuccin_${flavor}_transparent";
+      theme = "catppuccin_${flavour}_transparent";
 
       editor = {
         true-color = true;

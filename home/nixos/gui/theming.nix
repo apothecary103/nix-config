@@ -1,6 +1,4 @@
-{ ... }:
-
-{
+{...}: {
   # 1. Modern GSettings / Libadwaita & Flatpak
   dconf.settings = {
     "org/gnome/desktop/interface" = {

@@ -1,6 +1,9 @@
-{ pkgs, config, username, ... }:
-
 {
+  pkgs,
+  config,
+  username,
+  ...
+}: {
   # Core System Setup
   system.stateVersion = 6;
   system.primaryUser = username;
@@ -10,7 +13,7 @@
 
   system.keyboard = {
     enableKeyMapping = true;
-    
+
     # Map Caps Lock (HID 0x39) to Backspace/Delete (HID 0x2A)
     # Base macOS keyboard HID value is 0x700000000 (30064771072 in decimal)
     userKeyMapping = [
