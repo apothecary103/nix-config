@@ -1,18 +1,6 @@
 { lib, pkgs, username, ... }:
 
 let
-  daedra = pkgs.rustPlatform.buildRustPackage rec {
-    pname = "daedra";
-    version = "0.3.2";
-    src = pkgs.fetchCrate {
-      inherit pname version;
-      hash = "sha256-Z5iDJKVZRtrlvS4BcP6c6khsGL8JL6+C1jmrRGkVlBk=";
-    };
-    cargoHash = "sha256-kbUgvAmgcSRgtIczn32xWcq75YUg4YGvUOyYUOdAKYQ=";
-    doCheck = false;
-    meta.mainProgram = "daedra";
-  };
-
   teamspeak6-client = pkgs.callPackage ../../pkgs/teamspeak6-client { };
 in
 {
@@ -34,7 +22,6 @@ in
         # emacs-unstable
       ])
       ++ [
-        daedra
         teamspeak6-client
       ];
   };
