@@ -15,7 +15,6 @@
       nixfmt
       gh
       tokei
-      nh
       krabby
       opencode
       claude-code
