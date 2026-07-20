@@ -2,9 +2,10 @@
   inputs,
   username,
   ...
-}: {
-  flake.modules.darwin.base = {config, ...}: {
-    imports = [inputs.nix-homebrew.darwinModules.nix-homebrew];
+}:
+{
+  flake.modules.darwin.base = { config, ... }: {
+    imports = [ inputs.nix-homebrew.darwinModules.nix-homebrew ];
 
     nix-homebrew = {
       enable = true;

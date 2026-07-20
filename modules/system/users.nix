@@ -1,18 +1,18 @@
-{username, ...}: {
-  flake.modules.darwin.base = {pkgs, ...}: {
+{ username, ... }: {
+  flake.modules.darwin.base = { pkgs, ... }: {
     users.users.${username} = {
       name = username;
       home = "/Users/${username}";
       description = username;
       shell = pkgs.fish;
     };
-    environment.shells = [pkgs.fish];
+    environment.shells = [ pkgs.fish ];
 
     programs.fish.enable = true;
     system.primaryUser = username;
   };
 
-  flake.modules.nixos.base = {pkgs, ...}: {
+  flake.modules.nixos.base = { pkgs, ... }: {
     users.users.${username} = {
       isNormalUser = true;
       description = username;

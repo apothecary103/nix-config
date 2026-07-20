@@ -1,5 +1,5 @@
 {
-  flake.modules.darwin.base = {config, ...}: {
+  flake.modules.darwin.base = { config, ... }: {
     security.pam.services.sudo_local.touchIdAuth = true;
 
     system.keyboard = {
