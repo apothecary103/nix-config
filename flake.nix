@@ -41,8 +41,13 @@
     }:
     let
       username = "apothecary";
+
+      yaaglPackages = pkgs: pkgs.callPackage ./pkgs/yaagl { };
     in
     {
+      packages.aarch64-darwin = yaaglPackages nixpkgs.legacyPackages.aarch64-darwin;
+      packages.x86_64-darwin = yaaglPackages nixpkgs.legacyPackages.x86_64-darwin;
+
       darwinConfigurations."fern" = darwin.lib.darwinSystem {
         system = "aarch64-darwin";
         specialArgs = { inherit inputs username; };

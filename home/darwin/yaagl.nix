@@ -1,0 +1,52 @@
+{
+  config,
+  lib,
+  pkgs,
+  ...
+}:
+
+let
+  yaagl = pkgs.callPackage ../../pkgs/yaagl { };
+
+  gameOption = prettyName: lib.mkOption {
+    type = lib.types.nullOr (lib.types.enum [ "os" "cn" "both" ]);
+    default = null;
+    description = ''
+      ${prettyName} region to install:
+        "os"   -> Global / HoYoverse
+        "cn"   -> Chinese / miHoYo
+        "both" -> both regions (separate app bundles + data dirs, no clash)
+        null   -> not installed (default)
+    '';
+  };
+
+  pickFor = game: region:
+    if region == "both" then [ "yaagl-${game}-cn" "yaagl-${game}-os" ]
+    else [ "yaagl-${game}-${region}" ];
+
+  selected = lib.flatten (
+    lib.mapAttrsToList
+      (game: region: if region == null then [ ] else pickFor game region)
+      { inherit (config.yaagl) genshin hsr zzz; }
+  );
+in
+{
+  options.yaagl = lib.mkOption {
+    type = lib.types.submodule {
+      options = {
+        genshin = gameOption "Genshin Impact";
+        hsr = gameOption "Honkai: Star Rail";
+        zzz = gameOption "Zenless Zone Zero";
+      };
+    };
+    default = { };
+    description = ''
+      Yet Another Anime Game Launcher — opt in per game / region.
+      Set each game to "os", "cn", "both", or leave out / null to skip.
+    '';
+  };
+
+  config.home.packages = lib.mkIf (selected != [ ]) (
+    map (name: yaagl.${name}) selected
+  );
+}

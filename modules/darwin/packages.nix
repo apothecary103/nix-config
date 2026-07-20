@@ -12,6 +12,7 @@ let
     doCheck = false;
     meta.mainProgram = "daedra";
   };
+
 in
 {
   home-manager.users.${username} = {
