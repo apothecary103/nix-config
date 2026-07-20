@@ -50,7 +50,7 @@
       PASSWORD_STORE_CLIP_TIME = "45";
       PASSWORD_STORE_UMASK = "077";
       # Set this to your key id/email after you generate/import a GPG key:
-      # PASSWORD_STORE_KEY = "apothecary@example.com";
+      PASSWORD_STORE_KEY = "mail@apothecary.moe";
     };
   };
 

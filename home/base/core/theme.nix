@@ -8,7 +8,8 @@
   catppuccin = {
     enable = true;
     autoEnable = true; 
-    flavor = "macchiato";
+    flavor = "mocha";
+    # flavor = "macchiato";
     accent = "blue";
 
     helix.enable = false;

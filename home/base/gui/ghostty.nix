@@ -3,9 +3,9 @@
     enable = true;
     package = if pkgs.stdenv.isDarwin then pkgs.ghostty-bin else pkgs.ghostty;
     settings = {
-      theme = "Catppuccin Macchiato";
-      # theme = "mellow";
-      font-family = "Maple Mono NF CN";
+      theme = "Catppuccin Mocha";
+      # theme = "Catppuccin Macchiato";
+      font-family = "Maple Mono NF CN Medium";
       font-size = if pkgs.stdenv.isDarwin then 18 else 12;
 
       # macOS specific tweaks
@@ -15,6 +15,7 @@
 
       # Wayland specific tweaks
       window-decoration = "server";
+      alpha-blending = "linear";
 
       # background-opacity = if pkgs.stdenv.isDarwin then 0.93 else 0.98;
       background-opacity = 0.93;

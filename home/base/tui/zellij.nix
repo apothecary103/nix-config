@@ -5,7 +5,7 @@
       pane_frames = false;
       simplified_ui = false;
       default_layout = "compact";
-      theme = "catppuccin-macchiato";
+      # theme = "catppuccin-macchiato";
 
       # copy_command = "pbcopy";
       copy_on_select = true;
