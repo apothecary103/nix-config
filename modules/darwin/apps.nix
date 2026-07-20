@@ -1,9 +1,5 @@
 { pkgs, ... }:
 {
-  environment.systemPackages = with pkgs; [
-    git
-  ];
-
   homebrew = {
     enable = true;
 

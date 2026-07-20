@@ -20,13 +20,13 @@
     darwinConfigurations."fern" = darwin.lib.darwinSystem {
       system = "aarch64-darwin";
       specialArgs = { inherit inputs username; };
-      modules = [ ./modules/darwin ./home-entry.nix ];
+      modules = [ ./modules/darwin ./home/darwin ];
     };
 
     nixosConfigurations."frieren" = nixpkgs.lib.nixosSystem {
       system = "aarch64-linux";
       specialArgs = { inherit inputs username; };
-      modules = [ ./modules/nixos ./home-entry.nix ];
+      modules = [ ./modules/nixos ./home/nixos ];
     };
   };
 }
