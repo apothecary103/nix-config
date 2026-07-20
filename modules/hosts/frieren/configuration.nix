@@ -2,7 +2,8 @@
   config,
   inputs,
   ...
-}: {
+}:
+{
   flake.modules.nixos."hosts/frieren" = {
     imports = [
       config.flake.modules.nixos.base
@@ -33,6 +34,6 @@
   };
 
   flake.nixosConfigurations.frieren = inputs.nixpkgs.lib.nixosSystem {
-    modules = [config.flake.modules.nixos."hosts/frieren"];
+    modules = [ config.flake.modules.nixos."hosts/frieren" ];
   };
 }

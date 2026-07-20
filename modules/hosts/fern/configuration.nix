@@ -2,9 +2,10 @@
   config,
   inputs,
   ...
-}: {
+}:
+{
   flake.modules.darwin."hosts/fern" = {
-    imports = [config.flake.modules.darwin.base];
+    imports = [ config.flake.modules.darwin.base ];
 
     networking.hostName = "fern";
     nixpkgs.hostPlatform = "aarch64-darwin";
@@ -12,6 +13,6 @@
   };
 
   flake.darwinConfigurations.fern = inputs.nix-darwin.lib.darwinSystem {
-    modules = [config.flake.modules.darwin."hosts/fern"];
+    modules = [ config.flake.modules.darwin."hosts/fern" ];
   };
 }
