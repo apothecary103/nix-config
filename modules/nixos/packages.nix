@@ -1,6 +1,7 @@
 {
   pkgs,
   username,
+  inputs,
   ...
 }:
 
@@ -11,8 +12,6 @@
       brightnessctl
       wf-recorder
       tuigreet
-
-      # Wayland
       grim
       slurp
       fuzzel
@@ -25,7 +24,11 @@
       hyprland
       rofi
       wayfreeze
-
+      hyprshot
+      eww
+      vips
+      inputs.helium.packages.${system}.default
+      firefox
     ];
   };
 }

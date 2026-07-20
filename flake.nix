@@ -33,6 +33,7 @@
       inputs.nixpkgs.follows = "nixpkgs";
     };
     nvf.url = "github:notashelf/nvf";
+    helium.url = "gitlab:ntgn/helium-flake";
   };
 
   outputs =

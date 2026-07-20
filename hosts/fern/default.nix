@@ -14,7 +14,7 @@
   ];
 
   nixpkgs.overlays = [
-    inputs.emacs-overlay.overlays.default
+    (import ../../pkgs)
 
     # pass-import → secretstorage → jeepney. jeepney's checkPhase spawns a
     # D-Bus session via `dbus-run-session`, which fails inside the darwin

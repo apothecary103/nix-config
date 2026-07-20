@@ -1,7 +1,7 @@
 { pkgs, config, ... }:
 
 {
-  home.packages = [ pkgs.mpc ];
+  home.packages = [ pkgs.mpc pkgs.playerctl ];
 
   services.mpd = {
     enable = true;
@@ -14,6 +14,8 @@
       }
     '';
   };
+
+  services.mpdris2-rs.enable = true;
 
   programs.rmpc = {
     enable = true;

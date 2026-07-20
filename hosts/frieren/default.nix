@@ -14,6 +14,8 @@
     inputs.apple-silicon.nixosModules.apple-silicon-support
   ];
 
+  nixpkgs.overlays = [ (import ../../pkgs) ];
+
   networking.hostName = "frieren";
 
   boot.loader.systemd-boot.enable = true;
@@ -29,7 +31,25 @@
 
   nix.settings.cores = 0; # Use all available cores
 
-  hardware.bluetooth.enable = true;
+  # Cachix
+  nix.settings = {
+    extra-substituters = [
+      "https://nixos-apple-silicon.cachix.org"
+    ];
+    extra-trusted-public-keys = [
+      "nixos-apple-silicon.cachix.org-1:8psDu5SA5dAD7qA0zMy5UT292TxeEPzIz8VVEr2Js20="
+    ];
+  };
+
+  hardware.bluetooth = {
+    enable = true;
+    settings = {
+      General = {
+        ControllerMode = "bredr";
+      };
+    };
+  };
+
   services.blueman.enable = true;
 
   programs.fish.enable = true;
