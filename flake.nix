@@ -14,6 +14,7 @@
     };
     apple-silicon.url = "github:tpwrules/nixos-apple-silicon";
     awww.url = "git+https://codeberg.org/LGFae/awww";
+    neovim-nightly-overlay.url = "github:nix-community/neovim-nightly-overlay";
     catppuccin.url = "github:catppuccin/nix";
     niri.url = "github:sodiboo/niri-flake";
     asahi-firmware = {
@@ -22,7 +23,7 @@
     };
   };
 
-  outputs = inputs @ { self, nixpkgs, darwin, home-manager, apple-silicon, awww, catppuccin, niri, nixpkgs-stable, ... }:
+  outputs = inputs @ { self, nixpkgs, darwin, home-manager, apple-silicon, awww, neovim-nightly-overlay, catppuccin, niri, nixpkgs-stable, ... }:
   let
     username = "apothecary";
   in {
