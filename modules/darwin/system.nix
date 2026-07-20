@@ -1,4 +1,4 @@
-{ pkgs, hostname, username, ... }:
+{ pkgs, config, username, ... }:
 
 {
   system.primaryUser = username;
@@ -8,7 +8,8 @@
 
     defaults = {
       menuExtraClock.Show24Hour = true;  # show 24 hour clock
-      smb.NetBIOSName = hostname;
+      # smb.NetBIOSName = hostname;
+      smb.NetBIOSName = config.networking.hostName;
 
       # other macOS's defaults configuration.
       # ......
