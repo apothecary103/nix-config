@@ -36,7 +36,7 @@ in {
         {
           _args = [
             "hyprland.start"
-            (lua ''function () hl.exec_cmd("waybar & swayosd-server & awww-daemon") end'')
+            (lua ''function () hl.exec_cmd("waybar & awww-daemon") end'')
           ];
         }
       ];
