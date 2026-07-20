@@ -97,7 +97,7 @@
             # "parfait.blur.enabled" = true;
 
             # Crucial for macOS Firefox engines to render system background transparency
-            "browser.tabs.allow_transparent_browser" = true;
+            # "browser.tabs.allow_transparent_browser" = true;
           };
         };
       };

@@ -87,5 +87,14 @@
       };
 
       services.mpdris2-rs.enable = true;
+
+      # mpdris2-rs mishandles a *set* MPD_HOST: it ignores MPD_PORT and fails to
+      # connect ("Cannot connect to MPD server with TCP at 127.0.0.1"), which is
+      # why playerctl saw no player and the media keys / waybar couldn't drive
+      # mpd. With both unset it falls back to its built-in localhost:6600, which
+      # is exactly where mpd listens. The home-manager mpd module exports
+      # MPD_HOST/MPD_PORT as session variables, so strip them from this unit
+      # only (mpc/rmpc keep theirs).
+      systemd.user.services.mpdris2-rs.Service.UnsetEnvironment = "MPD_HOST MPD_PORT";
     };
 }

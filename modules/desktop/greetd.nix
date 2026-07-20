@@ -1,12 +1,39 @@
 {
-  flake.modules.nixos.base = { pkgs, ... }: {
-    services.greetd = {
-      enable = true;
-      settings = {
-        default_session = {
-          command = "${pkgs.tuigreet}/bin/tuigreet --time --cmd start-hyprland";
+  flake.modules.nixos.base =
+    { pkgs, ... }:
+    let
+      # Session menu for tuigreet (F3 to switch). Niri is the default via
+      # --cmd; Hyprland stays one keypress away. Both Exec names resolve on the
+      # user's login PATH (niri-session from programs.niri, start-hyprland from
+      # the home-manager profile).
+      sessions = pkgs.symlinkJoin {
+        name = "greetd-wayland-sessions";
+        paths = [
+          (pkgs.writeTextDir "share/wayland-sessions/niri.desktop" ''
+            [Desktop Entry]
+            Name=Niri
+            Comment=A scrollable-tiling Wayland compositor
+            Exec=niri-session
+            Type=Application
+          '')
+          (pkgs.writeTextDir "share/wayland-sessions/hyprland.desktop" ''
+            [Desktop Entry]
+            Name=Hyprland
+            Comment=Dynamic tiling Wayland compositor
+            Exec=start-hyprland
+            Type=Application
+          '')
+        ];
+      };
+    in
+    {
+      services.greetd = {
+        enable = true;
+        settings = {
+          default_session = {
+            command = "${pkgs.tuigreet}/bin/tuigreet --time --remember --remember-session --sessions ${sessions}/share/wayland-sessions --cmd niri-session";
+          };
         };
       };
     };
-  };
 }

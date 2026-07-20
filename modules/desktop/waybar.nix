@@ -1,177 +1,180 @@
 {
-  flake.modules.homeManager.linux = { palette, ... }: {
-    programs.waybar = {
-      enable = true;
+  flake.modules.homeManager.linux =
+    { palette, ... }:
+    let
+      # Wrap a Nerd Font glyph so it renders in the accent colour while the
+      # value next to it keeps the normal foreground. Used by every module so
+      # "all icons are blue" stays in one place.
+      icon = glyph: "<span foreground='${palette.blue}'>${glyph}</span>";
+    in
+    {
+      programs.waybar = {
+        enable = true;
 
-      settings = {
-        mainBar = {
-          layer = "top";
-          position = "top";
-          height = 34;
-          spacing = 0;
+        settings = {
+          mainBar = {
+            layer = "top";
+            position = "top";
+            height = 34;
+            spacing = 0;
 
-          modules-left = [
-            "hyprland/workspaces"
-            "custom/layout"
-            "hyprland/window"
-          ];
+            modules-left = [
+              "niri/workspaces"
+              "niri/window"
+            ];
 
-          modules-center = [ ];
+            modules-center = [ "mpris" ];
 
-          modules-right = [
-            "tray"
-            "network"
-            "battery"
-            "pulseaudio"
-            "clock"
-          ];
+            modules-right = [
+              "pulseaudio"
+              "battery"
+              "clock"
+            ];
 
-          "hyprland/workspaces" = {
-            format = "{name}";
-            disable-scroll = true;
-            all-outputs = true;
-            active-only = false;
-            persistent-workspaces = {
-              "*" = 9;
+            # Plain workspace numbers — always visible, unlike the previous
+            # glyph-only format. Active/inactive colour is handled in CSS.
+            "niri/workspaces" = {
+              format = "{index}";
             };
-          };
 
-          "custom/layout" = {
-            exec = "echo '::[]'";
-            interval = "once";
-            format = "{}";
-          };
-
-          "hyprland/window" = {
-            format = "{class}";
-            max-length = 80;
-            rewrite = {
-              "com.mitchellh.ghostty" = "ghostty";
+            "niri/window" = {
+              format = "{app_id}";
+              max-length = 50;
+              separate-outputs = true;
             };
-          };
 
-          tray = {
-            spacing = 8;
-          };
+            # playerctl/MPRIS: play-pause icon + track. Controls whatever MPRIS
+            # player is active (mpd via mpdris2-rs). Hidden when nothing plays.
+            mpris = {
+              format = "${icon "{status_icon}"} {dynamic}";
+              status-icons = {
+                playing = "󰐊";
+                paused = "󰏤";
+                stopped = "󰓛";
+              };
+              dynamic-order = [
+                "title"
+                "artist"
+              ];
+              dynamic-len = 40;
+              tooltip = false;
+            };
 
-          network = {
-            format-wifi = "| {essid}";
-            format-ethernet = "| eth";
-            format-disconnected = "| n/a";
-            tooltip = false;
-          };
+            # Icon + value (no "vol"/"bat" word labels). Icon is blue, value is
+            # normal text.
+            pulseaudio = {
+              format = "${icon "{icon}"} {volume}%";
+              format-muted = icon "󰝟";
+              format-icons = {
+                headphone = "󰋋";
+                headset = "󰋎";
+                default = [
+                  "󰕿"
+                  "󰖀"
+                  "󰕾"
+                ];
+              };
+              tooltip = false;
+            };
 
-          battery = {
-            format = " | bat {capacity}%";
-            format-charging = " | chr {capacity}%";
-            format-plugged = " | plg {capacity}%";
-            tooltip = false;
-          };
+            battery = {
+              format = "${icon "{icon}"} {capacity}%";
+              format-charging = "${icon "󰂄"} {capacity}%";
+              format-plugged = "${icon "󰚥"} {capacity}%";
+              format-icons = [
+                "󰁺"
+                "󰁻"
+                "󰁼"
+                "󰁽"
+                "󰁾"
+                "󰁿"
+                "󰂀"
+                "󰂁"
+                "󰂂"
+                "󰁹"
+              ];
+              states = {
+                warning = 30;
+                critical = 15;
+              };
+              tooltip = false;
+            };
 
-          pulseaudio = {
-            format = " | vol {volume}%";
-            format-muted = " | mut";
-            tooltip = false;
-          };
-
-          clock = {
-            format = " | {:%d-%m-%Y | %H:%M:%S}";
-            interval = 1;
-            tooltip = false;
+            clock = {
+              format = "${icon ""} {:%H:%M}";
+              tooltip-format = "{:%A, %d %B %Y}";
+            };
           };
         };
+
+        style = /* css */ ''
+          * {
+              border: none;
+              border-radius: 0;
+              min-height: 0;
+              margin: 0;
+              padding: 0;
+              box-shadow: none;
+              text-shadow: none;
+              transition-property: none;
+              font-family: "Maple Mono NF CN", monospace;
+              font-size: 14px;
+              font-weight: 600;
+          }
+
+          /* Slightly translucent so the compositor/wallpaper shows through. */
+          window#waybar {
+              background-color: alpha(${palette.base}, 0.85);
+              color: ${palette.text};
+          }
+
+          .modules-left {
+              padding-left: 16px;
+          }
+
+          .modules-right {
+              padding-right: 16px;
+          }
+
+          #workspaces button {
+              color: ${palette.overlay1};
+              padding: 0 8px;
+          }
+
+          #workspaces button.active,
+          #workspaces button.focused {
+              color: ${palette.blue};
+          }
+
+          #workspaces button:hover {
+              box-shadow: none;
+              text-shadow: none;
+          }
+
+          #window {
+              padding: 0 12px;
+              color: ${palette.subtext0};
+          }
+
+          #mpris {
+              color: ${palette.subtext0};
+          }
+
+          #pulseaudio,
+          #battery,
+          #clock {
+              color: ${palette.text};
+              padding: 0 10px;
+          }
+
+          #clock {
+              padding-right: 0;
+          }
+
+          #battery.critical:not(.charging) {
+              color: ${palette.red};
+          }
+        '';
       };
-
-      style = /* css */ ''
-        * {
-            border: none;
-            border-radius: 0;
-            min-height: 0;
-            margin: 0;
-            padding: 0;
-            box-shadow: none;
-            text-shadow: none;
-            transition-property: none;
-            font-family: "Maple Mono NF CN", monospace;
-            font-size: 14px;
-            font-weight: 600;
-        }
-
-        window#waybar {
-            background-color: ${palette.base};
-            color: ${palette.text};
-        }
-
-        .modules-left {
-            padding-left: 20px;
-        }
-
-        .modules-right {
-            padding-right: 20px;
-        }
-
-        #workspaces button {
-            background-color: ${palette.base};
-            color: ${palette.text};
-            padding: 0 10px;
-
-            background-image:
-                linear-gradient(${palette.text}, ${palette.text}), /* top edge */
-                linear-gradient(${palette.text}, ${palette.text}), /* bottom edge */
-                linear-gradient(${palette.text}, ${palette.text}), /* left edge */
-                linear-gradient(${palette.text}, ${palette.text}); /* right edge */
-            background-size:
-                5px 1px, /* top width/height */
-                5px 1px, /* bottom width/height */
-                1px 5px, /* left width/height */
-                1px 5px; /* right width/height */
-            background-position:
-                2px 2px, /* top x,y */
-                2px 6px, /* bottom x,y */
-                2px 2px, /* left x,y */
-                6px 2px; /* right x,y */
-            background-repeat: no-repeat;
-        }
-
-        #workspaces button.active {
-            background-color: ${palette.blue};
-            color: ${palette.base};
-
-            background-image: linear-gradient(${palette.base}, ${palette.base});
-            background-size: 5px 5px;
-            background-position: 2px 2px;
-        }
-
-        #workspaces button.empty {
-            background-image: none;
-        }
-
-        #workspaces button:hover {
-            box-shadow: none;
-            text-shadow: none;
-        }
-
-        #custom-layout {
-            padding: 0 8px;
-            color: ${palette.text};
-        }
-
-        #window {
-            padding: 0 12px;
-            background-color: ${palette.blue};
-            color: ${palette.base};
-        }
-
-        #tray, #network, #battery, #pulseaudio, #clock {
-            background-color: ${palette.base};
-            color: ${palette.text};
-            padding: 0;
-        }
-
-        #tray {
-            padding-right: 8px;
-        }
-      '';
     };
-  };
 }

@@ -66,6 +66,7 @@ in
     { pkgs, ... }:
     let
       flavor = if pkgs.stdenv.isDarwin then "macchiato" else "mocha";
+      # flavor = "macchiato";
     in
     {
       imports = [ inputs.catppuccin.homeModules.catppuccin ];
@@ -78,6 +79,11 @@ in
 
         helix.enable = false;
         nushell.enable = false;
+
+        # GTK apps follow GNOME's stock Adwaita icon theme (set in gtk.nix) for
+        # a native Nautilus/Loupe look, so keep catppuccin from forcing
+        # Papirus-Dark here — otherwise the two fight over gtk.iconTheme.name.
+        gtk.icon.enable = false;
       };
 
       # The matching raw hex palette, for hand-styled configs (waybar, rofi,
