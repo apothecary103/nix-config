@@ -22,27 +22,30 @@
   
   time.timeZone = "Europe/Vilnius";
 
-  nix.settings.cores = 0; # use all available cores
-
-  systemd.user.services.niri-flake-polkit.enable = false;
+  nix.settings.cores = 0; # Use all available cores
 
   hardware.bluetooth.enable = true;
   services.blueman.enable = true;
 
-  programs.zsh.enable = true;
+  programs.fish.enable = true;
 
-  xdg.portal = {
-    enable = true;
-    xdgOpenUsePortal = true;
-    extraPortals = [
-      pkgs.xdg-desktop-portal-gnome
-      pkgs.xdg-desktop-portal-gtk
-    ];
-    config = {
-      common.default = [ "gnome" "gtk" ];
-      niri.default = [ "gnome" "gtk" ];
-    };
-  };
+  # xdg.portal = {
+  #   enable = true;
+  #   xdgOpenUsePortal = true;
+  #   extraPortals = [
+  #     pkgs.xdg-desktop-portal-gnome
+  #     pkgs.xdg-desktop-portal-gtk
+  #   ];
+  #   config = {
+  #     common.default = [ "gnome" "gtk" ];
+  #     niri.default = [ "gnome" "gtk" ];
+  #   };
+  # };
+
+  environment.pathsToLink = [
+    "/share/applications"
+    "/share/xdg-desktop-portal"
+  ];
 
   programs.dconf.enable = true;
 
@@ -80,8 +83,8 @@
   users.users.${username} = {
     isNormalUser = true;
     description = username;
-    shell = pkgs.zsh;
-    extraGroups = [ "wheel" "networkmanager" "video" ];
+    shell = pkgs.fish;
+    extraGroups = [ "wheel" "video" ];
   };
   nix.settings.trusted-users = [ username ];
 

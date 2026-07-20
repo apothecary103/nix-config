@@ -14,45 +14,12 @@
   boot.extraModulePackages = [ ];
 
   fileSystems."/" =
-    { device = "/dev/mapper/nixos_root";
+    { device = "/dev/disk/by-uuid/8f501918-5c80-428d-8aa5-a53ef5151fb1";
       fsType = "btrfs";
-      options = [ "subvol=@" "noatime" "compress-force=zstd:1" ];
-    };
-
-  boot.initrd.luks.devices."nixos_root".device = "/dev/disk/by-uuid/17aaaf44-1dd8-4ef1-acdd-dacc2a50b0b9";
-
-  fileSystems."/home" =
-    { device = "/dev/mapper/nixos_root";
-      fsType = "btrfs";
-      options = [ "subvol=@home" "noatime" "compress-force=zstd:1" ];
-    };
-
-  fileSystems."/nix" =
-    { device = "/dev/mapper/nixos_root";
-      fsType = "btrfs";
-      options = [ "subvol=@nix" "noatime" "compress-force=zstd:1" ];
-    };
-
-  fileSystems."/var" =
-    { device = "/dev/mapper/nixos_root";
-      fsType = "btrfs";
-      options = [ "subvol=@var" "noatime" "compress-force=zstd:1" ];
-    };
-
-  fileSystems."/persist" =
-    { device = "/dev/mapper/nixos_root";
-      fsType = "btrfs";
-      options = [ "subvol=@persist" "noatime" "compress-force=zstd:1" ];
-    };
-
-  fileSystems."/.snapshots" =
-    { device = "/dev/mapper/nixos_root";
-      fsType = "btrfs";
-      options = [ "subvol=@snapshots" "noatime" "compress-force=zstd:1" ];
     };
 
   fileSystems."/boot" =
-    { device = "/dev/disk/by-uuid/7EA4-14FA";
+    { device = "/dev/disk/by-uuid/62F8-14F9";
       fsType = "vfat";
       options = [ "fmask=0022" "dmask=0022" ];
     };

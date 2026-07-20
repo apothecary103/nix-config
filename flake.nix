@@ -13,30 +13,36 @@
       inputs.nixpkgs.follows = "nixpkgs";
     };
     apple-silicon.url = "github:tpwrules/nixos-apple-silicon";
-    awww.url = "git+https://codeberg.org/LGFae/awww";
     neovim-nightly-overlay.url = "github:nix-community/neovim-nightly-overlay";
     catppuccin.url = "github:catppuccin/nix";
-    niri.url = "github:sodiboo/niri-flake";
     asahi-firmware = {
       url = "path:/home/apothecary/.config/asahi-firmware";
       flake = false;
     };
   };
 
-  outputs = inputs @ { self, nixpkgs, darwin, home-manager, ... }:
-  let
-    username = "apothecary";
-  in {
-    darwinConfigurations."fern" = darwin.lib.darwinSystem {
-      system = "aarch64-darwin";
-      specialArgs = { inherit inputs username; };
-      modules = [ ./hosts/fern ];
-    };
+  outputs =
+    inputs@{
+      self,
+      nixpkgs,
+      darwin,
+      home-manager,
+      ...
+    }:
+    let
+      username = "apothecary";
+    in
+    {
+      darwinConfigurations."fern" = darwin.lib.darwinSystem {
+        system = "aarch64-darwin";
+        specialArgs = { inherit inputs username; };
+        modules = [ ./hosts/fern ];
+      };
 
-    nixosConfigurations."frieren" = nixpkgs.lib.nixosSystem {
-      system = "aarch64-linux";
-      specialArgs = { inherit inputs username; };
-      modules = [ ./hosts/frieren ];
+      nixosConfigurations."frieren" = nixpkgs.lib.nixosSystem {
+        system = "aarch64-linux";
+        specialArgs = { inherit inputs username; };
+        modules = [ ./hosts/frieren ];
+      };
     };
-  };
 }

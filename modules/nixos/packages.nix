@@ -1,25 +1,32 @@
-{ pkgs, username, inputs, ... }:
+{
+  pkgs,
+  username,
+  ...
+}:
 
-let
-  stable-pkgs = import inputs.nixpkgs-stable {
-    system = pkgs.system;
-    # config.allowUnfree = true;
-  };
-in {
+{
   home-manager.users.${username} = {
     home.packages = with pkgs; [
-      fuzzel
-      waybar
-      inputs.awww.packages.${pkgs.stdenv.hostPlatform.system}.awww
+      awww
       brightnessctl
       wf-recorder
       tuigreet
 
+      # Wayland
+      grim
+      slurp
+      fuzzel
+      waybar
+      wezterm
+      hyprsunset
+      wl-clipboard
+      whitesur-cursors
+      mako
+      swayosd
+      papirus-icon-theme
+
       # Apps
-      keypunch
-      video-trimmer
-      stable-pkgs.blender
-      librewolf
+      ungoogled-chromium
     ];
   };
 }

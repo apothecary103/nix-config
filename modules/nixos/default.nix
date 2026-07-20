@@ -1,17 +1,19 @@
-{ pkgs, ... }: {
+{ pkgs, ... }:
+{
   imports = [
     ./packages.nix
     ./typography.nix
   ];
 
-  networking.networkmanager.enable = true;
+  networking.wireless.iwd.enable = true;
+  networking.useDHCP = true;
 
   services = {
     greetd = {
       enable = true;
       settings = {
         default_session = {
-          command = "${pkgs.tuigreet}/bin/tuigreet --time --cmd niri-session";
+          command = "${pkgs.tuigreet}/bin/tuigreet --time --cmd start-hyprland";
         };
       };
     };
