@@ -13,15 +13,23 @@
 
   boot.loader.systemd-boot.enable = true;
   boot.loader.efi.canTouchEfiVariables = false;
-
-  time.timeZone = "Europe/Vilnius";
+  boot.kernelParams = [ 
+    "appledrm.show_notch=1" 
+  ];
 
   # NOTE: You must have the firmware files extracted on your EFI partition
-  hardware.asahi.peripheralFirmwareDirectory = /home/apothecary/nix-config/hosts/frieren/firmware;
+  hardware.asahi.peripheralFirmwareDirectory = inputs.asahi-firmware;
+  
+  time.timeZone = "Europe/Vilnius";
+
+  # nix.settings.cores = 0; # use all available cores
+
+  programs.zsh.enable = true;
 
   users.users.${username} = {
     isNormalUser = true;
     description = username;
+    shell = pkgs.zsh;
     extraGroups = [ "wheel" "networkmanager" "video" ];
   };
   nix.settings.trusted-users = [ username ];
