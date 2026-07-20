@@ -6,5 +6,7 @@
     ./nu.nix
     ./git.nix
     ./fish.nix
+    ./pass.nix
+    ./theme.nix
   ];
 }
