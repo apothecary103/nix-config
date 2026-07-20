@@ -21,6 +21,7 @@
       gh
       bat
       tokei
+      tmux
     
       # GUI Applications 
       prismlauncher
