@@ -20,6 +20,7 @@
       nixfmt
       gh
       bat
+      tokei
     
       # GUI Applications 
       prismlauncher

@@ -1,4 +1,4 @@
-{ pkgs, username, ... }:
+{ lib, pkgs, username, ... }:
 
 let
   daedra = pkgs.rustPlatform.buildRustPackage rec {
@@ -13,8 +13,13 @@ let
     meta.mainProgram = "daedra";
   };
 
+  teamspeak6-client = pkgs.callPackage ../../pkgs/teamspeak6-client { };
 in
 {
+  # TeamSpeak 6 is proprietary; permit only this one unfree package.
+  nixpkgs.config.allowUnfreePredicate =
+    pkg: builtins.elem (lib.getName pkg) [ "teamspeak6-client" ];
+
   home-manager.users.${username} = {
     home.packages =
       (with pkgs; [
@@ -30,6 +35,9 @@ in
         opencode
         # emacs-unstable
       ])
-      ++ [ daedra ];
+      ++ [
+        daedra
+        teamspeak6-client
+      ];
   };
 }
