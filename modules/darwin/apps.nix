@@ -10,9 +10,15 @@
     # 'zap' removes manually installed brews and casks that aren't in this file.
     onActivation.cleanup = "zap";
 
+    taps = [
+      "homebrew/homebrew-core"
+      "homebrew/homebrew-cask"
+    ];
+
     casks = [
       "helium-browser"
       "obs"
+      "colemak-dh"
     ];
 
     # You can also install standard brew formulas here if they aren't in nixpkgs
