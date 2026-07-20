@@ -1,4 +1,4 @@
-{ lib, pkgs, username, ... }:
+{ inputs, pkgs, username, ... }:
 
 let
   teamspeak6-client = pkgs.callPackage ../../pkgs/teamspeak6-client { };
@@ -12,14 +12,18 @@ in
         # GUI Applications
         yabai
         skhd
-        jankyborders
         sketchybar
         llama-cpp
         opencode              
         moonlight-qt
         utm
+        aseprite
+        inputs.tetro-tui.packages.${system}.default
         # steam
-        # emacs-unstable
+        emacs-unstable
+        mpd
+        mpc
+        rmpc
       ])
       ++ [
         teamspeak6-client

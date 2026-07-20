@@ -16,6 +16,16 @@
   nixpkgs.overlays = [
     (import ../../pkgs)
 
+    (final: prev: {
+      zellij-unwrapped = prev.zellij-unwrapped.overrideAttrs (old: {
+        pname = "yazelix-zellij";
+        src = inputs.yazelix-zellij;
+        cargoHash = prev.lib.fakeHash;
+      });
+    })
+
+    inputs.emacs-overlay.overlays.default
+
     # pass-import → secretstorage → jeepney. jeepney's checkPhase spawns a
     # D-Bus session via `dbus-run-session`, which fails inside the darwin
     # build sandbox because launchd's DBUS_LAUNCHD_SESSION_BUS_SOCKET is

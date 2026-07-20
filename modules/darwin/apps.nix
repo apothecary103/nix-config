@@ -30,12 +30,13 @@
     taps = builtins.attrNames config.nix-homebrew.taps;
 
     casks = [
-      # "helium-browser"
+      "helium-browser"
       "obs"
-      # "blender"
       "linearmouse"
+      "homerow"
+      # "blender"
       # "foobar2000"
-      "background-music"
+      # "background-music"
     ];
 
     brews = [
