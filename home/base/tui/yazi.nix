@@ -1,8 +1,8 @@
 { config, inputs, ... }:
 {
-  imports = [
-    inputs.catppuccin.homeModules.catppuccin
-  ];
+  # imports = [
+  #   inputs.catppuccin.homeModules.catppuccin
+  # ];
   
   programs.yazi = {
     enable = true;
@@ -17,9 +17,9 @@
     };
   };
 
-  catppuccin.yazi = {
-    enable = true;
-    flavor = "macchiato";
-    accent = "blue";
-  };
+  # catppuccin.yazi = {
+  #   enable = true;
+  #   flavor = "macchiato";
+  #   accent = "blue";
+  # };
 }

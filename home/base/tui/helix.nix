@@ -5,7 +5,7 @@
     
     themes = {
       catppuccin_macchiato_transparent = {
-        inherits = "catppuccin_macchiato";
+        inherits = "mellow";
         "ui.background" = { bg = "none"; };
       };
     };
