@@ -1,10 +1,5 @@
 {
-  pkgs,
-  username,
-  inputs,
-  ...
-}: {
-  home-manager.users.${username} = {
+  flake.modules.homeManager.linux = {pkgs, ...}: {
     home.packages = with pkgs; [
       awww
       brightnessctl
