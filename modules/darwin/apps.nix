@@ -37,6 +37,7 @@
       "foobar2000"
       "background-music"
       "zen"
+      "steam"
     ];
 
     brews = [
