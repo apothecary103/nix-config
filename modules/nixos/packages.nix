@@ -22,10 +22,9 @@
       whitesur-cursors
       mako
       swayosd
-      papirus-icon-theme
+      hyprland
+      rofi
 
-      # Apps
-      ungoogled-chromium
     ];
   };
 }

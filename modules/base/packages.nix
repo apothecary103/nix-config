@@ -1,4 +1,4 @@
-{ pkgs, username, ... }:
+{ pkgs, username, inputs, ... }:
 
 {
   home-manager.users.${username} = {
@@ -22,12 +22,16 @@
       bat
       tokei
       tmux
+      nh
+      krabby
+      opencode
     
       # GUI Applications 
       prismlauncher
       signal-desktop
       vesktop
       mpv
+      inputs.zen-browser.packages."${pkgs.system}".default
       # cinny-desktop
     ];
   };
