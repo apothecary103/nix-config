@@ -182,15 +182,16 @@
         "rust-overlay": "rust-overlay"
       },
       "locked": {
-        "lastModified": 1783279178,
-        "narHash": "sha256-DREuXUJR25e5BV8nvG3cDpt/Xte9rGgMPrTHjd0KugU=",
-        "owner": "helix-editor",
+        "lastModified": 1784384926,
+        "narHash": "sha256-qYR2f+uSUNsJYbbwSo9bCB+LI7n3NzQDCHXJRmHztDg=",
+        "owner": "mattwparas",
         "repo": "helix",
-        "rev": "39b3f22b1bf53f64bd4256b133f4563c4d0e43b0",
+        "rev": "8d189f46e9c620baa685bdfbe39b7c95928475a0",
         "type": "github"
       },
       "original": {
-        "owner": "helix-editor",
+        "owner": "mattwparas",
+        "ref": "steel-event-system",
         "repo": "helix",
         "type": "github"
       }
@@ -596,6 +597,7 @@
         "nixpkgs": "nixpkgs_4",
         "nvf": "nvf",
         "rmpc": "rmpc",
+        "yabai-src": "yabai-src",
         "zen-browser": "zen-browser",
         "zmk-nix": "zmk-nix"
       }
@@ -666,6 +668,23 @@
       "original": {
         "owner": "Supreeeme",
         "repo": "xwayland-satellite",
+        "type": "github"
+      }
+    },
+    "yabai-src": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1783090113,
+        "narHash": "sha256-6tNi20q8K4LeNETjFA5nEDqcSVSBYvRFbzcJbDx7ntA=",
+        "owner": "agg23",
+        "repo": "yabai",
+        "rev": "d0d387d1445048415fd1f3566393a191fe3c5097",
+        "type": "github"
+      },
+      "original": {
+        "owner": "agg23",
+        "ref": "macos-27",
+        "repo": "yabai",
         "type": "github"
       }
     },

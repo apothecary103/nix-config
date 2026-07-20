@@ -35,6 +35,10 @@
       url = "github:epireyn/niri-flake";
       inputs.nixpkgs.follows = "nixpkgs";
     };
+    yabai-src = {
+      url = "github:agg23/yabai/macos-27";
+      flake = false;
+    };
     catppuccin.url = "github:catppuccin/nix";
     zen-browser = {
       url = "github:0xc000022070/zen-browser-flake";

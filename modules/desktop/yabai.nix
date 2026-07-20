@@ -1,13 +1,22 @@
-{
+{ inputs, ... }: {
   # yabai and skhd themselves are installed by services.yabai/services.skhd below.
   flake.modules.homeManager.darwin = { pkgs, ... }: {
     home.packages = [ pkgs.sketchybar ];
   };
 
-  flake.modules.darwin.base = {
+  flake.modules.darwin.base = { pkgs, ... }: {
     services.yabai = {
       enable = true;
       enableScriptingAddition = true;
+
+      # AhsanFazal's fork built from source; it shares upstream's makefile, so
+      # nixpkgs' build/postPatch apply unchanged. The binary still reports the
+      # base version, so the version-check hook is dropped to avoid a mismatch.
+      package = pkgs.yabai.overrideAttrs (old: {
+        src = inputs.yabai-src;
+        version = "7.1.25-unstable-${inputs.yabai-src.shortRev}";
+        doInstallCheck = false;
+      });
 
       config = {
         layout = "bsp";
