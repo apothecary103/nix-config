@@ -3,8 +3,13 @@
 
   inputs = {
     nixpkgs.url = "github:nixos/nixpkgs/nixpkgs-unstable";
-    darwin = {
-      url = "github:lnl7/nix-darwin";
+    flake-parts = {
+      url = "github:hercules-ci/flake-parts";
+      inputs.nixpkgs-lib.follows = "nixpkgs";
+    };
+    import-tree.url = "github:vic/import-tree";
+    nix-darwin = {
+      url = "github:nix-darwin/nix-darwin";
       inputs.nixpkgs.follows = "nixpkgs";
     };
     home-manager = {
@@ -47,39 +52,9 @@
     };
   };
 
-  outputs = inputs @ {
-    self,
-    nixpkgs,
-    darwin,
-    home-manager,
-    zmk-nix,
-    ...
-  }: let
-    username = "apothecary";
-    forAllSystems = nixpkgs.lib.genAttrs (nixpkgs.lib.attrNames zmk-nix.packages);
-  in {
-    darwinConfigurations."fern" = darwin.lib.darwinSystem {
-      system = "aarch64-darwin";
-      specialArgs = {inherit inputs username;};
-      modules = [./hosts/fern];
-    };
-
-    nixosConfigurations."frieren" = nixpkgs.lib.nixosSystem {
-      system = "aarch64-linux";
-      specialArgs = {inherit inputs username;};
-      modules = [./hosts/frieren];
-    };
-
-    packages = forAllSystems (
-      system:
-        import ./zmk {
-          inherit (nixpkgs) lib;
-          inherit zmk-nix system;
-        }
-    );
-
-    devShells = forAllSystems (system: {
-      zmk = zmk-nix.devShells.${system}.default;
-    });
-  };
+  # Dendritic pattern: every file under modules/ is a flake-parts module,
+  # auto-imported by import-tree. Features contribute to
+  # flake.modules.{nixos,darwin,homeManager}.* and hosts compose them.
+  outputs = inputs:
+    inputs.flake-parts.lib.mkFlake {inherit inputs;} (inputs.import-tree ./modules);
 }
