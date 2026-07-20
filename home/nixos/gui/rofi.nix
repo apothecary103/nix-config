@@ -1,4 +1,4 @@
-{ config, pkgs, ... }:
+{ config, pkgs, palette, ... }:
 
 let
   inherit (config.lib.formats.rasi) mkLiteral;
@@ -27,12 +27,12 @@ in
 
     theme = {
       "*" = {
-        bg = mkLiteral "#24273a";
-        fg = mkLiteral "#cad3f5";
-        prompt-fg = mkLiteral "#b8c0e0";
-        placeholder-fg = mkLiteral "#5b6078";
-        selected-bg = mkLiteral "#cad3f5";
-        selected-fg = mkLiteral "#24273a";
+        bg = mkLiteral palette.base;
+        fg = mkLiteral palette.text;
+        prompt-fg = mkLiteral palette.subtext1;
+        placeholder-fg = mkLiteral palette.surface2;
+        selected-bg = mkLiteral palette.text;
+        selected-fg = mkLiteral palette.base;
 
         background-color = mkLiteral "transparent";
         text-color = mkLiteral "@fg";

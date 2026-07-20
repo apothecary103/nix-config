@@ -1,4 +1,4 @@
-{ ... }:
+{ palette, ... }:
 
 {
   services.mako = {
@@ -10,7 +10,7 @@
       height = 150;
       margin = "15";
       padding = "15";
-      
+
       border-size = 0;
       border-radius = 0;
 
@@ -22,23 +22,23 @@
       ignore-timeout = true;
       sort = "-time";
 
-      background-color = "#24273ae6";
-      text-color = "#cad3f5";
-      progress-color = "over #c6a0f6";
+      background-color = "${palette.base}e6";
+      text-color = palette.text;
+      progress-color = "over ${palette.mauve}";
 
       "urgency=low" = {
-        text-color = "#a6da95";
+        text-color = palette.green;
         default-timeout = 3000;
       };
 
       "urgency=normal" = {
-        text-color = "#cad3f5";
+        text-color = palette.text;
         default-timeout = 5000;
       };
 
       "urgency=critical" = {
-        background-color = "#24273ae6";
-        text-color = "#ed8796";
+        background-color = "${palette.base}e6";
+        text-color = palette.red;
         default-timeout = 0;
       };
     };

@@ -1,4 +1,4 @@
-{ ... }:
+{ palette, ... }:
 
 {
   services.swayosd.enable = true;
@@ -26,8 +26,8 @@
 
     "swayosd/style.css".text = /* css */ ''
       window#osd {
-        /* background: alpha(#24273a, 0.87); */
-        background: #24273a;
+        /* background: alpha(${palette.base}, 0.87); */
+        background: ${palette.base};
         border-radius: 0;
       }
 
@@ -44,7 +44,7 @@
 
       window#osd image,
       window#osd label {
-        color: #cad3f5;
+        color: ${palette.text};
         font-family: "MapleMono NF CN", monospace;
       }
 
@@ -64,14 +64,14 @@
         min-height: inherit;
         border-radius: 0;
         border: none;
-        background: alpha(#363a4f, 0.5);
+        background: alpha(${palette.surface0}, 0.5);
       }
 
       window#osd progress {
         min-height: inherit;
         border-radius: 0;
         border: none;
-        background: #c6a0f6;
+        background: ${palette.mauve};
       }
     '';
   };
