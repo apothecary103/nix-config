@@ -1,10 +1,11 @@
-{  lib, ... }:
+{  lib, inputs, pkgs, ... }:
 
 let
   mainMod = "SUPER";
-  terminal = "wezterm";
-  fileManager = "nautilus";
-  menu = "fuzzel";
+  terminal = "ghostty";
+  fileManager = "yazi";
+  menu = "rofi -show drun";
+  wallpaperMenu = "rofi-wallpaper";
 
   lua = lib.generators.mkLuaInline;
 
@@ -14,10 +15,7 @@ in {
     configType = "lua";
 
     settings = {
-      
-      # ------------------
       # ---- MONITORS ----
-      # ------------------
       monitor = [
         {
           output = "eDP-1";
@@ -29,21 +27,17 @@ in {
         }
       ];
 
-      # -------------------
       # ---- AUTOSTART ----
-      # -------------------
       on = [
         {
           _args = [
             "hyprland.start"
-            (lua ''function () hl.exec_cmd("waybar & awww-daemon") end'')
+            (lua ''function () hl.exec_cmd("waybar & awww-daemon & swayosd-server") end'')
           ];
         }
       ];
 
-      # -------------------------------
       # ---- ENVIRONMENT VARIABLES ----
-      # -------------------------------
       env = [
         { _args = [ "XCURSOR_SIZE" "24" ]; }
         { _args = [ "HYPRCURSOR_SIZE" "24" ]; }
@@ -51,36 +45,23 @@ in {
         { _args = [ "HYPRCURSOR_THEME" "WhiteSur-cursors" ]; }
       ];
 
-      # -----------------------
-      # ----- PERMISSIONS -----
-      # -----------------------
-      # Uncomment to apply permissions
-      # ecosystem = { enforce_permissions = true; };
-      # permission = [
-      #   { _args = [ "/usr/(bin|local/bin)/grim" "screencopy" "allow" ]; }
-      #   { _args = [ "/usr/(lib|libexec|lib64)/xdg-desktop-portal-hyprland" "screencopy" "allow" ]; }
-      #   { _args = [ "/usr/(bin|local/bin)/hyprpm" "plugin" "allow" ]; }
-      # ];
-
-      # -----------------------
       # ---- LOOK AND FEEL ----
-      # -----------------------
       config = {
         general = {
           gaps_in = 5;
           gaps_out = 20;
-          border_size = 0;
+          border_size = 3;
           col = {
-            active_border = { colors = [ "rgba(33ccffee)" "rgba(00ff99ee)" ]; angle = 45; };
+            active_border   = "rgba(7287fdff)";
             inactive_border = "rgba(595959aa)";
           };
           resize_on_border = false;
-          allow_tearing = false;
+          allow_tearing = true;
           layout = "scrolling";
         };
 
         decoration = {
-          rounding = 7;
+          rounding = 0;
           rounding_power = 3;
           active_opacity = 1.0;
           inactive_opacity = 1.0;
@@ -93,7 +74,7 @@ in {
           blur = {
             enabled = true;
             size = 3;
-            passes = 3;
+            passes = 1;
             vibrancy = 0.1696;
           };
         };
@@ -102,17 +83,9 @@ in {
           enabled = true;
         };
 
-        dwindle = {
-          preserve_split = true;
-        };
-
-        master = {
-          new_status = "master";
-        };
-
-        scrolling = {
-          fullscreen_on_one_column = true;
-        };
+        dwindle = { preserve_split = true; };
+        master = { new_status = "master"; };
+        scrolling = { fullscreen_on_one_column = true; };
 
         misc = {
           force_default_wallpaper = -1;
@@ -133,9 +106,7 @@ in {
         };
       };
 
-      # -------------------
-      # ---- ANIMATIONS ---
-      # -------------------
+      # ---- Animations ----
       curve = [
         { _args = [ "easeOutQuint"   { type = "bezier"; points = [ [0.23 1] [0.32 1] ]; } ]; }
         { _args = [ "easeInOutCubic" { type = "bezier"; points = [ [0.65 0.05] [0.36 1] ]; } ]; }
@@ -165,39 +136,76 @@ in {
         { leaf = "zoomFactor";    enabled = true; speed = 7;    bezier = "quick"; }
       ];
 
-      # ----------------------
       # ---- INPUT DEVICES ---
-      # ----------------------
-      gesture = [
-        { fingers = 3; direction = "horizontal"; action = "workspace"; }
-      ];
-
       device = [
         { name = "epic-mouse-v1"; sensitivity = -0.5; }
       ];
 
-      # ---------------------
       # ---- KEYBINDINGS ----
-      # ---------------------
       bind = [
+        # Core App Launching & State
         { _args = [ "${mainMod} + Q" (lua "hl.dsp.exec_cmd('${terminal}')") ]; }
         { _args = [ "${mainMod} + C" (lua "hl.dsp.window.close()") ]; }
         { _args = [ "${mainMod} + M" (lua ''hl.dsp.exec_cmd("command -v hyprshutdown >/dev/null 2>&1 && hyprshutdown || hyprctl dispatch 'hl.dsp.exit()'")'') ]; }
         { _args = [ "${mainMod} + E" (lua "hl.dsp.exec_cmd('${fileManager}')") ]; }
-        { _args = [ "${mainMod} + V" (lua ''hl.dsp.window.float({ action = "toggle" })'') ]; }
         { _args = [ "${mainMod} + R" (lua "hl.dsp.exec_cmd('${menu}')") ]; }
+        { _args = [ "${mainMod} + W" (lua "hl.dsp.exec_cmd('${wallpaperMenu}')") ]; }
         { _args = [ "${mainMod} + P" (lua "hl.dsp.window.pseudo()") ]; }
-        { _args = [ "${mainMod} + J" (lua ''hl.dsp.layout("togglesplit")'') ]; }
 
-        # Focus
+        # Window Sizing & Screen States (Niri 1:1)
+        { _args = [ "${mainMod} + F"         (lua ''hl.dsp.window.fullscreen({ action = "toggle" })'') ]; }
+        { _args = [ "${mainMod} + SHIFT + F" (lua ''hl.dsp.window.fullscreen({ mode = "maximized", action = "toggle" })'') ]; }
+        { _args = [ "${mainMod} + V"         (lua ''hl.dsp.window.float({ action = "toggle" })'') ]; }
+
+        # Column Manipulation (Niri Consume/Expel style)
+        { _args = [ "${mainMod} + comma"  (lua ''hl.dsp.layout("togglesplit")'') ]; }
+        { _args = [ "${mainMod} + period" (lua ''hl.dsp.window.float({ action = "toggle" })'') ]; }
+
+        # Focus Navigation (Arrows)
         { _args = [ "${mainMod} + left"  (lua ''hl.dsp.focus({ direction = "left" })'') ]; }
         { _args = [ "${mainMod} + right" (lua ''hl.dsp.focus({ direction = "right" })'') ]; }
         { _args = [ "${mainMod} + up"    (lua ''hl.dsp.focus({ direction = "up" })'') ]; }
         { _args = [ "${mainMod} + down"  (lua ''hl.dsp.focus({ direction = "down" })'') ]; }
 
-        # Mouse Workspace
-        { _args = [ "${mainMod} + mouse_down" (lua ''hl.dsp.focus({ workspace = "e+1" })'') ]; }
-        { _args = [ "${mainMod} + mouse_up"   (lua ''hl.dsp.focus({ workspace = "e-1" })'') ]; }
+        # Focus Navigation (Vim Keys - Niri Defaults)
+        { _args = [ "${mainMod} + H" (lua ''hl.dsp.focus({ direction = "left" })'') ]; }
+        { _args = [ "${mainMod} + L" (lua ''hl.dsp.focus({ direction = "right" })'') ]; }
+        { _args = [ "${mainMod} + K" (lua ''hl.dsp.focus({ direction = "up" })'') ]; }
+        { _args = [ "${mainMod} + J" (lua ''hl.dsp.focus({ direction = "down" })'') ]; }
+
+        # Move Windows (Arrows)
+        { _args = [ "${mainMod} + SHIFT + left"  (lua ''hl.dsp.window.move({ direction = "left" })'') ]; }
+        { _args = [ "${mainMod} + SHIFT + right" (lua ''hl.dsp.window.move({ direction = "right" })'') ]; }
+        { _args = [ "${mainMod} + SHIFT + up"    (lua ''hl.dsp.window.move({ direction = "up" })'') ]; }
+        { _args = [ "${mainMod} + SHIFT + down"  (lua ''hl.dsp.window.move({ direction = "down" })'') ]; }
+
+        # Move Windows (Vim Keys)
+        { _args = [ "${mainMod} + SHIFT + H" (lua ''hl.dsp.window.move({ direction = "left" })'') ]; }
+        { _args = [ "${mainMod} + SHIFT + L" (lua ''hl.dsp.window.move({ direction = "right" })'') ]; }
+        { _args = [ "${mainMod} + SHIFT + K" (lua ''hl.dsp.window.move({ direction = "up" })'') ]; }
+        { _args = [ "${mainMod} + SHIFT + J" (lua ''hl.dsp.window.move({ direction = "down" })'') ]; }
+
+        # Resize Columns (Niri Minus/Equal keys)
+        { _args = [ "${mainMod} + minus"         (lua ''hl.dsp.exec_cmd("hyprctl dispatch resizeactive -5% 0")'') ]; }
+        { _args = [ "${mainMod} + equal"         (lua ''hl.dsp.exec_cmd("hyprctl dispatch resizeactive 5% 0")'') ]; }
+        { _args = [ "${mainMod} + SHIFT + minus" (lua ''hl.dsp.exec_cmd("hyprctl dispatch resizeactive 0 -5%")'') ]; }
+        { _args = [ "${mainMod} + SHIFT + equal" (lua ''hl.dsp.exec_cmd("hyprctl dispatch resizeactive 0 5%")'') ]; }
+
+        # Monitor Focus & Move (Niri Brackets)
+        { _args = [ "${mainMod} + bracketleft"         (lua ''hl.dsp.focus({ monitor = "l" })'') ]; }
+        { _args = [ "${mainMod} + bracketright"        (lua ''hl.dsp.focus({ monitor = "r" })'') ]; }
+        { _args = [ "${mainMod} + SHIFT + bracketleft" (lua ''hl.dsp.window.move({ monitor = "l" })'') ]; }
+        { _args = [ "${mainMod} + SHIFT + bracketright"(lua ''hl.dsp.window.move({ monitor = "r" })'') ]; }
+
+        # Lateral Workspace / Column Scrolling (Niri PageUp/Down)
+        { _args = [ "${mainMod} + Page_Down"         (lua ''hl.dsp.focus({ workspace = "m+1" })'') ]; }
+        { _args = [ "${mainMod} + Page_Up"           (lua ''hl.dsp.focus({ workspace = "m-1" })'') ]; }
+        { _args = [ "${mainMod} + SHIFT + Page_Down" (lua ''hl.dsp.window.move({ workspace = "m+1" })'') ]; }
+        { _args = [ "${mainMod} + SHIFT + Page_Up"   (lua ''hl.dsp.window.move({ workspace = "m-1" })'') ]; }
+
+        # Niri Mouse Wheel behavior (Scrolls columns laterally instead of workspaces)
+        { _args = [ "${mainMod} + mouse_down" (lua ''hl.dsp.focus({ direction = "right" })'') ]; }
+        { _args = [ "${mainMod} + mouse_up"   (lua ''hl.dsp.focus({ direction = "left" })'') ]; }
 
         # Mouse Drag/Resize
         { _args = [ "${mainMod} + mouse:272" (lua "hl.dsp.window.drag()")   { mouse = true; } ]; }
@@ -234,9 +242,7 @@ in {
         ) 10)
       );
 
-      # --------------------------------
       # ---- WINDOWS AND WORKSPACES ----
-      # --------------------------------
       window_rule = [
         {
           name = "suppress-maximize-events";
@@ -256,12 +262,12 @@ in {
         }
       ];
 
-      layer_rule = [
-        { match = { namespace = "waybar"; }; blur = true; }
-        { match = { namespace = "notifications"; }; blur = true; ignore_alpha = 0.5; }
-        { match = { namespace = "swayosd"; }; blur = true; }
-        { match = { namespace = "launcher"; }; blur = true; ignore_alpha = 0.5; }
-      ];
+      # layer_rule = [
+      #   { match = { namespace = "waybar"; }; blur = true; }
+      #   { match = { namespace = "notifications"; }; blur = true; ignore_alpha = 0.5; }
+      #   { match = { namespace = "swayosd"; }; blur = true; }
+      #   { match = { namespace = "launcher"; }; blur = true; ignore_alpha = 0.5; }
+      # ];
 
     };
   };

@@ -3,48 +3,14 @@
 let
   inherit (config.lib.formats.rasi) mkLiteral;
 
-  # 1. Define the wallpaper picker script
-  rofi-wallpaper = pkgs.writeShellScriptBin "rofi-wallpaper" ''
-    #!/usr/bin/env bash
-
-    WALL_DIR="$HOME/Pictures/Wallpapers"
-
-    if [ ! -d "$WALL_DIR" ]; then
-      notify-send "Rofi Wallpaper" "Directory $WALL_DIR not found."
-      exit 1
-    fi
-
-    # 2. Find images, extract filename, and append the path as an icon property for rofi
-    selected=$(find "$WALL_DIR" -type f \( -iname "*.jpg" -o -iname "*.jpeg" -o -iname "*.png" -o -iname "*.webp" \) | while read -r img; do
-      # The \0icon\x1f syntax tells rofi to load the image as a thumbnail
-      echo -en "$(basename "$img")\0icon\x1f$img\n"
-    done | rofi -dmenu \
-      -show-icons \
-      -p "wallpaper " \
-      -theme-str 'window { width: 750px; }' \
-      -theme-str 'listview { columns: 3; lines: 2; flow: horizontal; scrollbar: false; fixed-columns: true; }' \
-      -theme-str 'element { orientation: vertical; padding: 15px; }' \
-      -theme-str 'element-icon { size: 180px; }' \
-      -theme-str 'element-text { horizontal-align: 0.5; }'
-    )
-
-    # 3. If an image was selected, apply it with awww
-    if [ -n "$selected" ]; then
-      # Ensure the daemon is running (adjust to awww-daemon if the binary name differs)
-      awww query || awww daemon &
-      sleep 0.1 
-      
-      # Set the wallpaper
-      awww img "$WALL_DIR/$selected" \
-        --transition-type grow \
-        --transition-pos 0.5,0.5 \
-        --transition-step 90
-    fi
-  '';
+  rofi-wallpaper = pkgs.writeShellApplication {
+    name = "rofi-wallpaper";
+    runtimeInputs = with pkgs; [ rofi imagemagick libnotify ]; 
+    text = builtins.readFile ../scripts/rofi-wallpaper.sh;
+  };
 
 in
 {
-  # Make the script available in your environment
   home.packages = [ rofi-wallpaper ];
 
   programs.rofi = {
@@ -55,7 +21,6 @@ in
       font = "MapleMono NF CN Medium 12";
       display-drun = "drun";
       drun-display-format = "{name}";
-      # Ensure icons are globally allowed so our overrides work
       show-icons = true;
       icon-theme = "pixora";
     };
@@ -81,8 +46,6 @@ in
         background-color = mkLiteral "@bg";
         padding = mkLiteral "25px";
         border = mkLiteral "0px";
-        # Optional: Add a subtle border radius if you like
-        # border-radius = mkLiteral "12px"; 
       };
 
       mainbox = {
@@ -141,8 +104,6 @@ in
       "element selected.normal" = {
         background-color = mkLiteral "@selected-bg";
         text-color = mkLiteral "@selected-fg";
-        # Optional: Round the corners of the selected item
-        # border-radius = mkLiteral "8px";
       };
     };
   };
