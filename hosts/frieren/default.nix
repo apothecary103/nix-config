@@ -24,6 +24,9 @@
 
   # nix.settings.cores = 0; # use all available cores
 
+  hardware.bluetooth.enable = true;
+  hardware.blueman.enable = true;
+
   programs.zsh.enable = true;
 
   users.users.${username} = {
