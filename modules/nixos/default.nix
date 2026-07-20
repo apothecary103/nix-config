@@ -3,6 +3,8 @@
   imports = [
     ./packages.nix
     ./typography.nix
+    ./memory.nix
+    ./bluetooth.nix
   ];
 
   networking.wireless.iwd.enable = true;
