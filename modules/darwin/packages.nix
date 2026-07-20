@@ -6,7 +6,6 @@
       # CLI Tools
     
       # GUI Applications 
-      aseprite
       yabai
       skhd
     ];
