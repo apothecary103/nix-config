@@ -1,18 +1,9 @@
-{ config, pkgs, palette, ... }:
+{ config, palette, ... }:
 
 let
   inherit (config.lib.formats.rasi) mkLiteral;
-
-  rofi-wallpaper = pkgs.writeShellApplication {
-    name = "rofi-wallpaper";
-    runtimeInputs = with pkgs; [ rofi imagemagick libnotify ]; 
-    text = builtins.readFile ../scripts/rofi-wallpaper.sh;
-  };
-
 in
 {
-  home.packages = [ rofi-wallpaper ];
-
   programs.rofi = {
     enable = true;
     
