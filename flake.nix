@@ -55,6 +55,5 @@
   # Dendritic pattern: every file under modules/ is a flake-parts module,
   # auto-imported by import-tree. Features contribute to
   # flake.modules.{nixos,darwin,homeManager}.* and hosts compose them.
-  outputs = inputs:
-    inputs.flake-parts.lib.mkFlake {inherit inputs;} (inputs.import-tree ./modules);
+  outputs = inputs: inputs.flake-parts.lib.mkFlake { inherit inputs; } (inputs.import-tree ./modules);
 }

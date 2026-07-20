@@ -1,5 +1,5 @@
 let
-  fonts = {pkgs, ...}: {
+  fonts = { pkgs, ... }: {
     fonts.packages = with pkgs; [
       # Icon fonts
       material-design-icons
@@ -32,7 +32,8 @@ let
       aporetic
     ];
   };
-in {
+in
+{
   flake.modules.nixos.base = fonts;
   flake.modules.darwin.base = fonts;
 }

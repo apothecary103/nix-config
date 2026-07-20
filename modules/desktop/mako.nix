@@ -1,10 +1,11 @@
 {
-  flake.modules.homeManager.linux = {palette, ...}: {
+  flake.modules.homeManager.linux = { palette, ... }: {
     services.mako = {
       enable = true;
 
       settings = {
-        font = "MapleMono NF CN 11";
+        # Medium weight to match macOS UI heft (TrueType, so no stem darkening).
+        font = "MapleMono NF CN Medium 11";
         width = 350;
         height = 150;
         margin = "15";

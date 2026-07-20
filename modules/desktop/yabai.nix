@@ -1,4 +1,9 @@
 {
+  # yabai and skhd themselves are installed by services.yabai/services.skhd below.
+  flake.modules.homeManager.darwin = { pkgs, ... }: {
+    home.packages = [ pkgs.sketchybar ];
+  };
+
   flake.modules.darwin.base = {
     services.yabai = {
       enable = true;

@@ -1,4 +1,5 @@
-{inputs, ...}: let
+{ inputs, ... }:
+let
   # Catppuccin palettes — https://catppuccin.com/palette
   palettes = {
     macchiato = {
@@ -59,27 +60,28 @@
       crust = "#11111b";
     };
   };
-in {
-  flake.modules.homeManager.base = {pkgs, ...}: let
-    flavor =
-      if pkgs.stdenv.isDarwin
-      then "macchiato"
-      else "mocha";
-  in {
-    imports = [inputs.catppuccin.homeModules.catppuccin];
+in
+{
+  flake.modules.homeManager.base =
+    { pkgs, ... }:
+    let
+      flavor = if pkgs.stdenv.isDarwin then "macchiato" else "mocha";
+    in
+    {
+      imports = [ inputs.catppuccin.homeModules.catppuccin ];
 
-    catppuccin = {
-      enable = true;
-      autoEnable = true;
-      inherit flavor;
-      accent = "blue";
+      catppuccin = {
+        enable = true;
+        autoEnable = true;
+        inherit flavor;
+        accent = "blue";
 
-      helix.enable = false;
-      nushell.enable = false;
+        helix.enable = false;
+        nushell.enable = false;
+      };
+
+      # The matching raw hex palette, for hand-styled configs (waybar, rofi,
+      # mako, tmux, rmpc, ...) that the catppuccin module doesn't cover.
+      _module.args.palette = palettes.${flavor};
     };
-
-    # The matching raw hex palette, for hand-styled configs (waybar, rofi,
-    # mako, tmux, rmpc, ...) that the catppuccin module doesn't cover.
-    _module.args.palette = palettes.${flavor};
-  };
 }
