@@ -32,7 +32,6 @@
     casks = [
       "helium-browser"
       "obs"
-      "colemak-dh"
       "blender"
       "linearmouse"
       "foobar2000"

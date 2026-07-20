@@ -11,7 +11,8 @@
       skhd
       jankyborders
       sketchybar
-      aerospace
+      llama-cpp
+      opencode
       # emacs-unstable
     ];
   };
