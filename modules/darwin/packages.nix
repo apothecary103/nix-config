@@ -6,7 +6,6 @@
       # CLI Tools
       llama-cpp
       qemu
-      inputs.tetro-tui.packages.${system}.default
 
       # GUI Applications
       yabai

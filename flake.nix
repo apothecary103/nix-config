@@ -32,11 +32,6 @@
       inputs.nixpkgs.follows = "nixpkgs";
     };
     nvf.url = "github:notashelf/nvf";
-    tetro-tui.url = "github:Strophox/tetro-tui";
-    yazelix-zellij = {
-      url = "github:luccahuguet/yazelix-zellij";
-      flake = false;
-    };
     emacs-overlay = {
       url = "github:nix-community/emacs-overlay";
       inputs.nixpkgs.follows = "nixpkgs";
