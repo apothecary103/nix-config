@@ -24,8 +24,6 @@
     extraConfig = ''
       yabai -m rule --add app="^System Settings$" manage=off
       yabai -m rule --add app="^Calculator$" manage=off
-
-      borders active_color=0xff8aadf4 inactive_color=0xff494d64 order=above width=3.0 &
     '';
   };
 
@@ -33,6 +31,9 @@
   services.skhd = {
     enable = true;
     skhdConfig = ''
+      # Open Ghostty terminal: Alt + T
+      alt - t: open -n -a Ghostty
+
       # Focus spaces 1 through 9 using Alt + Number
       alt - 1 : yabai -m space --focus 1
       alt - 2 : yabai -m space --focus 2
@@ -44,7 +45,7 @@
       alt - 8 : yabai -m space --focus 8
       alt - 9 : yabai -m space --focus 9
 
-      # Optional: Send focused window to space 1-9 (Shift + Alt + Number)
+      # Send focused window to space 1-9 (Shift + Alt + Number)
       shift + alt - 1 : yabai -m window --space 1
       shift + alt - 2 : yabai -m window --space 2
       shift + alt - 3 : yabai -m window --space 3

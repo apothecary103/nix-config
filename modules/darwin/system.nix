@@ -1,186 +1,163 @@
 { pkgs, config, username, ... }:
 
 {
+  # Core System Setup
+  system.stateVersion = 6;
   system.primaryUser = username;
 
-  system = {
-    stateVersion = 6;
-
-    defaults = {
-      menuExtraClock.Show24Hour = true;  # show 24 hour clock
-      # smb.NetBIOSName = hostname;
-      smb.NetBIOSName = config.networking.hostName;
-
-      # other macOS's defaults configuration.
-      # ......
-    };
-  };
-
-  # Add ability to used TouchID for sudo authentication
+  # Security
   security.pam.services.sudo_local.touchIdAuth = true;
 
+  system.keyboard = {
+    enableKeyMapping = true;
+    
+    # Map Caps Lock (HID 0x39) to Backspace/Delete (HID 0x2A)
+    # Base macOS keyboard HID value is 0x700000000 (30064771072 in decimal)
+    userKeyMapping = [
+      {
+        HIDKeyboardModifierMappingSrc = 30064771129;
+        HIDKeyboardModifierMappingDst = 30064771114;
+      }
+    ];
+  };
+
+  # macOS System Defaults
   system.defaults = {
-    NSGlobalDomain = {
-      # Auto hide the menubar
-      _HIHideMenuBar = false;
-
-      # Enable full keyboard access for all controls
-      AppleKeyboardUIMode = 3;
-
-      # Enable press-and-hold repeating
-      ApplePressAndHoldEnabled = false;
-      InitialKeyRepeat = 10;
-      KeyRepeat = 2;
-
-      # Disable "Natural" scrolling
-      # "com.apple.swipescrolldirection" = false;
-
-      # Disable smart dash/period/quote substitutions
-      NSAutomaticDashSubstitutionEnabled = false;
-      NSAutomaticPeriodSubstitutionEnabled = false;
-      NSAutomaticQuoteSubstitutionEnabled = false;
-
-      # Disable automatic capitalization
-      NSAutomaticCapitalizationEnabled = false;
-
-      # Using expanded "save panel" by default
-      NSNavPanelExpandedStateForSaveMode = true;
-      NSNavPanelExpandedStateForSaveMode2 = true;
-
-      # Increase window resize speed for Cocoa applications
-      NSWindowResizeTime = 0.001;
-
-      # Save to disk (not to iCloud) by default
-      NSDocumentSaveNewDocumentsToCloud = true;
-    };
-
-    dock = {
-      # Set icon size and dock orientation
-      tilesize = 64;
-      orientation = "bottom";
-
-      # Set dock to auto-hide, and transparentize icons of hidden apps (⌘H)
-      autohide = true;
-      showhidden = true;
-
-      # Disable to show recents, and light-dot of running apps
-      show-recents = false;
-      show-process-indicators = true;
-
-      mru-spaces = false;
-    };
-
-    finder = {
-      # Allow quitting via ⌘Q
-      QuitMenuItem = true;
-
-      # Disable warning when changing a file extension
-      FXEnableExtensionChangeWarning = false;
-
-      # Show all files and their extensions
-      AppleShowAllExtensions = true;
-      AppleShowAllFiles = true;
-
-      # Show path bar, and layout as multi-column
-      ShowPathbar = true;
-      FXPreferredViewStyle = "clmv";
-
-      # Search in current folder by default
-      FXDefaultSearchScope = "SCcf";
-    };
-
-    trackpad = {
-      # Enable trackpad tap to click
-      Clicking = true;
-
-      # Enable 3-finger drag
-      TrackpadThreeFingerDrag = true;
-    };
+    menuExtraClock.Show24Hour = true;
+    smb.NetBIOSName = config.networking.hostName;
 
     ActivityMonitor = {
-      # Sort by CPU usage
       SortColumn = "CPUUsage";
       SortDirection = 0;
     };
 
     LaunchServices = {
-      # Disable quarantine for downloaded apps
-      LSQuarantine = false;
+      LSQuarantine = false; # Disable quarantine for downloaded apps
     };
 
+    NSGlobalDomain = {
+      # Keyboard
+      AppleKeyboardUIMode = 3;
+      ApplePressAndHoldEnabled = false;
+      InitialKeyRepeat = 10;
+      KeyRepeat = 2;
+
+      # Text Correction
+      NSAutomaticCapitalizationEnabled = false;
+      NSAutomaticDashSubstitutionEnabled = false;
+      NSAutomaticPeriodSubstitutionEnabled = false;
+      NSAutomaticQuoteSubstitutionEnabled = false;
+
+      # Windows and Menus
+      _HIHideMenuBar = false;
+      NSWindowResizeTime = 0.001;
+
+      # File Saving
+      NSDocumentSaveNewDocumentsToCloud = false;
+      NSNavPanelExpandedStateForSaveMode = true;
+      NSNavPanelExpandedStateForSaveMode2 = true;
+    };
+
+    dock = {
+      autohide = true;
+
+      autohide-delay = 0.0;
+      autohide-time-modifier = 0.0;
+      expose-animation-duration = 0.1;
+      mineffect = "scale";
+      launchanim = false;
+
+      mru-spaces = false;
+      orientation = "bottom";
+      show-process-indicators = true;
+      show-recents = false;
+      showhidden = true;
+      tilesize = 64;
+    };
+
+    finder = {
+      AppleShowAllExtensions = true;
+      AppleShowAllFiles = true;
+      FXDefaultSearchScope = "SCcf";
+      FXEnableExtensionChangeWarning = false;
+      FXPreferredViewStyle = "clmv";
+      QuitMenuItem = true;
+      ShowPathbar = true;
+      ShowStatusBar = true;
+    };
+
+    trackpad = {
+      Clicking = true;
+      TrackpadThreeFingerDrag = true;
+    };
+
+    # Unmapped macOS preferences
     CustomSystemPreferences = {
       NSGlobalDomain = {
-        # Set the system accent color, TODO: https://github.com/LnL7/nix-darwin/pull/230
         AppleAccentColor = 6;
-        # Jump to the spot that's clicked on the scroll bar, TODO: https://github.com/LnL7/nix-darwin/pull/672
         AppleScrollerPagingBehavior = true;
-        # Prefer tabs when opening documents, TODO: https://github.com/LnL7/nix-darwin/pull/673
         AppleWindowTabbingMode = "always";
+        QLPanelAnimationDuration = 0;
       };
+
+      "com.apple.AdLib" = {
+        allowApplePersonalizedAdvertising = false;
+        allowIdentifierForAdvertising = false;
+        forceLimitAdTracking = true;
+      };
+
+      "com.apple.CrashReporter" = {
+        DialogType = "none";
+      };
+
+      "com.apple.Siri" = {
+        StatusMenuVisible = false;
+        UserHasDeclinedEnable = true;
+      };
+
+      "com.apple.desktopservices" = {
+        DSDontWriteNetworkStores = true;
+        DSDontWriteUSBStores = true;
+      };
+
       "com.apple.finder" = {
-        # Keep the desktop clean
-        ShowHardDrivesOnDesktop = false;
-        ShowRemovableMediaOnDesktop = false;
-        ShowExternalHardDrivesOnDesktop = false;
-        ShowMountedServersOnDesktop = false;
-
-        # Show directories first
-        _FXSortFoldersFirst = true; # TODO: https://github.com/LnL7/nix-darwin/pull/594
-
-        # New window use the $HOME path
         NewWindowTarget = "PfHm";
         NewWindowTargetPath = "file://$HOME/";
-
-        # Allow text selection in Quick Look
         QLEnableTextSelection = true;
+        ShowExternalHardDrivesOnDesktop = false;
+        ShowHardDrivesOnDesktop = false;
+        ShowMountedServersOnDesktop = false;
+        ShowRemovableMediaOnDesktop = false;
+        _FXSortFoldersFirst = true;
       };
-      "com.apple.Safari" = {
-        # For better privacy
-        UniversalSearchEnabled = false;
-        SuppressSearchSuggestions = true;
-        SendDoNotTrackHTTPHeader = true;
 
-        # Disable auto open safe downloads
-        AutoOpenSafeDownloads = false;
-
-        # Enable Develop Menu, Web Inspector
-        IncludeDevelopMenu = true;
-        IncludeInternalDebugMenu = true;
-        WebKitDeveloperExtras = true;
-        WebKitDeveloperExtrasEnabledPreferenceKey = true;
-        "com.apple.Safari.ContentPageGroupIdentifier.WebKit2DeveloperExtrasEnabled" = true;
-      };
-      "com.apple.universalaccess" = {
-        # Set the cursor size, TODO: https://github.com/LnL7/nix-darwin/pull/671
-        # mouseDriverCursorSize = 1.5;
-      };
-      "com.apple.screencapture" = {
-        # Set the filename which screencaptures should be written, TODO: https://github.com/LnL7/nix-darwin/pull/670
-        name = "screenshot";
-        include-date = false;
-      };
-      "com.apple.desktopservices" = {
-        # Avoid creating .DS_Store files on USB or network volumes
-        DSDontWriteUSBStores = true;
-        DSDontWriteNetworkStores = true;
-      };
       "com.apple.frameworks.diskimages" = {
-        # Disable disk image verification
         skip-verify = true;
         skip-verify-locked = true;
         skip-verify-remote = true;
       };
-      "com.apple.CrashReporter" = {
-        # Disable crash reporter
-        DialogType = "none";
+
+      "com.apple.Safari" = {
+        AutoOpenSafeDownloads = false;
+        IncludeDevelopMenu = true;
+        IncludeInternalDebugMenu = true;
+        SendDoNotTrackHTTPHeader = true;
+        SuppressSearchSuggestions = true;
+        UniversalSearchEnabled = false;
+        WebKitDeveloperExtras = true;
+        WebKitDeveloperExtrasEnabledPreferenceKey = true;
+        "com.apple.Safari.ContentPageGroupIdentifier.WebKit2DeveloperExtrasEnabled" = true;
       };
-      "com.apple.AdLib" = {
-        # Disable personalized advertising
-        forceLimitAdTracking = true;
-        allowApplePersonalizedAdvertising = false;
-        allowIdentifierForAdvertising = false;
+
+      "com.apple.screencapture" = {
+        name = "screenshot";
+        include-date = false;
+        disable-shadow = true;
+      };
+
+      "com.apple.universalaccess" = {
+        # mouseDriverCursorSize = 1.5;
       };
     };
   };
-
 }

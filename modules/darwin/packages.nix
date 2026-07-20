@@ -4,20 +4,20 @@
   home-manager.users.${username} = {
     home.packages = with pkgs; [
       # CLI Tools
+      llama-cpp
+      opencode
+      qemu
+      inputs.tetro-tui.packages.${system}.default
 
       # GUI Applications
       yabai
       skhd
       sketchybar
-      llama-cpp
-      opencode
-      moonlight-qt
-      utm
       aseprite
-      inputs.tetro-tui.packages.${system}.default
-      # steam
       emacs-unstable
       teamspeak6-client
+      # steam
+      # moonlight-qt
     ];
   };
 }

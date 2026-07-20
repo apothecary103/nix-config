@@ -5,18 +5,8 @@
 }:
 {
   nixpkgs.config.allowUnfree = true;
-  # nixpkgs.config.allowUnfreePredicate = pkg: builtins.elem (lib.getName pkg) [
-  #   "azuki"
-  #   "teamspeak6-client"
-  # ];
-
+  
   nix = {
-    # Determinate uses its own daemon to manage the Nix installation that
-    # conflicts with nix-darwin's native Nix management.
-    #
-    # TODO: set this to false if you're using Determinate Nix.
-    # NOTE: Turning off this option will invalidate all of the following nix configurations, 
-    # and you will need to manually modify /etc/nix/nix.custom.conf to add the corresponding parameters.
     enable = true;
 
     package = pkgs.nix;
@@ -28,9 +18,6 @@
         "flakes"
       ];
 
-      # Disable auto-optimise-store because of this issue:
-      #   https://github.com/NixOS/nix/issues/7273
-      # "error: cannot link '/nix/store/.tmp-link-xxxxx-xxxxx' to '/nix/store/.links/xxxx': File exists"
       auto-optimise-store = true;
     };
 
