@@ -1,5 +1,8 @@
-{ config, lib, pkgs, ... }:
+{ config, lib, pkgs, theme, ... }:
 
+let
+  c = theme.colors;
+in
 {
   programs.waybar = {
     enable = true;
@@ -99,8 +102,8 @@
       }
 
       window#waybar {
-          background-color: #24273a;
-          color: #cad3f5;
+          background-color: ${c.base};
+          color: ${c.text};
       }
 
       .modules-left {
@@ -112,15 +115,15 @@
       }
 
       #workspaces button {
-          background-color: #24273a;
-          color: #cad3f5;
+          background-color: ${c.base};
+          color: ${c.text};
           padding: 0 10px;
           
           background-image:
-              linear-gradient(#cad3f5, #cad3f5), /* top edge */
-              linear-gradient(#cad3f5, #cad3f5), /* bottom edge */
-              linear-gradient(#cad3f5, #cad3f5), /* left edge */
-              linear-gradient(#cad3f5, #cad3f5); /* right edge */
+              linear-gradient(${c.text}, ${c.text}), /* top edge */
+              linear-gradient(${c.text}, ${c.text}), /* bottom edge */
+              linear-gradient(${c.text}, ${c.text}), /* left edge */
+              linear-gradient(${c.text}, ${c.text}); /* right edge */
           background-size:
               5px 1px, /* top width/height */
               5px 1px, /* bottom width/height */
@@ -135,10 +138,10 @@
       }
 
       #workspaces button.active {
-          background-color: #8aadf4;
-          color: #24273a;
+          background-color: ${theme.accentColor};
+          color: ${c.base};
           
-          background-image: linear-gradient(#24273a, #24273a);
+          background-image: linear-gradient(${c.base}, ${c.base});
           background-size: 5px 5px;
           background-position: 2px 2px;
       }
@@ -154,18 +157,18 @@
 
       #custom-layout {
           padding: 0 8px;
-          color: #cad3f5;
+          color: ${c.text};
       }
 
       #window {
           padding: 0 12px;
-          background-color: #8aadf4;
-          color: #24273a;
+          background-color: ${theme.accentColor};
+          color: ${c.base};
       }
 
       #tray, #network, #battery, #pulseaudio, #clock {
-          background-color: #24273a;
-          color: #cad3f5;
+          background-color: ${c.base};
+          color: ${c.text};
           padding: 0;
       }
 

@@ -6,7 +6,6 @@ in
 {
   home.packages = with pkgs; [
     mpc
-    rmpc
   ];
 
   services.mpd = {

@@ -1,4 +1,4 @@
-{ inputs, pkgs, ... }:
+{ inputs, pkgs, theme, ... }:
 {
   programs.helix = {
     enable = true;
@@ -6,9 +6,8 @@
     package = inputs.helix.packages.${pkgs.system}.default;
 
     themes = {
-      catppuccin_macchiato_transparent = {
-        inherits = "catppuccin_macchiato";
-        # inherits = "mellow";
+      catppuccin_transparent = {
+        inherits = theme.slug;
         "ui.background" = {
           bg = "none";
         };
@@ -16,7 +15,7 @@
     };
 
     settings = {
-      theme = "catppuccin_macchiato_transparent";
+      theme = "catppuccin_transparent";
 
       editor = {
         true-color = true;

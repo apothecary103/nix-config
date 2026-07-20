@@ -16,8 +16,4 @@
   };
 
   services.mpdris2-rs.enable = true;
-
-  programs.rmpc = {
-    enable = true;
-  };
 }

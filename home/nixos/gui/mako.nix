@@ -1,5 +1,8 @@
-{ ... }:
+{ theme, ... }:
 
+let
+  c = theme.colors;
+in
 {
   services.mako = {
     enable = true;
@@ -22,23 +25,23 @@
       ignore-timeout = true;
       sort = "-time";
 
-      background-color = "#24273ae6";
-      text-color = "#cad3f5";
-      progress-color = "over #c6a0f6";
+      background-color = "${c.base}e6";
+      text-color = c.text;
+      progress-color = "over ${c.mauve}";
 
       "urgency=low" = {
-        text-color = "#a6da95";
+        text-color = c.green;
         default-timeout = 3000;
       };
 
       "urgency=normal" = {
-        text-color = "#cad3f5";
+        text-color = c.text;
         default-timeout = 5000;
       };
 
       "urgency=critical" = {
-        background-color = "#24273ae6";
-        text-color = "#ed8796";
+        background-color = "${c.base}e6";
+        text-color = c.red;
         default-timeout = 0;
       };
     };
