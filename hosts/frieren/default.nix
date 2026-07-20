@@ -5,6 +5,9 @@
   ...
 }:
 
+let
+  pkgsCfg = import ../../pkgs { inherit inputs; };
+in
 {
   imports = [
     ./hardware-configuration.nix
@@ -14,7 +17,7 @@
     inputs.apple-silicon.nixosModules.apple-silicon-support
   ];
 
-  nixpkgs.overlays = [ (import ../../pkgs) ];
+  nixpkgs.overlays = pkgsCfg.overlays;
 
   networking.hostName = "frieren";
 
@@ -130,7 +133,7 @@
     };
 
     users.${username} = {
-      imports = [
+      imports = pkgsCfg.homeModules ++ [
         ../../home/base
         ../../home/nixos
       ];

@@ -25,6 +25,8 @@
       nh
       krabby
       opencode
+      fd
+      comma
     
       # GUI Applications 
       prismlauncher

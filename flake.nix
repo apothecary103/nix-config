@@ -55,16 +55,8 @@
     }:
     let
       username = "apothecary";
-
-      yaaglPackages = pkgs: pkgs.callPackage ./pkgs/yaagl { };
-      teamspeak6-client = pkgs: pkgs.callPackage ./pkgs/teamspeak6-client { };
     in
     {
-      packages.aarch64-darwin = (yaaglPackages nixpkgs.legacyPackages.aarch64-darwin) // {
-        teamspeak6-client = teamspeak6-client nixpkgs.legacyPackages.aarch64-darwin;
-      };
-      packages.x86_64-darwin = yaaglPackages nixpkgs.legacyPackages.x86_64-darwin;
-
       darwinConfigurations."fern" = darwin.lib.darwinSystem {
         system = "aarch64-darwin";
         specialArgs = { inherit inputs username; };

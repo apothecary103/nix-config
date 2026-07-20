@@ -44,25 +44,22 @@
       bind -n S-Left previous-window
       bind -n S-Right next-window
 
-      # --- Minimal Tab UI ---
-      # Put the tab bar at the top (change to 'bottom' if preferred)
-      set -g status-position top
-      set -g status-justify left
-      
-      # Solid background color for the status bar
+      # --- Statusline ---
+      set -g status-position bottom
+      set -g status-justify left      
       set -g status-style "bg=#1e2030,fg=#cad3f5"
 
-      # Left side empty (no session name)
+      # Left side:
       set -g status-left ""
 
-      # Right side: Clean clock (Hours:Minutes)
+      # Right side:
       set -g status-right-length 50
       set -g status-right "#[fg=#a5adce,bg=#1e2030] %H:%M "
 
-      # Inactive Tab: Subtle grey text, matches bar background
+      # Inactive Tab:
       setw -g window-status-format "#[fg=#5b6078,bg=#1e2030] #I #W "
       
-      # Active Tab: Bold blue background, dark text
+      # Active Tab:
       setw -g window-status-current-format "#[fg=#1e2030,bg=#8aadf4,bold] #I #W#{?window_zoomed_flag, [Z],} "
 
       # --- Pane & Message Styling ---
