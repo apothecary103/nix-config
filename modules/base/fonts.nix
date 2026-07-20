@@ -1,6 +1,10 @@
-{ pkgs, config, ... }:
+{ pkgs, lib, ... }:
 
 {
+  nixpkgs.config.allowUnfreePredicate = pkg: builtins.elem (lib.getName pkg) [
+    "azuki"
+  ];
+
   fonts = {
     packages = with pkgs; [
       # Icon fonts
@@ -26,6 +30,9 @@
 
       # Maple Mono NF CN
       maple-mono.NF-CN-unhinted
+
+      # Azuki
+      azuki
     ];
   };
 }

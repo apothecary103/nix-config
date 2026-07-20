@@ -1,9 +1,5 @@
-{ inputs, ... }:
+{ ... }:
 {
-  imports = [
-    inputs.catppuccin.homeModules.catppuccin
-  ];
-
   programs.yazi = {
     enable = true;
     enableBashIntegration = true;
@@ -21,11 +17,5 @@
         image_filter = "lanczos3";
       };
     };
-  };
-
-  catppuccin.yazi = {
-    enable = true;
-    flavor = "macchiato";
-    accent = "blue";
   };
 }
