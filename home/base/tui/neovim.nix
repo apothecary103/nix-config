@@ -46,8 +46,24 @@
           transparent = true;
         };
 
-        binds.whichKey.enable = true;
-        telescope.enable = true;
+        extraPlugins = {
+          aylin-vim = {
+            package = pkgs.vimPlugins.aylin-vim;
+          };
+        };
+
+        telescope = {
+          enable = true;
+          setupOpts.defaults.borderchars = [ "─" "│" "─" "│" "┌" "┐" "┘" "└" ];
+        };
+
+        binds.whichKey = {
+          enable = true;
+          setupOpts = {
+            preset = "helix"; 
+          };
+        };
+
         comments.comment-nvim.enable = true;
         notes.todo-comments.enable = true;
         git.gitsigns.enable = true;
@@ -74,3 +90,4 @@
     };
   };
 }
+

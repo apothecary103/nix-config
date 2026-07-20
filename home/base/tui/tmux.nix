@@ -11,7 +11,6 @@
     terminal = "tmux-256color";
 
     plugins = with pkgs.tmuxPlugins; [
-      cpu
       yank
     ];
 
@@ -25,6 +24,7 @@
       set -g focus-events on
       set-option -g renumber-windows on
 
+      # --- Keybinds ---
       bind-key -T copy-mode-vi v send-keys -X begin-selection
       bind-key -T copy-mode-vi C-v send-keys -X rectangle-toggle
       bind-key -T copy-mode-vi y send-keys -X copy-selection-and-cancel
@@ -44,24 +44,31 @@
       bind -n S-Left previous-window
       bind -n S-Right next-window
 
-      set -g status-position bottom
+      # --- Minimal Tab UI ---
+      # Put the tab bar at the top (change to 'bottom' if preferred)
+      set -g status-position top
       set -g status-justify left
+      
+      # Solid background color for the status bar
       set -g status-style "bg=#1e2030,fg=#cad3f5"
 
-      set -g status-left-length 40
-      set -g status-left "#[bg=#c6a0f6,fg=#181926,bold] #S #[bg=#1e2030,fg=#1e2030] "
+      # Left side empty (no session name)
+      set -g status-left ""
 
+      # Right side: Clean clock (Hours:Minutes)
+      set -g status-right-length 50
+      set -g status-right "#[fg=#a5adce,bg=#1e2030] %H:%M "
+
+      # Inactive Tab: Subtle grey text, matches bar background
       setw -g window-status-format "#[fg=#5b6078,bg=#1e2030] #I #W "
-      setw -g window-status-current-format "#[fg=#8aadf4,bg=#1e2030,bold] #I #W#{?window_zoomed_flag, [Z],} "
+      
+      # Active Tab: Bold blue background, dark text
+      setw -g window-status-current-format "#[fg=#1e2030,bg=#8aadf4,bold] #I #W#{?window_zoomed_flag, [Z],} "
 
-      set -g status-right-length 120
-      set -g status-right "#[fg=#8087a2]#{pane_current_command} #[fg=#494d64]• #[fg=#cad3f5]cpu:#{cpu_percentage} #[fg=#494d64]• #[fg=#cad3f5]mem:#{ram_percentage} "
-
+      # --- Pane & Message Styling ---
       set -g pane-border-style "fg=#363a4f"
       set -g pane-active-border-style "fg=#c6a0f6"
       set -g message-style "bg=#363a4f,fg=#cad3f5,bold"
-      setw -g window-status-activity-style "fg=#eed49f,bg=#1e2030,none"
-      setw -g window-status-bell-style "fg=#ed8796,bg=#1e2030,bold"
     '';
   };
 }
