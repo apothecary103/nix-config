@@ -17,12 +17,16 @@
   programs.fzf = {
     enable = true;
     enableFishIntegration = true;
-    defaultOptions = [ 
-      "--color=bg:-1,bg+:-1" 
-    ];
+    colors = {
+      bg = "-1";
+      "bg+" = "-1";
+    };
   };
 
-  programs.bat.enable = true;
+  programs.bat = {
+    enable = true;
+    extraPackages = with pkgs.bat-extras; [ batman batgrep ];
+  };
 
   home.sessionVariables = {
     MANPAGER = "sh -c 'col -bx | bat -l man -p'";
@@ -32,7 +36,7 @@
   programs.fish = {
     enable = true;
 
-    interactiveShellInit = ''
+    interactiveShellInit = /* fish */ ''
       set -g fish_greeting ""
 
       set -g hydro_symbol_start "\n"
@@ -49,6 +53,10 @@
       set -g fish_cursor_insert block
       set -g fish_cursor_replace_one underscore
       set -g fish_cursor_visual block
+
+      function log_history --on-event fish_preexec
+          echo "$argv" >> ~/.local/share/fish/full_history
+      end
 
       fish_vi_cursor
     '';

@@ -14,7 +14,7 @@
       yank
     ];
 
-    extraConfig = ''
+    extraConfig = /* shell */ ''
       set -g window-style "bg=default"
       set -g window-active-style "bg=default"
       set -as terminal-features ",*:RGB"
