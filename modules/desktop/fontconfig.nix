@@ -30,7 +30,7 @@
       # monospace stays Maple Mono NF CN — a deliberate coding/terminal choice,
       # not part of the "horrible" UI stack this replaces.
       defaultFonts = {
-        monospace = ["Maple Mono NF CN"];
+        monospace = [ "Maple Mono NF CN" ];
         sansSerif = [
           "Adwaita Sans"
           "Noto Sans"
@@ -40,7 +40,7 @@
           "Source Serif 4"
           "Noto Serif"
         ];
-        emoji = ["Noto Color Emoji"];
+        emoji = [ "Noto Color Emoji" ];
       };
 
       # macOS applies a light "font smoothing" that fattens text; FreeType's
