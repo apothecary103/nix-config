@@ -15,8 +15,8 @@
         macos-option-as-alt = true;
 
         # Wayland specific tweaks
-        # window-decoration = "server";
-        window-decoration = "none";
+        window-decoration = "server";
+        # window-decoration = "none";
         alpha-blending = "linear";
 
         background-opacity = 0.93;
