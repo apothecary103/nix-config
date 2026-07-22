@@ -31,6 +31,61 @@
         };
     };
 
+    // Coding digraphs, emitted by the base-layer combos below so the operators
+    // that dominate Rust/C/TS/Nix/shell don't cost a symbol-layer hold + two
+    // presses each.
+    macros {
+        cd_arrow: cd_arrow {          // ->
+            compatible = "zmk,behavior-macro";
+            #binding-cells = <0>;
+            bindings = <&kp MINUS &kp GT>;
+        };
+        cd_fatarrow: cd_fatarrow {    // =>
+            compatible = "zmk,behavior-macro";
+            #binding-cells = <0>;
+            bindings = <&kp EQUAL &kp GT>;
+        };
+        cd_dcolon: cd_dcolon {        // ::
+            compatible = "zmk,behavior-macro";
+            #binding-cells = <0>;
+            bindings = <&kp COLON &kp COLON>;
+        };
+        cd_eq: cd_eq {                // ==
+            compatible = "zmk,behavior-macro";
+            #binding-cells = <0>;
+            bindings = <&kp EQUAL &kp EQUAL>;
+        };
+        cd_neq: cd_neq {              // !=
+            compatible = "zmk,behavior-macro";
+            #binding-cells = <0>;
+            bindings = <&kp EXCL &kp EQUAL>;
+        };
+        cd_and: cd_and {              // &&
+            compatible = "zmk,behavior-macro";
+            #binding-cells = <0>;
+            bindings = <&kp AMPS &kp AMPS>;
+        };
+        cd_or: cd_or {                // ||
+            compatible = "zmk,behavior-macro";
+            #binding-cells = <0>;
+            bindings = <&kp PIPE &kp PIPE>;
+        };
+    };
+
+    // Adjacent non-bigram pairs OFF the home row (which is all mod-taps), so a
+    // combo never collides with a home-row mod or a normal typing roll. Tight
+    // 50ms window keeps them to deliberate simultaneous presses; base layer only.
+    combos {
+        compatible = "zmk,combos";
+        combo_arrow    { timeout-ms = <50>; key-positions = <2 3>;   bindings = <&cd_arrow>;    layers = <0>; };  // D+W  -> ->
+        combo_fatarrow { timeout-ms = <50>; key-positions = <3 4>;   bindings = <&cd_fatarrow>; layers = <0>; };  // W+Z  -> =>
+        combo_dcolon   { timeout-ms = <50>; key-positions = <22 23>; bindings = <&cd_dcolon>;   layers = <0>; };  // M+C  -> ::
+        combo_eq       { timeout-ms = <50>; key-positions = <23 24>; bindings = <&cd_eq>;       layers = <0>; };  // C+V  -> ==
+        combo_neq      { timeout-ms = <50>; key-positions = <25 26>; bindings = <&cd_neq>;      layers = <0>; };  // K+P  -> !=
+        combo_or       { timeout-ms = <50>; key-positions = <26 27>; bindings = <&cd_or>;       layers = <0>; };  // P+,  -> ||
+        combo_and      { timeout-ms = <50>; key-positions = <5 6>;   bindings = <&cd_and>;      layers = <0>; };  // '+F  -> &&
+    };
+
     keymap {
         compatible = "zmk,keymap";
 
@@ -58,11 +113,11 @@
 // │    `     │    ~     │    #     │    &     │    |     │    │    "     │    {     │    }     │    [     │    ]     │
     &kp GRAVE  &kp TILDE  &kp HASH   &kp AMPS   &kp PIPE        &kp DQT    &kp LBRC   &kp RBRC   &kp LBKT   &kp RBKT
 // ├──────────┼──────────┼──────────┼──────────┼──────────┤    ├──────────┼──────────┼──────────┼──────────┼──────────┤
-// │    !     │    _     │    :     │    =     │    $     │    │    @     │    (     │    )     │    _     │    ;     │
-    &kp EXCL   &kp UNDER  &kp COLON  &kp EQUAL  &kp DLLR        &kp AT     &kp LPAR   &kp RPAR   &kp UNDER  &kp SEMI
+// │    !     │    ?     │    :     │    =     │    $     │    │    -     │    (     │    )     │    _     │    ;     │
+    &kp EXCL   &kp QMARK  &kp COLON  &kp EQUAL  &kp DLLR        &kp MINUS  &kp LPAR   &kp RPAR   &kp UNDER  &kp SEMI
 // ├──────────┼──────────┼──────────┼──────────┼──────────┤    ├──────────┼──────────┼──────────┼──────────┼──────────┤
-// │    %     │    ?     │    *     │    +     │    \     │    │    /     │    -     │    <     │    >     │    ^     │
-    &kp PRCNT  &kp QMARK  &kp STAR   &kp PLUS   &kp BSLH        &kp SLASH  &kp MINUS  &kp LT     &kp GT     &kp CARET
+// │    %     │          │    *     │    +     │    \     │    │    /     │    @     │    <     │    >     │    ^     │
+    &kp PRCNT  &none      &kp STAR   &kp PLUS   &kp BSLH        &kp SLASH  &kp AT     &kp LT     &kp GT     &kp CARET
 // ╰──────────┴──────────┴──────────┼──────────┼──────────┤    ├──────────┼──────────┼──────────┴──────────┴──────────╯
                                    &trans     &trans          &trans     &trans
             >;
@@ -109,31 +164,13 @@
     //│  F1      │  F2      │  F3      │  F4      │  F5      │   │  F6      │  F7      │  F8      │  F9      │  F10     │
         &kp F1     &kp F2     &kp F3     &kp F4     &kp F5         &kp F6     &kp F7     &kp F8     &kp F9     &kp F10
     //├──────────┼──────────┼──────────┼──────────┼──────────┤   ├──────────┼──────────┼──────────┼──────────┼──────────┤
-    //│BOOTLOADER│ TETRIS!  │          │          │          │   │          │PROFILE 0 │PROFILE 1 │PROFILE 2 │BOOTLOADER│
+    //│BOOTLOADER│          │          │          │          │   │          │PROFILE 0 │PROFILE 1 │PROFILE 2 │BOOTLOADER│
       &bootloader   &tog 5     &trans     &trans     &trans        &trans &bt BT_SEL 0 &bt BT_SEL 1 &bt BT_SEL 2 &bootloader
     //├──────────┼──────────┼──────────┼──────────┼──────────┤   ├──────────┼──────────┼──────────┼──────────┼──────────┤
     //│ RESET    │          │          │          │          │   │          │  CLEAR   │          │CLEAR ALL │  RESET   │
        &sys_reset   &trans     &trans     &trans     &trans         &trans   &bt BT_CLR   &trans &bt BT_CLR_ALL &sys_reset
     //╰──────────┴──────────┴──────────┼──────────┼──────────┤   ├──────────┼──────────┼──────────┴──────────┴──────────╯
                                           &trans     &trans         &trans     &trans
-    //                                 ╰──────────┴──────────╯   ╰──────────┴──────────╯
-            >;
-        };
-
-        /* LAYER 5: Tetris */
-        tetris_layer {
-            bindings = <
-    //╭──────────┬──────────┬──────────┬──────────┬──────────╮   ╭──────────┬──────────┬──────────┬──────────┬──────────╮
-    //│   ESC    │   LEFT   │  RIGHT   │   DOWN   │  SPACE   │   │    X     │    Z     │    A     │    C     │    R     │
-        &kp ESC     &kp LEFT   &kp RIGHT  &kp DOWN   &kp SPACE       &kp X     &kp Z      &kp A      &kp C      &kp R
-    //├──────────┼──────────┼──────────┼──────────┼──────────┤   ├──────────┼──────────┼──────────┼──────────┼──────────┤
-    //│   ESC    │   LEFT   │  RIGHT   │   DOWN   │  SPACE   │   │    X     │    Z     │    A     │    C     │    R     │
-        &kp ESC     &kp LEFT   &kp RIGHT  &kp DOWN   &kp SPACE       &kp X     &kp Z      &kp A      &kp C      &kp R
-    //├──────────┼──────────┼──────────┼──────────┼──────────┤   ├──────────┼──────────┼──────────┼──────────┼──────────┤
-    //│   ESC    │   LEFT   │  RIGHT   │   DOWN   │  SPACE   │   │    X     │    Z     │    A     │    C     │    R     │
-        &kp ESC     &kp LEFT   &kp RIGHT  &kp DOWN   &kp SPACE       &kp X     &kp Z      &kp A      &kp C      &kp R
-    //╰──────────┴──────────┴──────────┼──────────┼──────────┤   ├──────────┼──────────┼──────────┴──────────┴──────────╯
-                                          &tog 5     &kp SPACE       &kp C     &kp ESC
     //                                 ╰──────────┴──────────╯   ╰──────────┴──────────╯
             >;
         };
