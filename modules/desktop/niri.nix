@@ -40,6 +40,11 @@
           };
         };
 
+        # ---- OUTPUT ----
+        output."eDP-1" = {
+          max-bpc = 10;
+        };
+
         # ---- LAYOUT / LOOK & FEEL ----
         # Mostly niri's built-in defaults. The per-window border stays off (no
         # outline box); only the focus-ring is kept, recoloured to the Catppuccin
@@ -346,23 +351,5 @@
           "Mod+Shift+P".action = power-off-monitors;
         };
       };
-
-      # ---- OUTPUTS / 10-BIT COLOUR (eDP-1) ----
-      # niri auto-picks the mode, refresh rate and (fractional) scale for the
-      # internal Retina panel from its EDID; we only pin the bit depth. `max-bpc
-      # 10` drives the panel at 10 bits per channel — the option that keeps us on
-      # niri-unstable. It isn't in niri-flake's typed settings schema yet, so we
-      # append it as raw KDL to the rendered config and re-validate the whole file
-      # against niri-unstable (mkForce replaces niri-flake's own writer source).
-      # Requires a niri restart, not a live-reload.
-      xdg.configFile.niri-config.source = lib.mkForce (
-        inputs.niri.lib.internal.validated-config-for pkgs pkgs.niri-unstable ''
-          ${config.programs.niri.finalConfig}
-          // 10-bit colour on the internal Retina panel (see module note).
-          output "eDP-1" {
-              max-bpc 10
-          }
-        ''
-      );
     };
 }
