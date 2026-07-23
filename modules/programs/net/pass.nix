@@ -48,6 +48,18 @@
         browsers = [ "librewolf" ]; # Defaults to all supported browsers if omitted
       };
 
+      # Helium (a Chromium fork, installed as a Homebrew cask on darwin) isn't
+      # in programs.browserpass's supported-browser list, so register its native
+      # messaging host by hand. The chromium host manifest browserpass ships
+      # already whitelists the Browserpass extension IDs; Helium loads it from
+      # its app-support NativeMessagingHosts dir (bundle id net.imput.helium).
+      # You still have to install the Browserpass extension from the Chrome Web
+      # Store for this to work.
+      home.file."Library/Application Support/net.imput.helium/NativeMessagingHosts/com.github.browserpass.native.json" =
+        lib.mkIf pkgs.stdenv.isDarwin {
+          source = "${pkgs.browserpass}/lib/browserpass/hosts/chromium/com.github.browserpass.native.json";
+        };
+
       # Exposes pass to the Freedesktop Secret Service API.
       # WARNING: Causes a build-time error if gnome-keyring is also enabled.
       services.pass-secret-service = lib.mkIf pkgs.stdenv.isLinux {
