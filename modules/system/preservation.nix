@@ -67,6 +67,7 @@
             "Music"
             "Videos"
             "Projects"
+            "nix-config"
 
             ".password-store"
             ".librewolf"
