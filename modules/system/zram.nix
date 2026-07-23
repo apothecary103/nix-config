@@ -6,15 +6,10 @@
       priority = 100;
     };
 
-    swapDevices = [
-      {
-        # TODO: Create the /swap subvolume and point the device to /swap/swapfile
-        device = "/var/lib/swapfile";
-        size = 2 * 1024; # 2GB
-        priority = 10; # Low priority: use this ONLY when Zram is full
-      }
-    ];
-
+    # Disk swap is host-specific: frieren's disko config declares an @swap
+    # subvolume with a /swap/swapfile and wires up swapDevices for it. zram's
+    # priority (100) outranks the swapfile, so the SSD is only touched once zram
+    # is full.
     boot.kernel.sysctl = {
       # Tell the kernel to prefer Zram but not be too aggressive with the SSD
       "vm.swappiness" = 100;

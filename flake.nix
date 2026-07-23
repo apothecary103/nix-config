@@ -30,6 +30,11 @@
       url = "git+ssh://git@codeberg.org/frieren/asahi-firmware?ref=main";
       flake = false;
     };
+    disko = {
+      url = "github:nix-community/disko";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
+    preservation.url = "github:nix-community/preservation";
     helix.url = "github:mattwparas/helix/steel-event-system";
     niri = {
       url = "github:epireyn/niri-flake";
