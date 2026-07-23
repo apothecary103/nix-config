@@ -1,0 +1,12 @@
+# Merged over the global helix config when this project is the workspace root.
+# ruff ships in helix's built-in defaults; ty (Astral's type checker) is new
+# enough that it may not, so define it explicitly to stay self-contained. Both
+# binaries come from the devShell.
+[language-server.ty]
+command = "ty"
+args = ["server"]
+
+[[language]]
+name = "python"
+auto-format = true
+language-servers = ["ty", "ruff"]
