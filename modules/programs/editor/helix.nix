@@ -46,6 +46,71 @@
             };
           };
         };
+        languages = {
+          language = [
+            {
+              name = "python";
+              auto-format = true;
+              language-servers = [
+                "ty"
+                "ruff"
+              ];
+            }
+            {
+              name = "rust";
+              auto-format = true;
+              language-servers = [ "rust-analyzer" ];
+            }
+            {
+              name = "tsx";
+              auto-format = true;
+              language-servers = [
+                "typescript-language-server"
+                "tailwindcss-ls"
+              ];
+            }
+            {
+              name = "jsx";
+              auto-format = true;
+              language-servers = [
+                "typescript-language-server"
+                "tailwindcss-ls"
+              ];
+            }
+            {
+              name = "typescript";
+              auto-format = true;
+              language-servers = [
+                "typescript-language-server"
+                "tailwindcss-ls"
+              ];
+            }
+            {
+              name = "javascript";
+              auto-format = true;
+              language-servers = [
+                "typescript-language-server"
+                "tailwindcss-ls"
+              ];
+            }
+            {
+              name = "css";
+              auto-format = true;
+              language-servers = [
+                "vscode-css-language-server"
+                "tailwindcss-ls"
+              ];
+            }
+            {
+              name = "html";
+              auto-format = true;
+              language-servers = [
+                "vscode-html-language-server"
+                "tailwindcss-ls"
+              ];
+            }
+          ];
+        };
       };
     };
 }
