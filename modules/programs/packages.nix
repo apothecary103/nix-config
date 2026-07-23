@@ -19,6 +19,7 @@
       opencode
       claude-code
       glow
+      util-linux
 
       # GUI Applications
       prismlauncher

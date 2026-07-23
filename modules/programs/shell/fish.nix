@@ -3,6 +3,10 @@
     programs.fish = {
       enable = true;
 
+      shellAliases = {
+        cal = "cal -m";
+      };
+
       interactiveShellInit = /* fish */ ''
         set -g fish_greeting ""
 
