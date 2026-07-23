@@ -1,7 +1,3 @@
-# Merged over the global helix config when this project is the workspace root.
-# All servers below (typescript-language-server, tailwindcss-ls, the vscode-*
-# ones) ship in helix's built-in defaults; the devShell puts the binaries on
-# PATH.
 [[language]]
 name = "typescript"
 auto-format = true

@@ -1,10 +1,17 @@
 {
   description = "Rust development environment";
 
-  inputs.nixpkgs.url = "github:nixos/nixpkgs/nixpkgs-unstable";
+  inputs = {
+    nixpkgs.url = "github:nixos/nixpkgs/nixpkgs-unstable";
+
+    fenix = {
+      url = "github:nix-community/fenix";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
+  };
 
   outputs =
-    { nixpkgs, ... }:
+    { nixpkgs, fenix, ... }:
     let
       systems = [
         "aarch64-darwin"
@@ -12,23 +19,32 @@
         "aarch64-linux"
         "x86_64-linux"
       ];
-      forAllSystems = f: nixpkgs.lib.genAttrs systems (system: f nixpkgs.legacyPackages.${system});
     in
     {
-      devShells = forAllSystems (pkgs: {
-        default = pkgs.mkShell {
-          packages = with pkgs; [
-            rustc
-            cargo
-            rust-analyzer
-            clippy
-            rustfmt
-          ];
+      devShells = nixpkgs.lib.genAttrs systems (
+        system:
+        let
+          pkgs = nixpkgs.legacyPackages.${system};
+          fenixPkgs = fenix.packages.${system};
 
-          # rust-analyzer resolves std symbols from the source tree, not the
-          # compiled sysroot, so point it at the library sources explicitly.
-          RUST_SRC_PATH = "${pkgs.rustPlatform.rustLibSrc}";
-        };
-      });
+          rustToolchain = fenixPkgs.stable.withComponents [
+            "cargo"
+            "clippy"
+            "rust-src"
+            "rustc"
+            "rustfmt"
+          ];
+        in
+        {
+          default = pkgs.mkShell {
+            packages = [
+              rustToolchain
+              pkgs.rust-analyzer
+            ];
+
+            RUST_SRC_PATH = "${rustToolchain}/lib/rustlib/src/rust/library";
+          };
+        }
+      );
     };
 }

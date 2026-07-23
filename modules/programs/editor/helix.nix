@@ -47,10 +47,8 @@
           };
         };
 
-        # Per-language LSP config now lives in each project's
-        # .helix/languages.toml, scaffolded by the devShell templates under
-        # templates/ (nix flake init -t ~/nix-config#{rust,python,web}). Only
-        # nix is handled globally, via helix's built-in defaults + nixd on PATH.
+        # Per-language LSP config lives in each project's .helix/languages.toml
+        # (scaffolded by templates/), not here.
       };
     };
 }

@@ -16,9 +16,6 @@
     in
     {
       devShells = forAllSystems (pkgs: {
-        # Interpreter comes from nix; project dependencies are managed by uv
-        # (`uv venv` then `uv add …`), which keeps them in a local .venv rather
-        # than the global profile. ruff = lint/format, ty = type checking.
         default = pkgs.mkShell {
           packages = with pkgs; [
             python3

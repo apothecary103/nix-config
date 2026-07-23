@@ -1,10 +1,8 @@
-# Project starters: `nix flake init -t ~/nix-config#<name>` scaffolds a flake +
-# .envrc + .helix/languages.toml so the toolchain is direnv-scoped, not global.
 {
   flake.templates = {
     rust = {
       path = ../../templates/rust;
-      description = "Rust devShell (cargo, rust-analyzer, clippy, rustfmt) + direnv + helix LSP";
+      description = "Rust devShell (fenix toolchain, rust-analyzer) + direnv + helix LSP";
     };
     python = {
       path = ../../templates/python;

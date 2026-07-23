@@ -1,6 +1,3 @@
-# Merged over the global helix config when this project is the workspace root.
-# rust-analyzer is defined in helix's built-in defaults; the devShell puts it
-# on PATH, so editing outside the shell simply skips LSP instead of erroring.
 [[language]]
 name = "rust"
 auto-format = true
