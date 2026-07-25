@@ -126,6 +126,13 @@
               fullscreen_on_one_column = true;
             };
 
+            # Direction-based focus/move (below) cross monitor edges on their
+            # own, so niri's separate "move column to monitor" binds aren't
+            # needed here.
+            binds = {
+              window_direction_monitor_fallback = true;
+            };
+
             misc = {
               force_default_wallpaper = -1;
               disable_hyprland_logo = false;
@@ -371,24 +378,32 @@
           ];
 
           # ---- KEYBINDINGS ----
+          # Mirrors niri's binds (modules/desktop/niri.nix) onto Hyprland's
+          # scrolling layout. A few niri actions have no clean Hyprland
+          # equivalent and are intentionally left unbound: show-hotkey-overlay,
+          # toggle-overview, focus/move-column-first/last, the preset/reset
+          # window-height binds, switch-focus-between-floating-and-tiling,
+          # move-column-to-monitor-* (superseded by binds.window_direction_
+          # monitor_fallback below), workspace reordering, and toggle-
+          # keyboard-shortcuts-inhibit.
           bind = [
             # Core App Launching & State
             {
               _args = [
-                "${mainMod} + Q"
+                "${mainMod} + T"
                 (lua "hl.dsp.exec_cmd('${terminal}')")
               ];
             }
             {
               _args = [
-                "${mainMod} + C"
-                (lua "hl.dsp.window.close()")
+                "${mainMod} + D"
+                (lua "hl.dsp.exec_cmd('${menu}')")
               ];
             }
             {
               _args = [
-                "${mainMod} + M"
-                (lua ''hl.dsp.exec_cmd("command -v hyprshutdown >/dev/null 2>&1 && hyprshutdown || hyprctl dispatch 'hl.dsp.exit()'")'')
+                "${mainMod} + ALT + L"
+                (lua "hl.dsp.exec_cmd('swaylock')")
               ];
             }
             {
@@ -399,14 +414,14 @@
             }
             {
               _args = [
-                "${mainMod} + R"
-                (lua "hl.dsp.exec_cmd('${menu}')")
+                "${mainMod} + P"
+                (lua "hl.dsp.window.pseudo()")
               ];
             }
             {
               _args = [
-                "${mainMod} + P"
-                (lua "hl.dsp.window.pseudo()")
+                "${mainMod} + Q"
+                (lua "hl.dsp.window.close()")
               ];
             }
 
@@ -414,13 +429,37 @@
             {
               _args = [
                 "${mainMod} + F"
-                (lua ''hl.dsp.window.fullscreen({ action = "toggle" })'')
+                (lua ''hl.dsp.layout("fit active")'')
               ];
             }
             {
               _args = [
                 "${mainMod} + SHIFT + F"
+                (lua ''hl.dsp.window.fullscreen({ action = "toggle" })'')
+              ];
+            }
+            {
+              _args = [
+                "${mainMod} + M"
                 (lua ''hl.dsp.window.fullscreen({ mode = "maximized", action = "toggle" })'')
+              ];
+            }
+            {
+              _args = [
+                "${mainMod} + CTRL + F"
+                (lua ''hl.dsp.layout("fit expand")'')
+              ];
+            }
+            {
+              _args = [
+                "${mainMod} + C"
+                (lua ''hl.dsp.layout("center")'')
+              ];
+            }
+            {
+              _args = [
+                "${mainMod} + CTRL + C"
+                (lua ''hl.dsp.layout("fit visible")'')
               ];
             }
             {
@@ -429,18 +468,36 @@
                 (lua ''hl.dsp.window.float({ action = "toggle" })'')
               ];
             }
+            {
+              _args = [
+                "${mainMod} + W"
+                (lua "hl.dsp.group.toggle()")
+              ];
+            }
 
             # Column Manipulation (Niri Consume/Expel style)
             {
               _args = [
+                "${mainMod} + bracketleft"
+                (lua ''hl.dsp.layout("consume_or_expel prev")'')
+              ];
+            }
+            {
+              _args = [
+                "${mainMod} + bracketright"
+                (lua ''hl.dsp.layout("consume_or_expel next")'')
+              ];
+            }
+            {
+              _args = [
                 "${mainMod} + comma"
-                (lua ''hl.dsp.layout("togglesplit")'')
+                (lua ''hl.dsp.layout("consume")'')
               ];
             }
             {
               _args = [
                 "${mainMod} + period"
-                (lua ''hl.dsp.window.float({ action = "toggle" })'')
+                (lua ''hl.dsp.layout("expel")'')
               ];
             }
 
@@ -496,111 +553,149 @@
               ];
             }
 
-            # Move Windows (Arrows)
+            # Move Column/Window (Arrows)
+            {
+              _args = [
+                "${mainMod} + CTRL + left"
+                (lua ''hl.dsp.window.move({ direction = "left" })'')
+              ];
+            }
+            {
+              _args = [
+                "${mainMod} + CTRL + right"
+                (lua ''hl.dsp.window.move({ direction = "right" })'')
+              ];
+            }
+            {
+              _args = [
+                "${mainMod} + CTRL + up"
+                (lua ''hl.dsp.window.move({ direction = "up" })'')
+              ];
+            }
+            {
+              _args = [
+                "${mainMod} + CTRL + down"
+                (lua ''hl.dsp.window.move({ direction = "down" })'')
+              ];
+            }
+
+            # Move Column/Window (Vim Keys)
+            {
+              _args = [
+                "${mainMod} + CTRL + H"
+                (lua ''hl.dsp.window.move({ direction = "left" })'')
+              ];
+            }
+            {
+              _args = [
+                "${mainMod} + CTRL + L"
+                (lua ''hl.dsp.window.move({ direction = "right" })'')
+              ];
+            }
+            {
+              _args = [
+                "${mainMod} + CTRL + K"
+                (lua ''hl.dsp.window.move({ direction = "up" })'')
+              ];
+            }
+            {
+              _args = [
+                "${mainMod} + CTRL + J"
+                (lua ''hl.dsp.window.move({ direction = "down" })'')
+              ];
+            }
+
+            # Monitor Focus (Arrows + Vim Keys)
             {
               _args = [
                 "${mainMod} + SHIFT + left"
-                (lua ''hl.dsp.window.move({ direction = "left" })'')
-              ];
-            }
-            {
-              _args = [
-                "${mainMod} + SHIFT + right"
-                (lua ''hl.dsp.window.move({ direction = "right" })'')
-              ];
-            }
-            {
-              _args = [
-                "${mainMod} + SHIFT + up"
-                (lua ''hl.dsp.window.move({ direction = "up" })'')
-              ];
-            }
-            {
-              _args = [
-                "${mainMod} + SHIFT + down"
-                (lua ''hl.dsp.window.move({ direction = "down" })'')
-              ];
-            }
-
-            # Move Windows (Vim Keys)
-            {
-              _args = [
-                "${mainMod} + SHIFT + H"
-                (lua ''hl.dsp.window.move({ direction = "left" })'')
-              ];
-            }
-            {
-              _args = [
-                "${mainMod} + SHIFT + L"
-                (lua ''hl.dsp.window.move({ direction = "right" })'')
-              ];
-            }
-            {
-              _args = [
-                "${mainMod} + SHIFT + K"
-                (lua ''hl.dsp.window.move({ direction = "up" })'')
-              ];
-            }
-            {
-              _args = [
-                "${mainMod} + SHIFT + J"
-                (lua ''hl.dsp.window.move({ direction = "down" })'')
-              ];
-            }
-
-            # Resize Columns (Niri Minus/Equal keys)
-            {
-              _args = [
-                "${mainMod} + minus"
-                (lua ''hl.dsp.exec_cmd("hyprctl dispatch resizeactive -5% 0")'')
-              ];
-            }
-            {
-              _args = [
-                "${mainMod} + equal"
-                (lua ''hl.dsp.exec_cmd("hyprctl dispatch resizeactive 5% 0")'')
-              ];
-            }
-            {
-              _args = [
-                "${mainMod} + SHIFT + minus"
-                (lua ''hl.dsp.exec_cmd("hyprctl dispatch resizeactive 0 -5%")'')
-              ];
-            }
-            {
-              _args = [
-                "${mainMod} + SHIFT + equal"
-                (lua ''hl.dsp.exec_cmd("hyprctl dispatch resizeactive 0 5%")'')
-              ];
-            }
-
-            # Monitor Focus & Move (Niri Brackets)
-            {
-              _args = [
-                "${mainMod} + bracketleft"
                 (lua ''hl.dsp.focus({ monitor = "l" })'')
               ];
             }
             {
               _args = [
-                "${mainMod} + bracketright"
+                "${mainMod} + SHIFT + right"
                 (lua ''hl.dsp.focus({ monitor = "r" })'')
               ];
             }
             {
               _args = [
-                "${mainMod} + SHIFT + bracketleft"
-                (lua ''hl.dsp.window.move({ monitor = "l" })'')
+                "${mainMod} + SHIFT + up"
+                (lua ''hl.dsp.focus({ monitor = "u" })'')
               ];
             }
             {
               _args = [
-                "${mainMod} + SHIFT + bracketright"
-                (lua ''hl.dsp.window.move({ monitor = "r" })'')
+                "${mainMod} + SHIFT + down"
+                (lua ''hl.dsp.focus({ monitor = "d" })'')
+              ];
+            }
+            {
+              _args = [
+                "${mainMod} + SHIFT + H"
+                (lua ''hl.dsp.focus({ monitor = "l" })'')
+              ];
+            }
+            {
+              _args = [
+                "${mainMod} + SHIFT + L"
+                (lua ''hl.dsp.focus({ monitor = "r" })'')
+              ];
+            }
+            {
+              _args = [
+                "${mainMod} + SHIFT + K"
+                (lua ''hl.dsp.focus({ monitor = "u" })'')
+              ];
+            }
+            {
+              _args = [
+                "${mainMod} + SHIFT + J"
+                (lua ''hl.dsp.focus({ monitor = "d" })'')
               ];
             }
 
-            # Lateral Workspace / Column Scrolling (Niri PageUp/Down)
+            # Column Width Presets (Niri R keys)
+            {
+              _args = [
+                "${mainMod} + R"
+                (lua ''hl.dsp.layout("colresize +conf")'')
+              ];
+            }
+            {
+              _args = [
+                "${mainMod} + SHIFT + R"
+                (lua ''hl.dsp.layout("colresize -conf")'')
+              ];
+            }
+
+            # Resize Column Width / Window Height (Niri Minus/Equal keys)
+            {
+              _args = [
+                "${mainMod} + minus"
+                (lua ''hl.dsp.layout("colresize -0.1")'')
+              ];
+            }
+            {
+              _args = [
+                "${mainMod} + equal"
+                (lua ''hl.dsp.layout("colresize +0.1")'')
+              ];
+            }
+            {
+              _args = [
+                "${mainMod} + SHIFT + minus"
+                (lua ''hl.dsp.exec_cmd("hyprctl dispatch resizeactive 0 -10%")'')
+              ];
+            }
+            {
+              _args = [
+                "${mainMod} + SHIFT + equal"
+                (lua ''hl.dsp.exec_cmd("hyprctl dispatch resizeactive 0 10%")'')
+              ];
+            }
+
+            # Lateral Workspace / Column Scrolling (Niri PageUp/Down + U/I)
             {
               _args = [
                 "${mainMod} + Page_Down"
@@ -615,28 +710,113 @@
             }
             {
               _args = [
-                "${mainMod} + SHIFT + Page_Down"
+                "${mainMod} + U"
+                (lua ''hl.dsp.focus({ workspace = "m+1" })'')
+              ];
+            }
+            {
+              _args = [
+                "${mainMod} + I"
+                (lua ''hl.dsp.focus({ workspace = "m-1" })'')
+              ];
+            }
+            {
+              _args = [
+                "${mainMod} + CTRL + Page_Down"
                 (lua ''hl.dsp.window.move({ workspace = "m+1" })'')
               ];
             }
             {
               _args = [
-                "${mainMod} + SHIFT + Page_Up"
+                "${mainMod} + CTRL + Page_Up"
+                (lua ''hl.dsp.window.move({ workspace = "m-1" })'')
+              ];
+            }
+            {
+              _args = [
+                "${mainMod} + CTRL + U"
+                (lua ''hl.dsp.window.move({ workspace = "m+1" })'')
+              ];
+            }
+            {
+              _args = [
+                "${mainMod} + CTRL + I"
                 (lua ''hl.dsp.window.move({ workspace = "m-1" })'')
               ];
             }
 
-            # Niri Mouse Wheel behavior (Scrolls columns laterally instead of workspaces)
+            # Niri Mouse Wheel behavior: vertical wheel scrolls workspaces,
+            # horizontal wheel scrolls columns.
             {
               _args = [
                 "${mainMod} + mouse_down"
-                (lua ''hl.dsp.focus({ direction = "right" })'')
+                (lua ''hl.dsp.focus({ workspace = "m+1" })'')
               ];
             }
             {
               _args = [
                 "${mainMod} + mouse_up"
+                (lua ''hl.dsp.focus({ workspace = "m-1" })'')
+              ];
+            }
+            {
+              _args = [
+                "${mainMod} + CTRL + mouse_down"
+                (lua ''hl.dsp.window.move({ workspace = "m+1" })'')
+              ];
+            }
+            {
+              _args = [
+                "${mainMod} + CTRL + mouse_up"
+                (lua ''hl.dsp.window.move({ workspace = "m-1" })'')
+              ];
+            }
+            {
+              _args = [
+                "${mainMod} + mouse_right"
+                (lua ''hl.dsp.focus({ direction = "right" })'')
+              ];
+            }
+            {
+              _args = [
+                "${mainMod} + mouse_left"
                 (lua ''hl.dsp.focus({ direction = "left" })'')
+              ];
+            }
+            {
+              _args = [
+                "${mainMod} + CTRL + mouse_right"
+                (lua ''hl.dsp.window.move({ direction = "right" })'')
+              ];
+            }
+            {
+              _args = [
+                "${mainMod} + CTRL + mouse_left"
+                (lua ''hl.dsp.window.move({ direction = "left" })'')
+              ];
+            }
+            {
+              _args = [
+                "${mainMod} + SHIFT + mouse_down"
+                (lua ''hl.dsp.focus({ direction = "right" })'')
+              ];
+            }
+            {
+              _args = [
+                "${mainMod} + SHIFT + mouse_up"
+                (lua ''hl.dsp.focus({ direction = "left" })'')
+              ];
+            }
+            {
+              _args = [
+                "${mainMod} + CTRL + SHIFT + mouse_down"
+                (lua ''hl.dsp.window.move({ direction = "right" })'')
+              ];
+            }
+            {
+              _args = [
+                "${mainMod} + CTRL + SHIFT + mouse_up"
+                (lua ''hl.dsp.window.move({ direction = "left" })'')
               ];
             }
 
@@ -748,19 +928,67 @@
               ];
             }
 
-            # Screenshots
+            # Screenshots (Niri Shift+3/4/5 + Print fallbacks)
             {
               _args = [
-                "${mainMod} + S"
-                (lua ''hl.dsp.exec_cmd("grim - | wl-copy")'')
+                "${mainMod} + SHIFT + 3"
+                (lua ''hl.dsp.exec_cmd("grim - | wl-copy -t image/png")'')
               ];
             }
             {
               _args = [
-                "${mainMod} + SHIFT + S"
+                "Print"
+                (lua ''hl.dsp.exec_cmd("grim - | wl-copy -t image/png")'')
+              ];
+            }
+            {
+              _args = [
+                "CTRL + Print"
+                (lua ''hl.dsp.exec_cmd("grim - | wl-copy -t image/png")'')
+              ];
+            }
+            {
+              _args = [
+                "${mainMod} + SHIFT + 4"
                 (lua ''
                   hl.dsp.exec_cmd("wayfreeze --hide-cursor --after-freeze-cmd 'GEOM=$(slurp -d) || { pkill -x wayfreeze; exit; }; grim -g \"$GEOM\" - | wl-copy -t image/png; pkill -x wayfreeze'")
                 '')
+              ];
+            }
+            {
+              _args = [
+                "${mainMod} + SHIFT + 5"
+                (lua ''
+                  hl.dsp.exec_cmd("grim -g \"$(hyprctl activewindow -j | jq -r '\"\\(.at[0]),\\(.at[1]) \\(.size[0])x\\(.size[1])\"')\" - | wl-copy -t image/png")
+                '')
+              ];
+            }
+            {
+              _args = [
+                "ALT + Print"
+                (lua ''
+                  hl.dsp.exec_cmd("grim -g \"$(hyprctl activewindow -j | jq -r '\"\\(.at[0]),\\(.at[1]) \\(.size[0])x\\(.size[1])\"')\" - | wl-copy -t image/png")
+                '')
+              ];
+            }
+
+            # Quit / Power (Niri Shift+E, Ctrl+Alt+Delete, Shift+P)
+            {
+              _args = [
+                "${mainMod} + SHIFT + E"
+                (lua "hl.dsp.exit()")
+              ];
+            }
+            {
+              _args = [
+                "CTRL + ALT + Delete"
+                (lua "hl.dsp.exit()")
+              ];
+            }
+            {
+              _args = [
+                "${mainMod} + SHIFT + P"
+                (lua ''hl.dsp.dpms("off")'')
               ];
             }
           ]
@@ -782,7 +1010,7 @@
                   }
                   {
                     _args = [
-                      "${mainMod} + SHIFT + ${key}"
+                      "${mainMod} + CTRL + ${key}"
                       (lua "hl.dsp.window.move({ workspace = ${toString workspace} })")
                     ];
                   }
