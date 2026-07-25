@@ -6,7 +6,7 @@ import Quickshell.Hyprland
 import Quickshell.Io
 import ".."
 
-// A drun-style launcher mirroring modules/desktop/rofi.nix: 480px wide, a search
+// A drun-style launcher mirroring the rofi config it replaced: 480px wide, a search
 // bar over six rows, Pixora icons and the inverted selection highlight. Renders
 // only while open, and the ListView recycles delegates.
 //
