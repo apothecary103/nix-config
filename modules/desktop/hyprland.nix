@@ -11,7 +11,7 @@
       mainMod = "SUPER";
       terminal = "ghostty";
       fileManager = "yazi";
-      menu = "rofi -show drun";
+      menu = "qs ipc call launcher toggle";
 
       lua = lib.generators.mkLuaInline;
     in
@@ -38,7 +38,10 @@
             {
               _args = [
                 "hyprland.start"
-                (lua ''function () hl.exec_cmd("waybar & awww-daemon & swayosd-server") end'')
+                # quickshell already runs as a home-manager user service bound to
+                # the graphical session (same as under niri), so only the
+                # wallpaper daemon needs starting here.
+                (lua ''function () hl.exec_cmd("awww-daemon") end'')
               ];
             }
           ];
@@ -653,7 +656,7 @@
             {
               _args = [
                 "XF86AudioRaiseVolume"
-                (lua ''hl.dsp.exec_cmd("swayosd-client --output-volume raise")'')
+                (lua ''hl.dsp.exec_cmd("qs ipc call osd volumeUp")'')
                 {
                   locked = true;
                   repeating = true;
@@ -663,7 +666,7 @@
             {
               _args = [
                 "XF86AudioLowerVolume"
-                (lua ''hl.dsp.exec_cmd("swayosd-client --output-volume lower")'')
+                (lua ''hl.dsp.exec_cmd("qs ipc call osd volumeDown")'')
                 {
                   locked = true;
                   repeating = true;
@@ -673,7 +676,7 @@
             {
               _args = [
                 "XF86AudioMute"
-                (lua ''hl.dsp.exec_cmd("swayosd-client --output-volume mute-toggle")'')
+                (lua ''hl.dsp.exec_cmd("qs ipc call osd muteToggle")'')
                 {
                   locked = true;
                   repeating = true;
@@ -683,7 +686,7 @@
             {
               _args = [
                 "XF86AudioMicMute"
-                (lua ''hl.dsp.exec_cmd("swayosd-client --input-volume mute-toggle")'')
+                (lua ''hl.dsp.exec_cmd("qs ipc call osd micMuteToggle")'')
                 {
                   locked = true;
                   repeating = true;
@@ -693,7 +696,7 @@
             {
               _args = [
                 "XF86MonBrightnessUp"
-                (lua ''hl.dsp.exec_cmd("swayosd-client --brightness raise")'')
+                (lua ''hl.dsp.exec_cmd("qs ipc call osd brightnessUp")'')
                 {
                   locked = true;
                   repeating = true;
@@ -703,7 +706,7 @@
             {
               _args = [
                 "XF86MonBrightnessDown"
-                (lua ''hl.dsp.exec_cmd("swayosd-client --brightness lower")'')
+                (lua ''hl.dsp.exec_cmd("qs ipc call osd brightnessDown")'')
                 {
                   locked = true;
                   repeating = true;
