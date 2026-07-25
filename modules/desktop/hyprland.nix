@@ -22,6 +22,75 @@
         configType = "lua";
 
         settings = {
+          # ---- LUA HELPERS ----
+          # A `_var` entry renders as a plain `local niri = …` ahead of every
+          # hl.* call in the generated config, which is where the niri actions
+          # that need more than one dispatch live. The keybinds below call into
+          # it; nothing here runs at load time.
+          niri = {
+            _var = lua ''
+              (function()
+                  local M = {}
+
+                  -- The scrolling layout has no "jump to the first/last column"
+                  -- message, so walk a column at a time. With wrapping off (see
+                  -- config.scrolling below) both focus and swapcol clamp at the
+                  -- ends, so repeating the message past the edge is a no-op and
+                  -- the walk converges. A workspace can never hold more columns
+                  -- than windows, so its window count bounds the walk.
+                  local function walk(msg)
+                      local ws = hl.get_active_workspace()
+                      for _ = 1, (ws and ws.windows or 1) do
+                          hl.dispatch(hl.dsp.layout(msg))
+                      end
+                  end
+
+                  function M.focus_column_first()
+                      walk("focus l")
+                  end
+
+                  function M.focus_column_last()
+                      walk("focus r")
+                  end
+
+                  function M.move_column_to_first()
+                      walk("swapcol l")
+                  end
+
+                  function M.move_column_to_last()
+                      walk("swapcol r")
+                  end
+
+                  -- niri's set-window-height takes a percentage of the working
+                  -- area; hl.dsp.window.resize only takes logical pixels, so
+                  -- convert. monitor.height is in physical pixels while the
+                  -- reserved struts (the bar) are already logical.
+                  --
+                  -- Hyprland only redistributes height inside a column holding
+                  -- two or more windows (ScrollingAlgorithm::resizeTarget bails
+                  -- on a single one), so unlike niri a lone window cannot be
+                  -- made shorter than its column.
+                  function M.window_height_by(fraction)
+                      local m = hl.get_active_monitor()
+                      if not m then
+                          return
+                      end
+
+                      local reserved = m.reserved or {}
+                      local usable = m.height / (m.scale or 1) - (reserved.top or 0) - (reserved.bottom or 0)
+
+                      hl.dispatch(hl.dsp.window.resize({
+                          x = 0,
+                          y = math.floor(usable * fraction + 0.5),
+                          relative = true,
+                      }))
+                  end
+
+                  return M
+              end)()
+            '';
+          };
+
           # ---- MONITORS ----
           monitor = [
             {
@@ -124,6 +193,16 @@
             };
             scrolling = {
               fullscreen_on_one_column = true;
+
+              # niri stops at the ends of the tape instead of wrapping around,
+              # and the Mod+Home/End walks below rely on that clamping to
+              # terminate. Hyprland defaults both to true.
+              wrap_focus = false;
+              wrap_swapcol = false;
+
+              # niri's preset-column-widths default, which is what Mod+R cycles
+              # through. Hyprland's own default appends 1.0 to the same three.
+              explicit_column_widths = "0.333, 0.5, 0.667";
             };
 
             # Lets direction-based focus/move cross monitor edges on their own,
@@ -435,13 +514,25 @@
 
           # ---- KEYBINDINGS ----
           # Mirrors niri's binds (modules/desktop/niri.nix) onto Hyprland's
-          # scrolling layout. A few niri actions have no clean Hyprland
-          # equivalent and are intentionally left unbound: show-hotkey-overlay,
-          # toggle-overview, focus/move-column-first/last, the preset/reset
-          # window-height binds, switch-focus-between-floating-and-tiling,
-          # move-column-to-monitor-* (superseded by binds.window_direction_
-          # monitor_fallback below), workspace reordering, and toggle-
-          # keyboard-shortcuts-inhibit.
+          # scrolling layout. What is left unbound is what Hyprland 0.56 has no
+          # equivalent for at all, verified against its dispatcher table
+          # (src/config/lua/bindings/LuaBindingsDispatchers.cpp) and the
+          # scrolling layout's message handler (CScrollingAlgorithm::layoutMsg):
+          #
+          #   Mod+Shift+Slash  show-hotkey-overlay — no overlay exists
+          #   Mod+O            toggle-overview — see the animation note above
+          #   Mod+Shift+PgUp/  move-workspace-up/down — Hyprland workspaces are
+          #     PgDn, U/I      identified, not ordered, so there is nothing to
+          #                    reorder; hl.workspace.move only moves a
+          #                    workspace between monitors
+          #   Mod+Ctrl+R,      reset-window-height /
+          #     Mod+Ctrl+      switch-preset-window-height — the scrolling
+          #     Shift+R        layout has no row-height message and no way to
+          #                    return a row to an automatic height
+          #   Mod+Escape       toggle-keyboard-shortcuts-inhibit — no dispatcher
+          #
+          # move-column-to-monitor-* is bound explicitly below even though
+          # binds.window_direction_monitor_fallback already covers it.
           bind = [
             # Core App Launching & State
             {
@@ -737,6 +828,33 @@
               ];
             }
 
+            # Ends of the Tape (Niri Home/End). No single message does this, so
+            # these walk the tape — see the `niri` helper above.
+            {
+              _args = [
+                "${mainMod} + Home"
+                (lua "function() niri.focus_column_first() end")
+              ];
+            }
+            {
+              _args = [
+                "${mainMod} + End"
+                (lua "function() niri.focus_column_last() end")
+              ];
+            }
+            {
+              _args = [
+                "${mainMod} + CTRL + Home"
+                (lua "function() niri.move_column_to_first() end")
+              ];
+            }
+            {
+              _args = [
+                "${mainMod} + CTRL + End"
+                (lua "function() niri.move_column_to_last() end")
+              ];
+            }
+
             # Monitor Focus (Arrows + Vim Keys)
             {
               _args = [
@@ -876,16 +994,19 @@
                 (lua ''hl.dsp.layout("colresize +0.1")'')
               ];
             }
+            # Window height goes through the helper rather than a resize
+            # dispatcher: hl.dsp.window.resize takes logical pixels, while niri
+            # takes a percentage of the working area.
             {
               _args = [
                 "${mainMod} + SHIFT + minus"
-                (lua ''hl.dsp.exec_cmd("hyprctl dispatch resizeactive 0 -10%")'')
+                (lua "function() niri.window_height_by(-0.1) end")
               ];
             }
             {
               _args = [
                 "${mainMod} + SHIFT + equal"
-                (lua ''hl.dsp.exec_cmd("hyprctl dispatch resizeactive 0 10%")'')
+                (lua "function() niri.window_height_by(0.1) end")
               ];
             }
 
