@@ -267,7 +267,7 @@
             {
               leaf = "global";
               enabled = true;
-              speed = 1.5;
+              speed = 2.5;
               bezier = "easeOutQuad";
             }
 
@@ -290,38 +290,46 @@
             }
 
             # window-open / window-close. The fade leaves carry the same curve
-            # and duration as the scale, because niri drives both from a single
-            # animation progress value.
+            # as the scale, because niri drives both from a single animation
+            # progress value.
+            #
+            # niri opens/closes in 150ms (speed = 1.5). That is deliberately
+            # slowed here: a freshly-spawned client (a terminal most of all)
+            # often has not committed its first real frame by the time a 150ms
+            # open settles, so the window snaps from blank to drawn and reads as
+            # a stutter. Stretching the open to ~350ms gives the client time to
+            # paint *during* the animation, so it fades in already populated.
+            # Close is stretched less — nothing is racing a render there.
             {
               leaf = "windowsIn";
               enabled = true;
-              speed = 1.5;
+              speed = 3.5;
               bezier = "easeOutExpo";
               style = "popin 50%";
             }
             {
               leaf = "windowsOut";
               enabled = true;
-              speed = 1.5;
+              speed = 2.5;
               bezier = "easeOutQuad";
               style = "popin 80%";
             }
             {
               leaf = "fade";
               enabled = true;
-              speed = 1.5;
+              speed = 2.5;
               bezier = "easeOutQuad";
             }
             {
               leaf = "fadeIn";
               enabled = true;
-              speed = 1.5;
+              speed = 3.5;
               bezier = "easeOutExpo";
             }
             {
               leaf = "fadeOut";
               enabled = true;
-              speed = 1.5;
+              speed = 2.5;
               bezier = "easeOutQuad";
             }
 
