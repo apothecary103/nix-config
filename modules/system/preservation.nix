@@ -11,7 +11,7 @@
 
     # A wiped root means `passwd` would not survive a reboot, so passwords are
     # declarative: the hashes live on the persistent volume and are set once at
-    # install time (see the README). mkpasswd -m sha-512 generates them.
+    # install time (see the README). mkpasswd -m yescrypt generates them.
     users.mutableUsers = false;
     users.users.${username}.hashedPasswordFile = "/persist/passwords/${username}";
     users.users.root.hashedPasswordFile = "/persist/passwords/root";

@@ -1,158 +1,80 @@
-# ❄️ nix-config
+<h2 align="center">❄️ Apothecary's Nix Config </h2>
+<p align="center">
+  <img src="https://raw.githubusercontent.com/catppuccin/catppuccin/main/assets/palette/macchiato.png" width="400" />
+</p>
+<p align="center">
+  <img src="https://img.shields.io/badge/NixOS-26.05-informational.svg?style=for-the-badge&logo=nixos&color=a2bfff&logoColor=D9E0EE&labelColor=302D41">
+  <img src="https://img.shields.io/endpoint?url=https%3A%2F%2Fghloc.vercel.app%2Fapi%2Fapothecary103%2Fnix-config%2Fbadge&style=for-the-badge&color=eed49f&labelColor=302D41&logoColor=D9E0EE&logo=pipecat&label=Lines%20of%20Code">
+  <img src="https://img.shields.io/badge/Pattern-Dendritic-informational.svg?style=for-the-badge&color=a6da95&labelColor=302D41&logo=mongodb&logoColor=D9E0EE">
+</p>
+<p align="center">
+  This repository serves as the home to my Nix flake that declaratively configures my Apple Silicon MacBook running NixOS (frieren) and nix-darwin (fern).
+</p>
 
-My nix flake for my MacBook dual-booting NixOS and macOS (nix-darwin).
+![Frieren — NixOS](./assets/rice.avif)
 
-![rice](./assets/rice.avif)
-*Frieren — NixOS*
+## The Setup
 
-## Hosts
+- **frieren** (NixOS): Hyprland, quickshell, greetd + tuigreet
+- **fern** (nix-darwin): yabai (w/ scripting addition) + skhd
 
-- **frieren** — NixOS on Apple Silicon (via `nixos-apple-silicon`), Wayland desktop.
-- **fern** — macOS, managed with nix-darwin + home-manager.
+**Shared Stack:**
+- **Terminal & Shell:** Ghostty, Fish, Nushell
+- **Editor:** Helix, Neovim
+- **Apps:** LibreWolf, Yazi (files), MPD + rmpc (music), pass (secrets)
+- **Aesthetics:** Catppuccin, Maple Mono NF CN, Adwaita Sans
 
 ## Structure
 
-This flake follows the [dendritic pattern](https://github.com/vic/import-tree):
-`flake.nix` just points `flake-parts` at `import-tree ./modules`, and every
-`.nix` file under `modules/` is its own self-contained flake-parts module,
-auto-discovered and imported — no manual import lists to maintain.
+Built on `flake-parts` using the dendritic pattern (`import-tree`). No giant manual import lists.
 
-A feature file typically declares itself once per relevant class and lets
-hosts compose from there:
+Drop a `.nix` file in `modules/desktop/`, `modules/programs/`, or `modules/system/`, and it's auto-discovered. Features declare themselves once, and hosts (`hosts/frieren` or `hosts/fern`) pull in what they need via shared base classes. Home-manager is wired directly into the system rebuilds.
 
-- `flake.modules.nixos.base` / `flake.modules.darwin.base` — shared NixOS /
-  darwin system config.
-- `flake.modules.homeManager.{base,linux,darwin}` — shared, Linux-only, and
-  darwin-only user environment.
-- `flake.modules.nixos."hosts/frieren"` / `flake.modules.darwin."hosts/fern"`
-  — the actual host definitions, which import the classes above and layer on
-  host-specific bits (hardware, networking, etc).
+## Daily Driving
 
-`modules/flake/` holds flake-parts wiring (systems, formatter, shared
-`_module.args`); `modules/desktop/`, `modules/programs/`, `modules/system/`
-hold the actual feature modules, grouped by concern rather than by host.
-
-## Desktop
-
-Linux (frieren) boots to greetd + tuigreet, with a choice of Hyprland or Niri
-as the compositor. waybar, rofi, mako, and swayosd round out the session.
-macOS (fern) runs yabai (built from a fork with the scripting addition) +
-skhd for tiling and keybinds, with sketchybar available alongside it.
-
-Shared across both: Ghostty as the terminal, Fish as the shell, Helix/Neovim
-for editing, Yazi for files, tmux, LibreWolf, MPD + rmpc for music, pass for
-secrets, Catppuccin theming, and Maple Mono NF CN / Adwaita Sans for
-typography.
-
-## Branches
-
-- `main` — the daily driver, always meant to build and boot cleanly on both
-  hosts.
-- `experimental` — where new stuff gets tried before it's trusted on `main`.
-  Right now that's **finix**: replacing systemd on `frieren` with finit (PID 1)
-  + dinit (per-user services) + eudev + elogind, so the compositor can crash
-  and restart without taking audio or mpd down with it. See `docs/finix.md`
-  on that branch for the full writeup.
-
-## Deploy
-
-### Day-to-day rebuilds
-
-Once a host is installed, rebuilds go through
-[`nh`](https://github.com/nix-community/nh), which is already pointed at this
-flake and handles GC/cleanup too:
+Rebuilds and garbage collection are handled by `nh`:
 
 ```bash
-# NixOS (frieren)
+# NixOS
 nh os switch
 
-# macOS (fern)
+# macOS
 nh darwin switch
 ```
 
-home-manager is wired into the system rebuild (`modules/system/home-manager.nix`),
-so there is no separate `home-manager switch` step.
+## Fresh Install (NixOS / Asahi)
 
-### Fresh install (frieren, Asahi / Apple Silicon)
+`frieren` uses an ephemeral root on top of encrypted btrfs. The `@` subvolume wipes on every boot. Only `/nix`, `/persist`, and `/var/log` survive.
 
-frieren is NixOS on bare Apple Silicon via
-[`nixos-apple-silicon`](https://github.com/tpwrules/nixos-apple-silicon), with an
-ephemeral root and home. Disko lays out an encrypted btrfs volume
-(`modules/hosts/frieren/disko.nix`) whose `@` (root) subvolume is wiped back to a
-blank snapshot on every boot (`modules/hosts/frieren/impermanence.nix`). `/home`
-rides on `@`, so it is wiped too;
-[preservation](https://github.com/nix-community/preservation) bind-mounts the
-system state and the per-user secrets/state worth keeping back from `/persist`
-(`modules/system/preservation.nix`). Only `/nix`, `/persist` and `/var/log` are
-persistent subvolumes. Disko manages **only** that root partition; the EFI system
-partition is left alone because on Asahi it also carries m1n1, U-Boot and vendor
-firmware, and the GPT is never rewritten, so the Apple-owned partitions (iBoot,
-recovery, macOS APFS) survive.
+Passwords are declarative (`mutableUsers = false`), reading from hashes on `/persist`. Firmware comes from a private flake input (`asahi-firmware`), requiring your SSH key to be loaded during install.
 
-Worth knowing up front:
+> [!TIP]
+> Before you begin: make sure you have a reliable external backup of your macOS data. While resizing APFS containers is generally safe, low-level partitioning always carries minor risks.
 
-- **Firmware** comes from the private `asahi-firmware` flake input (an SSH
-  codeberg repo) holding *this machine's* extracted vendor firmware. A reinstall
-  is the same physical Mac, so that repo is still valid; you only need the SSH
-  key loaded so the flake can fetch it. Re-extract only if the firmware actually
-  changed (see the nixos-apple-silicon firmware docs).
-- **Passwords are declarative.** `mutableUsers` is off, so `passwd` is disabled
-  and login hashes are read from files on `/persist` (which survives the wipe).
-  You write those once during install (step 7), not with `passwd` after boot.
+1. **Shrink macOS and install Asahi UEFI**
+   Run `curl https://alx.sh | sh` in macOS. Choose **UEFI environment only (m1n1 + U-Boot + ESP)**. Follow the prompts to bless the bootloader and reboot.
 
-1. **macOS, run the Asahi installer.** Free up disk space, then
-   `curl https://alx.sh | sh` and choose **"UEFI environment only (m1n1 +
-   U-Boot + ESP)"**. This shrinks macOS, creates the EFI system partition (the
-   vfat that becomes `/boot`), and leaves the rest as free space. Complete the
-   bootloader-blessing reboot it walks you through. The installer's exact wording
-   changes over time, so follow the current
-   [nixos-apple-silicon install guide](https://github.com/tpwrules/nixos-apple-silicon/blob/main/docs/uefi-standalone.md).
+2. **Boot the NixOS installer**
+   Flash the `nixos-apple-silicon` installer to a USB, boot from U-Boot, and connect to Wi-Fi (`iwctl station wlan0 connect <SSID>`).
 
-2. **Boot the installer image.** `dd` the nixos-apple-silicon installer image to
-   a USB stick, then boot it from U-Boot. Bring up Wi-Fi with `iwctl`
-   (`station wlan0 connect <SSID>`).
+3. **Partition the drive**
+   > [!CAUTION]
+   > *Do not touch any existing partitions.* This includes both Apple's system containers and the EFI/ESP partition created by the Asahi installer. Only use the unallocated free space.
 
-3. **Create the Linux root partition** in the free space the Asahi installer
-   left, e.g. one partition filling the gap on `/dev/nvme0n1` via `fdisk` or such.
-   Then note the values you'll need:
+   Use `fdisk` to create a new Linux root partition in the free space. Run `lsblk -f` and note the new partition path (e.g., `/dev/nvme0n1p6`) and the ESP's FAT UUID.
 
+4. **Update the flake paths**
+   Clone this repo to `/tmp/nix-config`. Update `modules/hosts/frieren/disko.nix` with your raw root partition path, and `modules/hosts/frieren/hardware-configuration.nix` with the ESP UUID.
+
+5. **Format and mount (disko)**
+   Run disko to create the LUKS container and btrfs subvolumes:
    ```bash
-   lsblk -f      # -> new root partition (e.g. /dev/nvme0n1p6) + the ESP's FAT UUID
+   sudo nix --experimental-features 'nix-command flakes' run github:nix-community/disko/latest -- --mode destroy,format,mount --flake .#frieren
    ```
+   The ESP is untouched by disko. Mount it manually: `sudo mount /dev/disk/by-uuid/<ESP FAT UUID> /mnt/boot`
 
-   ⚠️ Only add/format the new Linux partition. Do not touch the ESP or the
-   Apple-owned partitions.
-
-4. **Point the config at the real devices** (clone this flake somewhere
-   writable, e.g. `git clone … /tmp/nix-config`):
-
-   - `modules/hosts/frieren/disko.nix`, set `disko.devices.disk.root.device` to
-     the raw root partition (e.g. `/dev/nvme0n1p6`). The committed value is a
-     `by-uuid`, which only exists *after* the LUKS container is created.
-   - `modules/hosts/frieren/hardware-configuration.nix`, set
-     `fileSystems."/boot".device` to `/dev/disk/by-uuid/<new ESP FAT UUID>`.
-
-5. **Format and mount with disko.** This creates LUKS `cryptroot`, the btrfs
-   subvolumes (`@`, `@nix`, `@persist`, `@log`, `@swap`), the `/swap/swapfile`,
-   and mounts everything under `/mnt`. It prompts for the new LUKS passphrase:
-
-   ```bash
-   sudo nix --experimental-features 'nix-command flakes' run \
-     github:nix-community/disko/latest -- \
-     --mode disko --flake .#frieren
-   ```
-
-   The ESP is not managed by disko, so mount it by hand:
-
-   ```bash
-   sudo mount /dev/disk/by-uuid/<ESP FAT UUID> /mnt/boot
-   ```
-
-6. **Snapshot the blank root.** The boot-time rollback restores `@` from a
-   read-only `@-blank` snapshot, so create it now while `@` is still empty
-   (mount the btrfs top level to make the snapshot a sibling of `@`, not a child
-   of it):
-
+6. **Snapshot the blank root**
+   *Required for the ephemeral rollback.*
    ```bash
    sudo mkdir -p /mnt2
    sudo mount -o subvol=/ /dev/mapper/cryptroot /mnt2
@@ -160,37 +82,23 @@ Worth knowing up front:
    sudo umount /mnt2
    ```
 
-7. **Write the persisted password hashes.** `mutableUsers = false` reads these at
-   first activation, so they must exist before install. They live on `/persist`,
-   which the wipe never touches:
-
+7. **Set declarative passwords**
+   *Written to `/persist`.*
    ```bash
    sudo mkdir -p /mnt/persist/passwords
-   mkpasswd -m sha-512 | sudo tee /mnt/persist/passwords/apothecary
-   mkpasswd -m sha-512 | sudo tee /mnt/persist/passwords/root
+   mkpasswd -m yescrypt | sudo tee /mnt/persist/passwords/apothecary
+   mkpasswd -m yescrypt | sudo tee /mnt/persist/passwords/root
    sudo chmod 600 /mnt/persist/passwords/apothecary /mnt/persist/passwords/root
    ```
 
-8. **Install.** The flake fetches the private `asahi-firmware` input over SSH, so
-   load the key with codeberg access first (`ssh-add`, or copy it into the
-   installer):
-
+8. **Install NixOS**
+   Ensure your SSH key is loaded so the flake can fetch the private firmware input, then run:
    ```bash
    sudo nixos-install --flake .#frieren --no-root-passwd
    sudo reboot
    ```
 
-9. **First boot.** greetd + tuigreet comes up. Log in as `apothecary` with the
-   password you set and pick Hyprland or Niri. Because home is ephemeral, your
-   secrets and long-lived state live on `/persist` and are bind-mounted back into
-   `~` (see the `users.apothecary` list in `modules/system/preservation.nix`).
-   On a clean disk those start empty, so restore your GPG key, `pass` store and
-   SSH keys into `/persist/home/apothecary/{.gnupg,.password-store,.ssh}` (you
-   can do this during install under `/mnt/persist/...`). Anything in `~` that is
-   not on that list, or regenerated by home-manager, is wiped on every reboot.
-   From here, rebuilds are just `nh os switch`.
+9. **First boot & restore**
+   Log in. Because the `preservation` module uses bind mounts, the `~/.ssh`, `~/.gnupg`, and `~/.password-store` directories are already wired directly to `/persist`. Just copy your backed-up keys straight into `~/.ssh` and `~/.gnupg` via USB, lock down the permissions (`chmod 600 ~/.ssh/id_*`), and `git clone` your password store into `~/.password-store`. They will automatically survive the next reboot.
 
-> After install, grab the new LUKS UUID
-> (`sudo cryptsetup luksUUID /dev/nvme0n1pN`) and set
-> `disko.devices.disk.root.device` back to `/dev/disk/by-uuid/<that>`, so the
-> committed config uses a stable reference and matches the original style.
+   Update the repo's `disko.nix` with the new LUKS UUID (`sudo cryptsetup luksUUID /dev/nvme0n1pN`) for future rebuilds.
