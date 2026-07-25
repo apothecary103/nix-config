@@ -46,6 +46,9 @@
               "https://pinterest.com"
               "https://social.treehouse.systems"
               "https://myanimelist.net"
+              "https://claude.ai"
+              "https://gemini.google.com"
+              "https://fluxer.app"
             ];
           };
         };
