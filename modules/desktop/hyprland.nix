@@ -6,7 +6,7 @@
   ];
 
   flake.modules.homeManager.linux =
-    { lib, ... }:
+    { lib, palette, ... }:
     let
       mainMod = "SUPER";
       terminal = "ghostty";
@@ -14,6 +14,7 @@
       menu = "qs ipc call launcher toggle";
 
       lua = lib.generators.mkLuaInline;
+      hex = lib.removePrefix "#";
     in
     {
       wayland.windowManager.hyprland = {
@@ -79,10 +80,13 @@
             general = {
               gaps_in = 5;
               gaps_out = 20;
-              border_size = 3;
+              border_size = 2;
               col = {
-                active_border = "rgba(7287fdff)";
-                inactive_border = "rgba(595959aa)";
+                # Catppuccin accent (blue) on the active border, faded down so it
+                # reads as a subtle outline rather than a glow; the inactive
+                # border fades further into a low-alpha surface tone.
+                active_border = "rgba(${hex palette.surface1}cc)";
+                inactive_border = "rgba(${hex palette.surface1}88)";
               };
               resize_on_border = false;
               allow_tearing = true;
@@ -90,7 +94,7 @@
             };
 
             decoration = {
-              rounding = 0;
+              rounding = 8;
               rounding_power = 3;
               active_opacity = 1.0;
               inactive_opacity = 1.0;
