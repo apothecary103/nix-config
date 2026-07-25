@@ -30,10 +30,17 @@
           "/var/lib/systemd/backlight"
           "/var/lib/systemd/rfkill"
           "/var/lib/bluetooth"
+          "/var/lib/upower"
           # iwd is NetworkManager's wifi backend: this holds the PSKs.
           "/var/lib/iwd"
           "/var/lib/NetworkManager"
           "/etc/NetworkManager/system-connections"
+          # tuigreet's --remember/--remember-session state lives here.
+          {
+            directory = "/var/cache/tuigreet";
+            user = "greeter";
+            group = "greeter";
+          }
         ];
         files = [
           {
