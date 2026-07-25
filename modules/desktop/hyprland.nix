@@ -152,220 +152,186 @@
             };
           };
 
-          # ---- Animations ----
+          # ---- ANIMATIONS ----
+          # Transcribed from niri's defaults (see the niri wiki's Animations
+          # page), because niri is the reference for how this machine should
+          # feel; Hyprland's own stock set is far more languid. niri uses either
+          # a critically damped spring or a 150ms ease-out for everything, and
+          # its spring mass is hardcoded to 1. Hyprland's `dampening` is the raw
+          # damping coefficient rather than a ratio, so it is derived as
+          # c = 2 * damping-ratio * sqrt(mass * stiffness).
+          #
+          #   niri                        stiffness/duration   leaf
+          #   window-movement, -resize    spring 800           windows
+          #   horizontal-view-movement    spring 800           windowsMove
+          #   workspace-switch            spring 1000          workspaces
+          #   overview-open-close         spring 800           zoomFactor
+          #   window-open                 150ms ease-out-expo  windowsIn
+          #   window-close                150ms ease-out-quad  windowsOut
+          #
+          # windowsMove is spelled out rather than left to inherit from windows:
+          # under the scrolling layout it fires on every focus change, so it is
+          # the animation that decides whether the whole session feels sluggish.
           curve = [
             {
               _args = [
-                "easeOutQuint"
-                {
-                  type = "bezier";
-                  points = [
-                    [
-                      0.23
-                      1
-                    ]
-                    [
-                      0.32
-                      1
-                    ]
-                  ];
-                }
-              ];
-            }
-            {
-              _args = [
-                "easeInOutCubic"
-                {
-                  type = "bezier";
-                  points = [
-                    [
-                      0.65
-                      0.05
-                    ]
-                    [
-                      0.36
-                      1
-                    ]
-                  ];
-                }
-              ];
-            }
-            {
-              _args = [
-                "linear"
-                {
-                  type = "bezier";
-                  points = [
-                    [
-                      0
-                      0
-                    ]
-                    [
-                      1
-                      1
-                    ]
-                  ];
-                }
-              ];
-            }
-            {
-              _args = [
-                "almostLinear"
-                {
-                  type = "bezier";
-                  points = [
-                    [
-                      0.5
-                      0.5
-                    ]
-                    [
-                      0.75
-                      1
-                    ]
-                  ];
-                }
-              ];
-            }
-            {
-              _args = [
-                "quick"
-                {
-                  type = "bezier";
-                  points = [
-                    [
-                      0.15
-                      0
-                    ]
-                    [
-                      0.1
-                      1
-                    ]
-                  ];
-                }
-              ];
-            }
-            {
-              _args = [
-                "easy"
+                "niriMovement"
                 {
                   type = "spring";
                   mass = 1;
-                  stiffness = 71.2633;
-                  dampening = 15.8273644;
+                  stiffness = 800;
+                  dampening = 56.5685425;
+                }
+              ];
+            }
+            {
+              _args = [
+                "niriWorkspace"
+                {
+                  type = "spring";
+                  mass = 1;
+                  stiffness = 1000;
+                  dampening = 63.2455532;
+                }
+              ];
+            }
+            # niri implements the real easing functions; these are the standard
+            # cubic-bezier approximations of them (as on easings.net).
+            {
+              _args = [
+                "easeOutExpo"
+                {
+                  type = "bezier";
+                  points = [
+                    [
+                      0.16
+                      1
+                    ]
+                    [
+                      0.3
+                      1
+                    ]
+                  ];
+                }
+              ];
+            }
+            {
+              _args = [
+                "easeOutQuad"
+                {
+                  type = "bezier";
+                  points = [
+                    [
+                      0.5
+                      1
+                    ]
+                    [
+                      0.89
+                      1
+                    ]
+                  ];
                 }
               ];
             }
           ];
 
+          # `speed` is in deciseconds (1 = 100ms). It is kept in step with each
+          # spring's settling time so the result matches niri either way, since
+          # a spring's duration comes from its own physics.
           animation = [
             {
               leaf = "global";
               enabled = true;
-              speed = 10;
-              bezier = "default";
-            }
-            {
-              leaf = "border";
-              enabled = true;
-              speed = 5.39;
-              bezier = "easeOutQuint";
+              speed = 1.5;
+              bezier = "easeOutQuad";
             }
             {
               leaf = "windows";
               enabled = true;
-              speed = 4.79;
-              spring = "easy";
+              speed = 2;
+              spring = "niriMovement";
+            }
+            {
+              leaf = "windowsMove";
+              enabled = true;
+              speed = 2;
+              spring = "niriMovement";
             }
             {
               leaf = "windowsIn";
               enabled = true;
-              speed = 4.1;
-              spring = "easy";
-              style = "popin 87%";
+              speed = 1.5;
+              bezier = "easeOutExpo";
+              style = "popin 90%";
             }
             {
               leaf = "windowsOut";
               enabled = true;
-              speed = 1.49;
-              bezier = "linear";
-              style = "popin 87%";
-            }
-            {
-              leaf = "fadeIn";
-              enabled = true;
-              speed = 1.73;
-              bezier = "almostLinear";
-            }
-            {
-              leaf = "fadeOut";
-              enabled = true;
-              speed = 1.46;
-              bezier = "almostLinear";
+              speed = 1.5;
+              bezier = "easeOutQuad";
+              style = "popin 90%";
             }
             {
               leaf = "fade";
               enabled = true;
-              speed = 3.03;
-              bezier = "quick";
+              speed = 1.5;
+              bezier = "easeOutQuad";
             }
             {
-              leaf = "layers";
-              enabled = true;
-              speed = 3.81;
-              bezier = "easeOutQuint";
-            }
-            {
-              leaf = "layersIn";
-              enabled = true;
-              speed = 4;
-              bezier = "easeOutQuint";
-              style = "fade";
-            }
-            {
-              leaf = "layersOut";
+              leaf = "fadeIn";
               enabled = true;
               speed = 1.5;
-              bezier = "linear";
-              style = "fade";
+              bezier = "easeOutExpo";
             }
             {
-              leaf = "fadeLayersIn";
+              leaf = "fadeOut";
               enabled = true;
-              speed = 1.79;
-              bezier = "almostLinear";
-            }
-            {
-              leaf = "fadeLayersOut";
-              enabled = true;
-              speed = 1.39;
-              bezier = "almostLinear";
+              speed = 1.5;
+              bezier = "easeOutQuad";
             }
             {
               leaf = "workspaces";
               enabled = true;
-              speed = 1.94;
-              bezier = "almostLinear";
-              style = "fade";
-            }
-            {
-              leaf = "workspacesIn";
-              enabled = true;
-              speed = 1.21;
-              bezier = "almostLinear";
-              style = "fade";
-            }
-            {
-              leaf = "workspacesOut";
-              enabled = true;
-              speed = 1.94;
-              bezier = "almostLinear";
-              style = "fade";
+              speed = 2;
+              spring = "niriWorkspace";
+              # niri's workspaces are stacked vertically, so a vertical slide
+              # rather than Hyprland's default cross-fade.
+              style = "slidevert";
             }
             {
               leaf = "zoomFactor";
               enabled = true;
-              speed = 7;
-              bezier = "quick";
+              speed = 2;
+              spring = "niriMovement";
+            }
+
+            # niri animates neither its focus ring nor layer-shell surfaces, so
+            # focus feedback is instant and quickshell's own QML animations (see
+            # quickshell/qml/osd/Osd.qml) are the only thing moving its surfaces
+            # — a compositor fade on top of those reads as a double animation.
+            {
+              leaf = "border";
+              enabled = false;
+            }
+            {
+              leaf = "layers";
+              enabled = false;
+            }
+            {
+              leaf = "layersIn";
+              enabled = false;
+            }
+            {
+              leaf = "layersOut";
+              enabled = false;
+            }
+            {
+              leaf = "fadeLayersIn";
+              enabled = false;
+            }
+            {
+              leaf = "fadeLayersOut";
+              enabled = false;
             }
           ];
 
