@@ -80,6 +80,20 @@
 
         # ---- WINDOW RULES ----
         window-rules = [
+          # Round every window's corners (no match = applies to all), matching the
+          # 8px rounding used under hyprland. clip-to-geometry is what makes it
+          # actually look rounded: it trims client content — including GL and video
+          # surfaces that ignore the radius — to the rounded shape, and the
+          # focus-ring follows the same radius rather than boxing the window.
+          {
+            geometry-corner-radius = {
+              top-left = 8.0;
+              top-right = 8.0;
+              bottom-right = 8.0;
+              bottom-left = 8.0;
+            };
+            clip-to-geometry = true;
+          }
           # Work around WezTerm's initial-configure bug with an empty default width.
           {
             matches = [ { app-id = ''^org\.wezfurlong\.wezterm$''; } ];
