@@ -549,6 +549,82 @@
               ];
             }
 
+            # ---- SCROLLING EXTRAS (no niri counterpart) ----
+            # Hyprland's scrolling layout has a handful of layoutmsgs niri has no
+            # action for. Each was checked against the running compositor: an
+            # unknown one answers "no such layoutmsg for scrolling", and note that
+            # arguments are NOT validated (layout("focus bogus") returns ok), so
+            # only commands confirmed real are bound here.
+
+            # Pull the active column fully into view when it is half off-screen.
+            {
+              _args = [
+                "${mainMod} + Z"
+                (lua ''hl.dsp.layout("fit_into_view")'')
+              ];
+            }
+            # Pin the viewport, so opening or focusing windows stops scrolling it.
+            {
+              _args = [
+                "${mainMod} + SHIFT + Z"
+                (lua ''hl.dsp.layout("inhibit_scroll")'')
+              ];
+            }
+            # Move this window out into a new column of its own.
+            {
+              _args = [
+                "${mainMod} + SHIFT + period"
+                (lua ''hl.dsp.layout("promote")'')
+              ];
+            }
+            # Trade places with the column to either side, keeping focus.
+            {
+              _args = [
+                "${mainMod} + SHIFT + bracketleft"
+                (lua ''hl.dsp.layout("swapcol l")'')
+              ];
+            }
+            {
+              _args = [
+                "${mainMod} + SHIFT + bracketright"
+                (lua ''hl.dsp.layout("swapcol r")'')
+              ];
+            }
+            # Fit modes: everything from here to the start/end of the tape, or
+            # every column at once.
+            {
+              _args = [
+                "${mainMod} + SHIFT + Home"
+                (lua ''hl.dsp.layout("fit tobeg")'')
+              ];
+            }
+            {
+              _args = [
+                "${mainMod} + SHIFT + End"
+                (lua ''hl.dsp.layout("fit toend")'')
+              ];
+            }
+            {
+              _args = [
+                "${mainMod} + SHIFT + A"
+                (lua ''hl.dsp.layout("fit all")'')
+              ];
+            }
+            # Pan the tape a column at a time without moving focus — the thing
+            # niri genuinely cannot do.
+            {
+              _args = [
+                "${mainMod} + ALT + left"
+                (lua ''hl.dsp.layout("move -col")'')
+              ];
+            }
+            {
+              _args = [
+                "${mainMod} + ALT + right"
+                (lua ''hl.dsp.layout("move +col")'')
+              ];
+            }
+
             # Focus Navigation (Arrows)
             {
               _args = [
