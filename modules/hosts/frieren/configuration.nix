@@ -21,7 +21,6 @@
     hardware.asahi.peripheralFirmwareDirectory = inputs.asahi-firmware;
 
     nix.settings = {
-      cores = 0; # 0 = use all available cores
       extra-substituters = [
         "https://nixos-apple-silicon.cachix.org"
       ];
