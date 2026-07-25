@@ -54,10 +54,8 @@
 
         # ---- LAYOUT / LOOK & FEEL ----
         # Mostly niri's built-in defaults. The per-window border stays off (no
-        # outline box); only the focus-ring is kept, recoloured to the Catppuccin
-        # accent (blue) for the active column with a muted inactive ring. The ring
-        # follows the window corner radius set in the window rules, so it stays
-        # rounded rather than boxing the window.
+        # outline box); only the focus-ring is kept, as a thin subtle surface0
+        # ring on active and inactive columns alike.
         layout = {
           border.enable = false;
           focus-ring = {
@@ -87,18 +85,6 @@
 
         # ---- WINDOW RULES ----
         window-rules = [
-          # Round every window's corners (no match = applies to all).
-          # clip-to-geometry trims client content — including GL/video surfaces
-          # that ignore the radius — to the rounded shape so nothing pokes out.
-          {
-            geometry-corner-radius = {
-              top-left = 0.0;
-              top-right = 0.0;
-              bottom-right = 0.0;
-              bottom-left = 0.0;
-            };
-            clip-to-geometry = false;
-          }
           # Work around WezTerm's initial-configure bug with an empty default width.
           {
             matches = [ { app-id = ''^org\.wezfurlong\.wezterm$''; } ];
