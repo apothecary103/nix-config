@@ -126,9 +126,8 @@
               fullscreen_on_one_column = true;
             };
 
-            # Direction-based focus/move (below) cross monitor edges on their
-            # own, so niri's separate "move column to monitor" binds aren't
-            # needed here.
+            # Lets direction-based focus/move cross monitor edges on their own,
+            # in addition to the explicit move-to-monitor binds below.
             binds = {
               window_direction_monitor_fallback = true;
             };
@@ -173,8 +172,14 @@
           #
           #   niri                                    stiffness  ratio  -> dampening
           #   window-movement, -resize, view movement  800        1.0     56.5685425
-          #   overview-open-close                      800        1.0     56.5685425
           #   workspace-switch                        1000        1.0     63.2455532
+          #
+          # overview-open-close has no leaf to map onto: Hyprland has no overview,
+          # and it cannot gain one here. Every overview plugin renders by hooking
+          # CHyprRenderer::renderWorkspace, and Hyprland's function hooking is
+          # guarded to x86_64 (`#if !defined(__x86_64__) return false;` in
+          # src/plugins/HookSystem.cpp), so on this aarch64 machine hook
+          # installation always fails.
           #
           # niri's other two animations are easings, both 150ms:
           #
@@ -332,7 +337,9 @@
               style = "slidevert";
             }
 
-            # overview-open-close.
+            # Hyprland's render zoom, which niri has no equivalent for. Kept on
+            # the movement spring so that if the zoom is ever used it moves like
+            # everything else.
             {
               leaf = "zoomFactor";
               enabled = true;
@@ -693,6 +700,68 @@
               _args = [
                 "${mainMod} + SHIFT + J"
                 (lua ''hl.dsp.focus({ monitor = "d" })'')
+              ];
+            }
+
+            # Move Column to Monitor (Niri Mod+Shift+Ctrl+…). These are bound
+            # even though binds.window_direction_monitor_fallback already carries
+            # a column across an edge, because niri has them as explicit keys.
+          ]
+          ++
+            lib.concatMap
+              (m: [
+                {
+                  _args = [
+                    "${mainMod} + SHIFT + CTRL + ${m.arrow}"
+                    (lua ''hl.dsp.window.move({ monitor = "${m.dir}" })'')
+                  ];
+                }
+                {
+                  _args = [
+                    "${mainMod} + SHIFT + CTRL + ${m.vim}"
+                    (lua ''hl.dsp.window.move({ monitor = "${m.dir}" })'')
+                  ];
+                }
+              ])
+              [
+                {
+                  arrow = "left";
+                  vim = "H";
+                  dir = "l";
+                }
+                {
+                  arrow = "down";
+                  vim = "J";
+                  dir = "d";
+                }
+                {
+                  arrow = "up";
+                  vim = "K";
+                  dir = "u";
+                }
+                {
+                  arrow = "right";
+                  vim = "L";
+                  dir = "r";
+                }
+              ]
+          ++ [
+            # Niri's Mod+Shift+V. Hyprland has no single action for this, so it
+            # branches on the focused window: cycle_next only walks one set at a
+            # time, and jumping to the set you are already in would go nowhere.
+            {
+              _args = [
+                "${mainMod} + SHIFT + V"
+                (lua ''
+                  function()
+                      local w = hl.get_active_window()
+                      if w and w.floating then
+                          hl.dispatch(hl.dsp.window.cycle_next({ tiled = true }))
+                      else
+                          hl.dispatch(hl.dsp.window.cycle_next({ floating = true }))
+                      end
+                  end
+                '')
               ];
             }
 
