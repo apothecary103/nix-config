@@ -5,8 +5,8 @@
       parfaitTheme = pkgs.fetchFromGitHub {
         owner = "reizumii";
         repo = "parfait";
-        rev = "master";
-        hash = "sha256-Fs3iV8RO/jwfSc6q/rwM/xcwNfy/iua+MsuGgM5M8mM=";
+        rev = "c95973a2aee0be7f1a895665baa2fb64a3758404";
+        hash = "sha256-QUo1Zz6Jp9k+4nriCHHUHC8Imu4BSWTj/i+bf1xon9Y=";
       };
 
       chromePath =
@@ -97,7 +97,7 @@
 
             # Parfait Eyecandy
             # "parfait.bg.transparent" = true;
-            # "parfait.blur.enabled" = true;
+            "parfait.blur.enabled" = true;
 
             # Crucial for macOS Firefox engines to render system background transparency
             # "browser.tabs.allow_transparent_browser" = true;
