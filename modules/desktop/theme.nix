@@ -87,7 +87,7 @@ in
         gtk.icon.enable = false;
       };
 
-      # The matching raw hex palette, for hand-styled configs (waybar, rofi,
+      # The matching raw hex palette, for hand-styled configs (quickshell, rofi,
       # mako, tmux, rmpc, ...) that the catppuccin module doesn't cover.
       _module.args.palette = palettes.${flavor};
     };
