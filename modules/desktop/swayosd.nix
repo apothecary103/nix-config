@@ -1,6 +1,9 @@
 {
   flake.modules.homeManager.linux = { palette, ... }: {
-    services.swayosd.enable = true;
+    # Superseded by the quickshell OSD (see quickshell/qml/osd/Osd.qml); keybinds now
+    # call `qs ipc call osd ...` instead of swayosd-client. Config kept below in
+    # case you want to switch back.
+    services.swayosd.enable = false;
 
     xdg.configFile = {
       "swayosd/config.toml".text = /* toml */ ''

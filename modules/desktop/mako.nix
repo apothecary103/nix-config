@@ -1,7 +1,11 @@
 {
   flake.modules.homeManager.linux = { palette, ... }: {
+    # Superseded by the quickshell notification daemon (see
+    # quickshell/qml/notifications/). Both claim org.freedesktop.Notifications on
+    # the session bus, so only one can run. Config kept below in case you want to
+    # switch back.
     services.mako = {
-      enable = true;
+      enable = false;
 
       settings = {
         # Medium weight to match macOS UI heft (TrueType, so no stem darkening).
