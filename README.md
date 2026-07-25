@@ -58,8 +58,9 @@ Passwords are declarative (`mutableUsers = false`), reading from hashes on `/per
    Flash the `nixos-apple-silicon` installer to a USB, boot from U-Boot, and connect to Wi-Fi (`iwctl station wlan0 connect <SSID>`).
 
 3. **Partition the drive**
-   > [!CAUTION]
-   > (•˕ •マ.ᐟ&nbsp;&nbsp;*Do not touch any existing partitions.* This includes both Apple's system containers and the EFI/ESP partition created by the Asahi installer. Only use the unallocated free space.
+
+> [!CAUTION]
+> (•˕ •マ.ᐟ&nbsp;&nbsp;**Do not touch any existing partitions.** This includes both Apple's system containers and the EFI/ESP partition created by the Asahi installer. Only use the unallocated free space.
 
    Use `fdisk` to create a new Linux root partition in the free space. Run `lsblk -f` and note the new partition path (e.g., `/dev/nvme0n1p6`) and the ESP's FAT UUID.
 
