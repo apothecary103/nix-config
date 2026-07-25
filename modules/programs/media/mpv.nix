@@ -1,6 +1,6 @@
 {
   flake.modules.homeManager.base =
-    { ... }:
+    { pkgs, ... }:
 
     {
       programs.mpv = {
@@ -9,7 +9,9 @@
         config = {
           profile = "high-quality";
           vo = "gpu-next";
-          hwdec = "videotoolbox";
+          # videotoolbox is darwin-only; Apple Silicon under Asahi has no
+          # usable hardware decode, so frieren decodes in software anyway.
+          hwdec = if pkgs.stdenv.isDarwin then "videotoolbox" else "no";
 
           icc-profile-auto = true;
           target-colorspace-hint = true;
