@@ -80,7 +80,18 @@
             ".librewolf"
             ".local/share"
             ".local/state"
+
+            # App state outside ~/.local: Claude Code, gh auth, chat clients.
+            ".claude"
+            ".config/gh"
+            ".config/Signal"
+            ".config/vesktop"
+
+            # The quickshell launcher's frecency store, which is what orders the
+            # app list — without this the ordering resets on every boot.
+            ".cache/quickshell"
           ];
+          files = [ ".claude.json" ];
         };
       };
     };
