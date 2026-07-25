@@ -49,7 +49,7 @@ nh darwin switch
 Passwords are declarative (`mutableUsers = false`), reading from hashes on `/persist`. Firmware comes from a private flake input (`asahi-firmware`), requiring your SSH key to be loaded during install.
 
 > [!TIP]
-> Before you begin: make sure you have a reliable external backup of your macOS data. While resizing APFS containers is generally safe, low-level partitioning always carries minor risks.
+> ^. .^₎Ⳋ&nbsp;&nbsp;Before you begin: make sure you have a reliable external backup of your macOS data. While resizing APFS containers is generally safe, low-level partitioning always carries minor risks.
 
 1. **Shrink macOS and install Asahi UEFI**
    Run `curl https://alx.sh | sh` in macOS. Choose **UEFI environment only (m1n1 + U-Boot + ESP)**. Follow the prompts to bless the bootloader and reboot.
@@ -59,7 +59,7 @@ Passwords are declarative (`mutableUsers = false`), reading from hashes on `/per
 
 3. **Partition the drive**
    > [!CAUTION]
-   > *Do not touch any existing partitions.* This includes both Apple's system containers and the EFI/ESP partition created by the Asahi installer. Only use the unallocated free space.
+   > (•˕ •マ.ᐟ&nbsp;&nbsp;*Do not touch any existing partitions.* This includes both Apple's system containers and the EFI/ESP partition created by the Asahi installer. Only use the unallocated free space.
 
    Use `fdisk` to create a new Linux root partition in the free space. Run `lsblk -f` and note the new partition path (e.g., `/dev/nvme0n1p6`) and the ESP's FAT UUID.
 
@@ -102,3 +102,4 @@ Passwords are declarative (`mutableUsers = false`), reading from hashes on `/per
    Log in. Because the `preservation` module uses bind mounts, the `~/.ssh`, `~/.gnupg`, and `~/.password-store` directories are already wired directly to `/persist`. Just copy your backed-up keys straight into `~/.ssh` and `~/.gnupg` via USB, lock down the permissions (`chmod 600 ~/.ssh/id_*`), and `git clone` your password store into `~/.password-store`. They will automatically survive the next reboot.
 
    Update the repo's `disko.nix` with the new LUKS UUID (`sudo cryptsetup luksUUID /dev/nvme0n1pN`) for future rebuilds.
+
