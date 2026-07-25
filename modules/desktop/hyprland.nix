@@ -136,6 +136,13 @@
             misc = {
               force_default_wallpaper = -1;
               disable_hyprland_logo = false;
+
+              # niri tracks the pointer 1:1 while dragging or resizing, with no
+              # animation catching up behind it. Both already default to false;
+              # they are pinned so the animation set stays a faithful match even
+              # if those defaults change.
+              animate_manual_resizes = false;
+              animate_mouse_windowdragging = false;
             };
 
             input = {
@@ -153,25 +160,30 @@
           };
 
           # ---- ANIMATIONS ----
-          # Transcribed from niri's defaults (see the niri wiki's Animations
-          # page), because niri is the reference for how this machine should
-          # feel; Hyprland's own stock set is far more languid. niri uses either
-          # a critically damped spring or a 150ms ease-out for everything, and
-          # its spring mass is hardcoded to 1. Hyprland's `dampening` is the raw
-          # damping coefficient rather than a ratio, so it is derived as
-          # c = 2 * damping-ratio * sqrt(mass * stiffness).
+          # An exact transcription of niri's animation defaults, since niri is
+          # the reference for how this machine should feel. Sources: niri's own
+          # wiki (Configuration: Animations, plus the example shaders that
+          # replicate its default open/close), and Hyprland's spring
+          # implementation in hyprutils.
           #
-          #   niri                        stiffness/duration   leaf
-          #   window-movement, -resize    spring 800           windows
-          #   horizontal-view-movement    spring 800           windowsMove
-          #   workspace-switch            spring 1000          workspaces
-          #   overview-open-close         spring 800           zoomFactor
-          #   window-open                 150ms ease-out-expo  windowsIn
-          #   window-close                150ms ease-out-quad  windowsOut
+          # niri's springs give a damping *ratio*, while Hyprland's `dampening`
+          # is the raw damping coefficient, so c = 2 * ratio * sqrt(mass *
+          # stiffness). niri hardcodes spring mass to 1, which Hyprland also
+          # accepts, so the physics transfer exactly:
           #
-          # windowsMove is spelled out rather than left to inherit from windows:
-          # under the scrolling layout it fires on every focus change, so it is
-          # the animation that decides whether the whole session feels sluggish.
+          #   niri                                    stiffness  ratio  -> dampening
+          #   window-movement, -resize, view movement  800        1.0     56.5685425
+          #   overview-open-close                      800        1.0     56.5685425
+          #   workspace-switch                        1000        1.0     63.2455532
+          #
+          # niri's other two animations are easings, both 150ms:
+          #
+          #   window-open   ease-out-expo, scaling 50% -> 100% while fading in
+          #   window-close  ease-out-quad, scaling 100% -> 80% while fading out
+          #
+          # The scale figures come from niri's default_open/default_close example
+          # shaders, which are documented as equivalent to its built-in
+          # animations, so `popin` mirrors them rather than being guesswork.
           curve = [
             {
               _args = [
@@ -195,26 +207,10 @@
                 }
               ];
             }
-            # niri implements the real easing functions; these are the standard
-            # cubic-bezier approximations of them (as on easings.net).
-            {
-              _args = [
-                "easeOutExpo"
-                {
-                  type = "bezier";
-                  points = [
-                    [
-                      0.16
-                      1
-                    ]
-                    [
-                      0.3
-                      1
-                    ]
-                  ];
-                }
-              ];
-            }
+            # niri implements the true easing functions, Hyprland only cubic
+            # beziers. ease-out-quad — 1-(1-t)^2 — happens to have an exact
+            # bezier form: control points (1/3, 2/3) and (2/3, 1) make x(s) = s
+            # and y(s) = 2s - s^2, reproducing it to floating-point precision.
             {
               _args = [
                 "easeOutQuad"
@@ -222,11 +218,33 @@
                   type = "bezier";
                   points = [
                     [
-                      0.5
-                      1
+                      0.3333333
+                      0.6666667
                     ]
                     [
-                      0.89
+                      0.6666667
+                      1
+                    ]
+                  ];
+                }
+              ];
+            }
+            # ease-out-expo — 1-2^(-10t) — is transcendental, so no cubic bezier
+            # is exact. These points are a minimax fit (max error 0.0067 of full
+            # travel, vs 0.0120 for the usual easings.net approximation) and put
+            # the initial slope at 6.855 against the true 10*ln2 = 6.931.
+            {
+              _args = [
+                "easeOutExpo"
+                {
+                  type = "bezier";
+                  points = [
+                    [
+                      0.1402
+                      0.9608
+                    ]
+                    [
+                      0.2998
                       1
                     ]
                   ];
@@ -235,41 +253,53 @@
             }
           ];
 
-          # `speed` is in deciseconds (1 = 100ms). It is kept in step with each
-          # spring's settling time so the result matches niri either way, since
-          # a spring's duration comes from its own physics.
+          # `speed` is in deciseconds (1 = 100ms). Hyprland ignores it entirely
+          # for spring curves — hyprutils drives those from the physics alone —
+          # so the values on the spring leaves below are descriptive only,
+          # roughly the settling time each spring works out to.
           animation = [
+            # Catch-all for any leaf not named below, at niri's general tempo.
             {
               leaf = "global";
               enabled = true;
               speed = 1.5;
               bezier = "easeOutQuad";
             }
+
+            # niri's window-movement, window-resize and horizontal-view-movement
+            # all share one spring, and Hyprland's windowsMove covers the same
+            # ground. It is spelled out rather than left to inherit from windows
+            # because under the scrolling layout it fires on every focus change,
+            # making it the animation that decides how the session feels.
             {
               leaf = "windows";
               enabled = true;
-              speed = 2;
+              speed = 4.5;
               spring = "niriMovement";
             }
             {
               leaf = "windowsMove";
               enabled = true;
-              speed = 2;
+              speed = 4.5;
               spring = "niriMovement";
             }
+
+            # window-open / window-close. The fade leaves carry the same curve
+            # and duration as the scale, because niri drives both from a single
+            # animation progress value.
             {
               leaf = "windowsIn";
               enabled = true;
               speed = 1.5;
               bezier = "easeOutExpo";
-              style = "popin 90%";
+              style = "popin 50%";
             }
             {
               leaf = "windowsOut";
               enabled = true;
               speed = 1.5;
               bezier = "easeOutQuad";
-              style = "popin 90%";
+              style = "popin 80%";
             }
             {
               leaf = "fade";
@@ -289,26 +319,34 @@
               speed = 1.5;
               bezier = "easeOutQuad";
             }
+
+            # workspace-switch. niri stacks workspaces vertically, hence a
+            # vertical slide rather than Hyprland's default cross-fade.
+            # workspacesIn/Out and the specialWorkspace family are left to
+            # inherit this: niri has one workspace animation, not several.
             {
               leaf = "workspaces";
               enabled = true;
-              speed = 2;
+              speed = 4.1;
               spring = "niriWorkspace";
-              # niri's workspaces are stacked vertically, so a vertical slide
-              # rather than Hyprland's default cross-fade.
               style = "slidevert";
             }
+
+            # overview-open-close.
             {
               leaf = "zoomFactor";
               enabled = true;
-              speed = 2;
+              speed = 4.5;
               spring = "niriMovement";
             }
 
-            # niri animates neither its focus ring nor layer-shell surfaces, so
-            # focus feedback is instant and quickshell's own QML animations (see
-            # quickshell/qml/osd/Osd.qml) are the only thing moving its surfaces
-            # — a compositor fade on top of those reads as a double animation.
+            # Everything below has no niri counterpart, and niri does not animate
+            # any of it, so neither do we. Notably: its focus ring recolours
+            # instantly, and layer-shell surfaces just appear — quickshell's
+            # surfaces animate themselves in QML (see quickshell/qml/osd/Osd.qml)
+            # and a compositor fade on top of that read as a double animation.
+            # borderangle, shadowangle and glowangle are already off by
+            # Hyprland's own defaults, as is __internal_fadeCTM's tree entry.
             {
               leaf = "border";
               enabled = false;
@@ -331,6 +369,43 @@
             }
             {
               leaf = "fadeLayersOut";
+              enabled = false;
+            }
+            # niri opens popups, dims, switches and blanks without a transition.
+            {
+              leaf = "fadePopups";
+              enabled = false;
+            }
+            {
+              leaf = "fadePopupsIn";
+              enabled = false;
+            }
+            {
+              leaf = "fadePopupsOut";
+              enabled = false;
+            }
+            {
+              leaf = "fadeSwitch";
+              enabled = false;
+            }
+            {
+              leaf = "fadeDim";
+              enabled = false;
+            }
+            {
+              leaf = "fadeDpms";
+              enabled = false;
+            }
+            {
+              leaf = "fadeShadow";
+              enabled = false;
+            }
+            {
+              leaf = "fadeGlow";
+              enabled = false;
+            }
+            {
+              leaf = "monitorAdded";
               enabled = false;
             }
           ];
