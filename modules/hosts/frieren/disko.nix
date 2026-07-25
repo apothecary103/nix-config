@@ -10,7 +10,7 @@
       # before. For a fresh, destructive disko run point this at the raw
       # partition instead (e.g. /dev/nvme0n1p6 — confirm with `lsblk`), since
       # luksFormat assigns a new UUID.
-      device = "/dev/disk/by-uuid/162e3f71-01e3-4f58-8567-1f5748529e66";
+      device = "/dev/disk/by-uuid/a0c92d69-f406-4dc1-89af-000fc1ac204e";
       content = {
         type = "luks";
         name = "cryptroot";

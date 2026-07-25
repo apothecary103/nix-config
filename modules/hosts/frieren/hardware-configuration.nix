@@ -21,7 +21,7 @@
       # firmware carrier, so it is deliberately kept out of disko (never
       # reformat it) and mounted here instead.
       fileSystems."/boot" = {
-        device = "/dev/disk/by-uuid/7B3A-1725";
+        device = "/dev/disk/by-uuid/8622-1808";
         fsType = "vfat";
         options = [
           "fmask=0022"
