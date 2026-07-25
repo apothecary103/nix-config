@@ -1,4 +1,4 @@
-{ inputs, ... }: {
+{
   flake.modules.homeManager.base = { pkgs, ... }: {
     home.packages = with pkgs; [
       # CLI Tools
@@ -25,7 +25,6 @@
       prismlauncher
       signal-desktop
       vesktop
-      inputs.zen-browser.packages."${pkgs.system}".default
     ];
   };
 

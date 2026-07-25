@@ -10,7 +10,7 @@
     # Chromium/Electron Ozone backend — Signal, Vesktop, and any Electron app.
     NIXOS_OZONE_WL = "1";
 
-    # Firefox-based browsers — LibreWolf and Zen.
+    # Firefox-based browsers — LibreWolf.
     MOZ_ENABLE_WAYLAND = "1";
   };
 }

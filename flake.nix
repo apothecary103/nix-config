@@ -45,10 +45,6 @@
       flake = false;
     };
     catppuccin.url = "github:catppuccin/nix";
-    zen-browser = {
-      url = "github:0xc000022070/zen-browser-flake";
-      inputs.nixpkgs.follows = "nixpkgs";
-    };
     nvf.url = "github:notashelf/nvf";
     emacs-overlay = {
       url = "github:nix-community/emacs-overlay";
