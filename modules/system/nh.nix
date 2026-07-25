@@ -16,6 +16,10 @@
     };
   };
 
+  # nh clean replaces nix's own gc on darwin too; there is just no assertion
+  # guarding the overlap like the NixOS module has, so turn it off explicitly.
+  flake.modules.darwin.base.nix.gc.automatic = false;
+
   # nix-darwin has no programs.nh module of its own, so configure it through
   # home-manager instead; it drives cleanup via a launchd agent on macOS.
   flake.modules.homeManager.darwin = {
