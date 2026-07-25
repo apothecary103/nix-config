@@ -1,0 +1,68 @@
+pragma Singleton
+
+import Quickshell
+import Quickshell.Services.Pipewire
+
+// The default sink and source, tracked once for the whole shell. Both the bar's
+// volume widget and the OSD read from here; binding to Pipewire directly means
+// re-deriving `defaultAudioSink.audio` at every use and tracking the nodes twice.
+Singleton {
+    id: root
+
+    readonly property var sink: Pipewire.defaultAudioSink
+    readonly property var source: Pipewire.defaultAudioSource
+
+    readonly property var sinkAudio: root.sink ? root.sink.audio : null
+    readonly property var sourceAudio: root.source ? root.source.audio : null
+
+    readonly property real volume: root.sinkAudio ? root.sinkAudio.volume : 0
+    readonly property bool muted: root.sinkAudio ? root.sinkAudio.muted : false
+    readonly property bool micMuted: root.sourceAudio ? root.sourceAudio.muted : false
+
+    // Matches swayosd's old step; `max` allows the usual 150% overdrive.
+    readonly property real step: 0.05
+    readonly property real max: 1.5
+
+    // Emitted only for changes made through the functions below, which is what
+    // the OSD wants to show. Watching the volume properties instead would also
+    // fire for the values that settle during startup, and telling those apart
+    // needs a guess at how long startup takes.
+    //
+    // The trade is that a change made by something outside the shell (a bare
+    // `wpctl set-volume`) does not raise the OSD.
+    signal changed(string kind)
+
+    function adjustVolume(delta) {
+        const a = root.sinkAudio;
+        if (!a)
+            return;
+        // Nudging the volume up is the usual way to undo an accidental mute.
+        if (a.muted && delta > 0)
+            a.muted = false;
+        a.volume = Math.max(0, Math.min(root.max, a.volume + delta));
+        root.changed("volume");
+    }
+
+    function toggleMute() {
+        if (root.sinkAudio)
+            root.sinkAudio.muted = !root.sinkAudio.muted;
+        root.changed("volume");
+    }
+
+    function toggleMicMute() {
+        if (root.sourceAudio)
+            root.sourceAudio.muted = !root.sourceAudio.muted;
+        root.changed("micmute");
+    }
+
+    PwObjectTracker {
+        objects: {
+            const list = [];
+            if (root.sink)
+                list.push(root.sink);
+            if (root.source)
+                list.push(root.source);
+            return list;
+        }
+    }
+}
