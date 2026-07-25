@@ -20,7 +20,14 @@
     }:
     let
       terminal = "ghostty";
-      menu = "fuzzel";
+      # The quickshell launcher, same as under hyprland; fuzzel is gone.
+      menu = [
+        "qs"
+        "ipc"
+        "call"
+        "launcher"
+        "toggle"
+      ];
     in
     {
       imports = [ inputs.niri.homeModules.config ];
@@ -69,15 +76,15 @@
         };
 
         # ---- AUTOSTART ----
-        # mako and swayosd run as home-manager user services and come up with the
-        # graphical session; niri only starts the bar and wallpaper daemon.
+        # quickshell (bar, notifications, launcher, OSD) runs as a home-manager
+        # user service and comes up with the graphical session; niri only starts
+        # the wallpaper daemon.
         spawn-at-startup = [
-          { argv = [ "waybar" ]; }
           { argv = [ "awww-daemon" ]; }
         ];
 
         prefer-no-csd = true;
-        
+
         # ---- WINDOW RULES ----
         window-rules = [
           # Round every window's corners (no match = applies to all).
@@ -115,7 +122,7 @@
 
         layer-rules = [
           {
-            matches = [ { namespace = "^waybar$"; } ];
+            matches = [ { namespace = "^bar$"; } ];
             background-effect = {
               blur = true;
               xray = false;
@@ -133,7 +140,7 @@
             action = spawn terminal;
           };
           "Mod+D" = {
-            hotkey-overlay.title = "Run an Application: ${menu}";
+            hotkey-overlay.title = "Run an Application";
             action = spawn menu;
           };
           "Super+Alt+L" = {
@@ -141,22 +148,22 @@
             action = spawn "swaylock";
           };
 
-          # Volume / mic through swayosd-client so the OSD shows the level.
+          # Volume / mic through the quickshell OSD (see quickshell/qml/osd/Osd.qml).
           "XF86AudioRaiseVolume" = {
             allow-when-locked = true;
-            action = spawn "swayosd-client" "--output-volume" "raise";
+            action = spawn "qs" "ipc" "call" "osd" "volumeUp";
           };
           "XF86AudioLowerVolume" = {
             allow-when-locked = true;
-            action = spawn "swayosd-client" "--output-volume" "lower";
+            action = spawn "qs" "ipc" "call" "osd" "volumeDown";
           };
           "XF86AudioMute" = {
             allow-when-locked = true;
-            action = spawn "swayosd-client" "--output-volume" "mute-toggle";
+            action = spawn "qs" "ipc" "call" "osd" "muteToggle";
           };
           "XF86AudioMicMute" = {
             allow-when-locked = true;
-            action = spawn "swayosd-client" "--input-volume" "mute-toggle";
+            action = spawn "qs" "ipc" "call" "osd" "micMuteToggle";
           };
 
           # Media keys via playerctl (MPRIS).
@@ -181,14 +188,14 @@
             action = spawn-sh "playerctl next";
           };
 
-          # Brightness through swayosd-client for the OSD.
+          # Brightness through the quickshell OSD (see quickshell/qml/osd/Osd.qml).
           "XF86MonBrightnessUp" = {
             allow-when-locked = true;
-            action = spawn "swayosd-client" "--brightness" "raise";
+            action = spawn "qs" "ipc" "call" "osd" "brightnessUp";
           };
           "XF86MonBrightnessDown" = {
             allow-when-locked = true;
-            action = spawn "swayosd-client" "--brightness" "lower";
+            action = spawn "qs" "ipc" "call" "osd" "brightnessDown";
           };
 
           "Mod+O" = {
