@@ -2,11 +2,15 @@
   flake.modules.homeManager.base =
     {
       config,
+      pkgs,
       rmpcLib,
       palette,
       ...
     }:
     let
+      # The palette arg already follows the per-platform catppuccin flavor
+      # (theme.nix), so just name the theme accordingly.
+      flavour = if pkgs.stdenv.isDarwin then "macchiato" else "mocha";
       inherit (rmpcLib)
         variant
         enum
@@ -40,7 +44,7 @@
 
         settings = {
           address = "127.0.0.1:6600";
-          theme = "catppuccin-macchiato";
+          theme = "catppuccin-${flavour}";
           lyrics_dir = "${config.home.homeDirectory}/.lyrics";
 
           album_art = {
@@ -92,7 +96,7 @@
           ];
         };
 
-        themes.catppuccin-macchiato = {
+        themes."catppuccin-${flavour}" = {
           default_album_art_path = null;
           symbols = {
             song = "🎵";
