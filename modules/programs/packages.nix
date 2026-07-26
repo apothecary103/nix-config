@@ -16,7 +16,6 @@
       gh
       tokei
       krabby
-      # opencode
       claude-code
       glow
       util-linux
@@ -30,13 +29,8 @@
 
   flake.modules.homeManager.darwin = { pkgs, ... }: {
     home.packages = with pkgs; [
-      # CLI Tools
       llama-cpp
       qemu
-
-      # GUI Applications
-      # steam
-      # moonlight-qt
     ];
   };
 }

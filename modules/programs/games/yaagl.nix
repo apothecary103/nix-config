@@ -64,7 +64,6 @@
         yaagl = {
           genshin = lib.mkDefault "os";
           hsr = lib.mkDefault "os";
-          # zzz = "cn";
         };
 
         home.packages = lib.mkIf (selected != [ ]) (map (name: yaaglPkgs.${name}) selected);

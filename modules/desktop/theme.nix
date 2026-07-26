@@ -66,7 +66,6 @@ in
     { pkgs, ... }:
     let
       flavor = if pkgs.stdenv.isDarwin then "macchiato" else "mocha";
-      # flavor = "macchiato";
     in
     {
       imports = [ inputs.catppuccin.homeModules.catppuccin ];

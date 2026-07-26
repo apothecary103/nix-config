@@ -87,11 +87,5 @@
         gtk-xft-rgba = "none";
       };
     };
-
-    # qt = {
-    #   enable = true;
-    #   platformTheme.name = "kvantum";
-    #   style.name = "kvantum";
-    # };
   };
 }

@@ -33,9 +33,6 @@
         "linearmouse"
         "homerow"
         "whichspace"
-        # "blender"
-        # "foobar2000"
-        # "background-music"
       ];
     };
   };
