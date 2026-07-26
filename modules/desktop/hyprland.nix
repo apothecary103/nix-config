@@ -529,6 +529,13 @@
                 (lua "hl.dsp.window.close()")
               ];
             }
+            # Mod is the Command key, so this mirrors macOS's ⌃⌘Q.
+            {
+              _args = [
+                "${mainMod} + CTRL + Q"
+                (lua "hl.dsp.exec_cmd('loginctl lock-session')")
+              ];
+            }
 
             # Window Sizing & Screen States (Niri 1:1)
             {

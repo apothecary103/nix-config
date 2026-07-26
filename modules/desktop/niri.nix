@@ -341,6 +341,9 @@
             action = toggle-keyboard-shortcuts-inhibit;
           };
 
+          # Mod is the Command key, so this mirrors macOS's ⌃⌘Q.
+          "Mod+Ctrl+Q".action = spawn-sh "loginctl lock-session";
+
           "Mod+Shift+E".action = quit;
           "Ctrl+Alt+Delete".action = quit;
 
