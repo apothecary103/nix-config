@@ -79,6 +79,7 @@ in
         helix.enable = false;
         nushell.enable = false;
         mpv.enable = false;
+        librewolf.enable = false;
 
         # GTK apps follow GNOME's stock Adwaita icon theme (set in gtk.nix) for
         # a native Nautilus/Loupe look, so keep catppuccin from forcing
