@@ -19,6 +19,7 @@
       "appledrm.show_notch=1"
     ];
     hardware.asahi.peripheralFirmwareDirectory = inputs.asahi-firmware;
+    hardware.asahi.enable = true;
 
     nix.settings = {
       extra-substituters = [
