@@ -49,8 +49,7 @@
                 "noatime"
               ];
             };
-            # Fulfils the swap TODO: a dedicated subvolume whose swapfile lands
-            # at /swap/swapfile. disko creates it NOCOW and wires swapDevices.
+            # disko creates the swapfile NOCOW and wires up swapDevices for it.
             "@swap" = {
               mountpoint = "/swap";
               swap.swapfile.size = "2G";
