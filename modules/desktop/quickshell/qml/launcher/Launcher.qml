@@ -2,27 +2,14 @@ import QtQuick
 import QtQuick.Layouts
 import Quickshell
 import Quickshell.Wayland
-import Quickshell.Hyprland
 import Quickshell.Io
 import ".."
 
-// A drun-style launcher mirroring the rofi config it replaced: 480px wide, a search
-// bar over six rows, Pixora icons and the inverted selection highlight. Renders
-// only while open, and the ListView recycles delegates.
-//
-// Bind either as a Hyprland global (`bind = SUPER, D, global, quickshell:launcher`)
-// or over IPC (`qs ipc call launcher toggle`).
 Scope {
     id: root
 
     property bool open: false
     property string query: ""
-
-    GlobalShortcut {
-        name: "launcher"
-        description: "Toggle the application launcher"
-        onPressed: root.open = !root.open
-    }
 
     IpcHandler {
         target: "launcher"
@@ -31,8 +18,9 @@ Scope {
         }
     }
 
-    // Launch counts, mirroring rofi's most-used ordering. JsonAdapter both parses
-    // the file and writes it back, so there is no shell quoting to get wrong.
+    // Launch counts, so the list is ordered most-used first. JsonAdapter both
+    // parses the file and writes it back, so there is no shell quoting to get
+    // wrong.
     FileView {
         id: usageFile
         path: Quickshell.env("HOME") + "/.cache/quickshell/launcher-usage.json"
@@ -95,9 +83,8 @@ Scope {
         return (s || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
     }
 
-    // Underlines and bolds the matched span, like rofi's `highlight: bold
-    // underline`. Each piece is escaped separately so names containing & < >
-    // cannot break the markup.
+    // Each piece is escaped separately so names containing & < > cannot break
+    // the markup.
     function highlightName(name, q) {
         const query = (q || "").trim();
         if (!query)
@@ -249,8 +236,8 @@ Scope {
                     readonly property int rowHeight: 42
                     readonly property int rows: 6
 
-                    // rofi reserves `lines: 6` unconditionally, so the window
-                    // never resizes with the match count.
+                    // Reserved unconditionally, so the window never resizes with
+                    // the match count.
                     Layout.preferredHeight: list.rows * list.rowHeight + (list.rows - 1) * spacing
 
                     model: root.filtered
@@ -262,9 +249,9 @@ Scope {
                     snapMode: ListView.SnapToItem
                     highlightRangeMode: ListView.NoHighlightRange
 
-                    // rofi paginates: moving past the last visible row reveals
-                    // the next block of rows with the selection at the top,
-                    // rather than scrolling a line at a time.
+                    // Paginated: moving past the last visible row reveals the
+                    // next block of rows with the selection at the top, rather
+                    // than scrolling a line at a time.
                     onCurrentIndexChanged: positionViewAtIndex(Math.floor(currentIndex / list.rows) * list.rows, ListView.Beginning)
 
                     // Trailing slack so a final page holding fewer than `rows`
