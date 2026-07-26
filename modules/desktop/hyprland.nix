@@ -10,7 +10,6 @@
     let
       mainMod = "SUPER";
       terminal = "ghostty";
-      fileManager = "yazi";
       menu = "qs ipc call launcher toggle";
 
       lua = lib.generators.mkLuaInline;
@@ -169,9 +168,6 @@
               inactive_opacity = 1.0;
               shadow = {
                 enabled = false;
-                range = 4;
-                render_power = 3;
-                color = lua "0xee1a1a1a";
               };
               blur = {
                 enabled = true;
@@ -185,12 +181,6 @@
               enabled = true;
             };
 
-            dwindle = {
-              preserve_split = true;
-            };
-            master = {
-              new_status = "master";
-            };
             scrolling = {
               fullscreen_on_one_column = true;
 
@@ -212,9 +202,6 @@
             };
 
             misc = {
-              force_default_wallpaper = -1;
-              disable_hyprland_logo = false;
-
               # niri tracks the pointer 1:1 while dragging or resizing, with no
               # animation catching up behind it. Both already default to false;
               # they are pinned so the animation set stays a faithful match even
@@ -225,10 +212,7 @@
 
             input = {
               kb_layout = "us";
-              kb_variant = "";
-              kb_model = "";
               kb_options = "compose:ralt";
-              kb_rules = "";
               follow_mouse = 1;
               sensitivity = 0;
               touchpad = {
@@ -504,14 +488,6 @@
             }
           ];
 
-          # ---- INPUT DEVICES ---
-          device = [
-            {
-              name = "epic-mouse-v1";
-              sensitivity = -0.5;
-            }
-          ];
-
           # ---- KEYBINDINGS ----
           # Mirrors niri's binds (modules/desktop/niri.nix) onto Hyprland's
           # scrolling layout. What is left unbound is what Hyprland 0.56 has no
@@ -545,24 +521,6 @@
               _args = [
                 "${mainMod} + D"
                 (lua "hl.dsp.exec_cmd('${menu}')")
-              ];
-            }
-            {
-              _args = [
-                "${mainMod} + ALT + L"
-                (lua "hl.dsp.exec_cmd('swaylock')")
-              ];
-            }
-            {
-              _args = [
-                "${mainMod} + E"
-                (lua "hl.dsp.exec_cmd('${fileManager}')")
-              ];
-            }
-            {
-              _args = [
-                "${mainMod} + P"
-                (lua "hl.dsp.window.pseudo()")
               ];
             }
             {
@@ -1365,12 +1323,6 @@
             }
           ];
 
-          # layer_rule = [
-          #   { match = { namespace = "waybar"; }; blur = true; }
-          #   { match = { namespace = "notifications"; }; blur = true; ignore_alpha = 0.5; }
-          #   { match = { namespace = "swayosd"; }; blur = true; }
-          #   { match = { namespace = "launcher"; }; blur = true; ignore_alpha = 0.5; }
-          # ];
         };
       };
     };
