@@ -25,7 +25,6 @@
             directory = "/var/lib/nixos";
             inInitrd = true;
           }
-          "/var/lib/systemd/coredump"
           "/var/lib/systemd/timers"
           "/var/lib/systemd/backlight"
           "/var/lib/systemd/rfkill"
@@ -108,6 +107,21 @@
       user = username;
       group = "users";
       mode = "0700";
+    };
+
+    # The hashes are placed by hand at install time, so pin their mode rather
+    # than trusting whatever umask was in effect in the installer shell.
+    systemd.tmpfiles.settings.password-hashes = {
+      "/persist/passwords".d = {
+        user = "root";
+        group = "root";
+        mode = "0700";
+      };
+      "/persist/passwords/*".z = {
+        user = "root";
+        group = "root";
+        mode = "0400";
+      };
     };
   };
 }
