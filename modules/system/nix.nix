@@ -22,6 +22,10 @@ let
           auto-optimise-store = true;
           trusted-users = [ username ];
 
+          # Every flake reference here is a full URL, so the only thing the
+          # registry does is fetch github:NixOS/flake-registry on each nix run.
+          flake-registry = "";
+
           extra-substituters = [ "https://nix-community.cachix.org" ];
           extra-trusted-public-keys = [
             "nix-community.cachix.org-1:mB9FSh9qf2dCimDSUo8Zy7bkq5CX+/rkCWyvRCYg3Fs="
