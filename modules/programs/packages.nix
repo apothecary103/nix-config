@@ -16,7 +16,7 @@
       gh
       tokei
       krabby
-      opencode
+      # opencode
       claude-code
       glow
       util-linux
@@ -35,7 +35,6 @@
       qemu
 
       # GUI Applications
-      aseprite
       # steam
       # moonlight-qt
     ];
