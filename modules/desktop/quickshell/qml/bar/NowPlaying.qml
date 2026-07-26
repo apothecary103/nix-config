@@ -4,8 +4,6 @@ import Quickshell.Widgets
 import Quickshell.Services.Mpris
 import ".."
 
-// Cover art, title, artist and a play/pause toggle for the active MPRIS player.
-// Hidden entirely when nothing is playing.
 Row {
     id: root
 

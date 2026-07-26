@@ -3,9 +3,6 @@ pragma Singleton
 import Quickshell
 import Quickshell.Services.Pipewire
 
-// The default sink and source, tracked once for the whole shell. Both the bar's
-// volume widget and the OSD read from here; binding to Pipewire directly means
-// re-deriving `defaultAudioSink.audio` at every use and tracking the nodes twice.
 Singleton {
     id: root
 
@@ -19,7 +16,7 @@ Singleton {
     readonly property bool muted: root.sinkAudio ? root.sinkAudio.muted : false
     readonly property bool micMuted: root.sourceAudio ? root.sourceAudio.muted : false
 
-    // Matches swayosd's old step; `max` allows the usual 150% overdrive.
+    // `max` allows the usual 150% overdrive.
     readonly property real step: 0.05
     readonly property real max: 1.5
 

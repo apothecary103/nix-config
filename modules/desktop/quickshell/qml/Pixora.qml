@@ -3,14 +3,6 @@ pragma Singleton
 import Quickshell
 import Quickshell.Io
 
-// Which icons the Pixora theme actually ships, listed once at startup.
-//
-// AppIcon checks here before pointing an Image at a Pixora path. Letting the
-// Image fail and fall back instead looks simpler but is not: every app whose
-// icon Pixora lacks then logs a failed load, once per delegate that shows it.
-//
-// Pixora is installed by hand into ~/.local/share/icons rather than by nix, so
-// the set has to be discovered at runtime.
 Singleton {
     id: root
 
@@ -26,6 +18,11 @@ Singleton {
         return "file://" + root.dir + "/" + name + ".svg";
     }
 
+    // Listed once at startup because Pixora is installed by hand rather than by
+    // nix, so the set has to be discovered at runtime. AppIcon checks has()
+    // before pointing an Image at a Pixora path; letting the Image fail and fall
+    // back instead looks simpler but logs a failed load for every app Pixora
+    // lacks, once per delegate that shows it.
     Process {
         running: true
         command: ["sh", "-c", "ls " + root.dir + " 2>/dev/null"]

@@ -4,8 +4,6 @@ import Quickshell.Widgets
 import Quickshell.Services.SystemTray
 import ".."
 
-// System tray, collapsed behind a chevron so idle icons do not take up bar
-// width. Expanding animates the icon strip open rather than snapping it.
 Row {
     id: root
 

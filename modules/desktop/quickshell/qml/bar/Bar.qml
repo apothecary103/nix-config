@@ -5,33 +5,23 @@ import Quickshell.Wayland
 import Quickshell.Widgets
 import ".."
 
-// The top bar: two pills anchored to the screen edges, with the widgets in
-// bar/ doing the actual work.
-//
-// Each pill is its own layer surface rather than both living in one full-width
-// surface. niri's background-effect blurs the whole area a surface covers and has
-// no alpha threshold to exempt the see-through parts (unlike Hyprland's
-// blur:ignore_alpha), so a single wide surface blurred the empty gap between the
-// pills as well. Sizing each surface to its pill keeps the blur under the pills
-// where it belongs, and leaves the gap genuinely transparent — clicks there now
-// reach whatever is underneath too.
 Scope {
     id: root
 
     // Neither pill can reserve the top edge itself. wlr-layer-shell only honours
     // an exclusive zone on a surface anchored to one edge, or to an edge plus
-    // both edges perpendicular to it; a surface anchored to two *adjacent*
-    // edges is a corner, and the protocol says its exclusive zone "will be
-    // treated the same as zero". Both pills are corners (top+left, top+right),
-    // so quickshell's Auto mode resolves no exclusion edge and sends a zone of
-    // 0 — which is why `hyprctl monitors` reported reserved [0,0,0,0] and
-    // windows tiled underneath the bar.
+    // both edges perpendicular to it; a surface anchored to two *adjacent* edges
+    // is a corner, and the protocol says its exclusive zone "will be treated the
+    // same as zero". Both pills are corners (top+left, top+right), so
+    // quickshell's Auto mode resolves no exclusion edge and sends a zone of 0 —
+    // which is why `hyprctl monitors` reported reserved [0,0,0,0] and windows
+    // tiled underneath the bar.
     //
-    // This invisible full-width surface does the reserving instead. It is
-    // anchored top+left+right, the one shape the protocol accepts, and it is
-    // transparent with an empty click mask so it neither draws nor swallows
-    // input. Its namespace deliberately differs from the pills' so niri's
-    // `^bar$` blur rule keeps skipping it.
+    // This invisible full-width surface does the reserving instead, anchored
+    // top+left+right — the one shape the protocol accepts — and transparent with
+    // an empty click mask so it neither draws nor swallows input. Its namespace
+    // deliberately differs from the pills' so the compositors' `^bar$` blur
+    // rules keep skipping it.
     PanelWindow {
         id: strut
 
@@ -73,8 +63,11 @@ Scope {
         implicitHeight: Theme.barHeight
         color: "transparent"
 
-        // Named so compositor layer rules can target the bar alone rather than
-        // every quickshell surface (see niri.nix's layer-rules).
+        // Each pill is its own surface, sized to itself, because niri's
+        // background-effect blurs everything a surface covers with no alpha
+        // threshold to exempt the see-through parts: one full-width surface
+        // blurred the gap between the pills too, and swallowed clicks there.
+        // Named so the compositors' layer rules can target the bar alone.
         WlrLayershell.namespace: "bar"
 
         Rectangle {

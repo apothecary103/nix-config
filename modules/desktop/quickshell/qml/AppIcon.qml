@@ -1,10 +1,6 @@
 import QtQuick
 import Quickshell
 
-// An app icon, resolved Pixora-first to match rofi's icon-theme, then the app's
-// own absolute path, then the system theme. Stays blank instead of showing a
-// broken-image placeholder when nothing resolves, so callers can bind their
-// visibility to `status === Image.Ready`.
 Image {
     id: root
 
@@ -35,6 +31,8 @@ Image {
     property int candIndex: 0
     onIconNameChanged: root.candIndex = 0
 
+    // Empty rather than a broken-image placeholder once the candidates run out,
+    // so callers can bind their visibility to `status === Image.Ready`.
     source: root.candIndex < root.candidates.length ? root.candidates[root.candIndex] : ""
     onStatusChanged: {
         if (root.status === Image.Error && root.candIndex < root.candidates.length - 1)

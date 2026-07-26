@@ -3,12 +3,11 @@ import QtQuick.Layouts
 import Quickshell.Services.UPower
 import ".."
 
-// Battery level from UPower's aggregate display device, so there is no
-// machine-specific sysfs path and no polling. Requires services.upower.enable
-// (set in quickshell.nix); the widget hides itself if UPower reports no battery.
 Row {
     id: root
 
+    // UPower's aggregate display device, so there is no machine-specific sysfs
+    // path and no polling. Requires services.upower.enable (quickshell.nix).
     readonly property var device: UPower.displayDevice
     readonly property bool present: !!root.device && root.device.ready && root.device.isPresent
     // UPower's D-Bus property is 0-100 but Quickshell normalises it to 0-1.

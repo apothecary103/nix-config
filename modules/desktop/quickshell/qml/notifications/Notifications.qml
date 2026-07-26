@@ -8,7 +8,6 @@ import Quickshell.Wayland
 import Quickshell.Services.Notifications
 import ".."
 
-// Notification daemon and the top-right popup stack.
 Scope {
     id: root
 

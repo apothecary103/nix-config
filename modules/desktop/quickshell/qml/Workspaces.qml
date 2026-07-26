@@ -4,20 +4,15 @@ import Quickshell
 import Quickshell.Hyprland
 import Quickshell.Io
 
-// Workspaces for whichever compositor is running. greetd launches niri by
-// default and Hyprland as the alternate session (see modules/desktop/greetd.nix),
-// so the bar cannot bind to Quickshell.Hyprland directly. Quickshell 0.3.0 ships
-// no niri backend — WindowManager.windowsets is empty — hence the event-stream
-// reader below.
-//
-// `list` is [{ id, idx, active }] sorted by idx, where idx is the 1-based
-// position the bar labels workspaces by.
 Singleton {
     id: root
 
     readonly property bool underHyprland: !!Quickshell.env("HYPRLAND_INSTANCE_SIGNATURE")
     readonly property bool underNiri: !!Quickshell.env("NIRI_SOCKET")
 
+    // [{ id, idx, active }] sorted by idx, where idx is the 1-based position the
+    // bar labels workspaces by. Either compositor can be the running session
+    // (greetd offers both), so this cannot bind to Quickshell.Hyprland directly.
     readonly property var list: root.underNiri ? root.niriList : root.hyprlandList
 
     function activate(ws) {
@@ -45,6 +40,8 @@ Singleton {
     // --- niri ----------------------------------------------------------------
     property var niriList: []
 
+    // Quickshell 0.3.0 ships no niri backend — WindowManager.windowsets is empty
+    // — so the workspace list comes from niri's own event stream.
     Process {
         running: root.underNiri
         command: ["niri", "msg", "--json", "event-stream"]

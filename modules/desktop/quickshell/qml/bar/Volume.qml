@@ -2,8 +2,8 @@ import QtQuick
 import QtQuick.Layouts
 import ".."
 
-// Sink volume: click to mute, scroll to adjust. The row is wrapped in an Item so
-// the click target can fill it without being laid out as another row child.
+// Wrapped in an Item so the click target can fill the row without being laid out
+// as another row child.
 Item {
     id: root
 

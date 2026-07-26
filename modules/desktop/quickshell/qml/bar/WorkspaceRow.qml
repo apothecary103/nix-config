@@ -6,13 +6,13 @@ import QtQuick
 import QtQuick.Layouts
 import ".."
 
-// Workspaces as CJK numerals, counting from 零 so the first workspace reads as
-// zero. The first five are always shown so the row does not jump around as
-// workspaces come and go; anything beyond that appears only while it exists.
 Row {
     id: root
 
+    // Counting from 零, so the first workspace reads as zero.
     readonly property var numerals: ["零", "一", "二", "三", "四", "五", "六", "七", "八", "九"]
+    // Always shown, so the row does not jump around as workspaces come and go;
+    // anything past this appears only while it exists.
     readonly property int pinned: 5
 
     readonly property var shown: {

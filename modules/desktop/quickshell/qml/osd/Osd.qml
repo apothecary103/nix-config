@@ -6,9 +6,6 @@ import Quickshell.Io
 import Quickshell.Wayland
 import ".."
 
-// Bottom-centre on-screen display for volume, microphone and brightness, in
-// place of swayosd. The compositor drives it over IPC; see the IpcHandler below
-// for the call names, which the hyprland and niri keybinds use.
 Scope {
     id: root
 
@@ -73,6 +70,7 @@ Scope {
     }
 
     // --- IPC -----------------------------------------------------------------
+    // The call names the hyprland and niri keybinds use.
     IpcHandler {
         target: "osd"
 

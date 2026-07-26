@@ -4,9 +4,6 @@ import Quickshell.Io
 import Quickshell.Networking
 import ".."
 
-// Connection strength, plus a pair of arrows that light up while traffic is
-// moving. The arrows are a liveness hint, not a rate read-out, so the byte
-// counters are only compared against a threshold rather than converted to a rate.
 Row {
     id: root
 
@@ -34,8 +31,9 @@ Row {
 
     readonly property string iface: root.status.iface
 
-    // Bytes moved since the last poll. Anything above the threshold counts as
-    // activity; below it is background chatter.
+    // The arrows are a liveness hint, not a rate read-out, so bytes moved since
+    // the last poll are only compared against a threshold: above it counts as
+    // activity, below it is background chatter.
     readonly property int idleBytes: 1024
     property bool receiving: false
     property bool transmitting: false
