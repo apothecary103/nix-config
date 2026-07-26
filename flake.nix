@@ -46,10 +46,6 @@
     };
     catppuccin.url = "github:catppuccin/nix";
     nvf.url = "github:notashelf/nvf";
-    emacs-overlay = {
-      url = "github:nix-community/emacs-overlay";
-      inputs.nixpkgs.follows = "nixpkgs";
-    };
     nix-index-database = {
       url = "github:nix-community/nix-index-database";
       inputs.nixpkgs.follows = "nixpkgs";
