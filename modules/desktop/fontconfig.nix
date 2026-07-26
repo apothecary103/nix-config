@@ -22,7 +22,7 @@ let
     # sansSerif is Adwaita Sans — GNOME 48's default UI face, a customised
     # Inter tuned for HiDPI. Inter is the closest freely-available stand-in
     # for macOS's San Francisco, so this is the "GNOME typography" the whole
-    # desktop chrome (GTK, mako, fuzzel, ...) now shares. Noto/Source Han fill
+    # desktop chrome (GTK, quickshell, ...) now shares. Noto/Source Han fill
     # the Unicode and CJK gaps. serif stays on the Source (OTF) families,
     # which stem-darkening can still fatten (see note below).
     #
@@ -107,12 +107,4 @@ in
     fonts.fontconfig = fontconfig;
     environment.sessionVariables.FREETYPE_PROPERTIES = freetypeProperties;
   };
-
-  # finix ports the full NixOS fontconfig module; only the session-variable
-  # plumbing differs (PAM environment instead of sessionVariables)
-  flake.modules.nixos."finix/graphical" = {
-    fonts.fontconfig = fontconfig;
-    security.pam.environment.FREETYPE_PROPERTIES.default = freetypeProperties;
-  };
 }
-
