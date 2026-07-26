@@ -1323,6 +1323,45 @@
             }
           ];
 
+          # Blur behind quickshell's surfaces, matching niri's layer-rules. The
+          # namespace is a regex, so `^bar$` is anchored to keep bar-strut out:
+          # it is the invisible full-width surface that reserves the top edge
+          # (see quickshell/qml/bar/Bar.qml), and blurring it would blur the
+          # whole strip rather than the two pills. ignore_alpha exempts the
+          # see-through parts of the surfaces that are larger than what they
+          # draw — the launcher's full-screen backdrop above all.
+          layer_rule = [
+            {
+              name = "blur-bar";
+              match = {
+                namespace = "^bar$";
+              };
+              blur = true;
+            }
+            {
+              name = "blur-notifications";
+              match = {
+                namespace = "notifications";
+              };
+              blur = true;
+              ignore_alpha = 0.5;
+            }
+            {
+              name = "blur-launcher";
+              match = {
+                namespace = "launcher";
+              };
+              blur = true;
+              ignore_alpha = 0.5;
+            }
+            {
+              name = "blur-osd";
+              match = {
+                namespace = "osd";
+              };
+              blur = true;
+            }
+          ];
         };
       };
     };
