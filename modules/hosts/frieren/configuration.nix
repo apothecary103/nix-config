@@ -13,7 +13,7 @@
     networking.hostName = "frieren";
     time.timeZone = "Europe/Vilnius";
 
-    boot.loader.systemd-boot.enable = true;
+    boot.loader.limine.enable = true;
     boot.loader.efi.canTouchEfiVariables = false;
     boot.kernelParams = [
       "appledrm.show_notch=1"
