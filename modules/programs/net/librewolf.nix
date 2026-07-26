@@ -89,11 +89,22 @@
             # Substitute RFP with Firefox's newer, user-friendly protection.
             "privacy.fingerprintingProtection" = true;
 
-            # Use DNS-over-HTTPS (DoH) with Quad9. Mode 2 tries DoH first and
-            # falls back to the system DNS if DoH is unavailable. (Mode 3 is
-            # strict DoH only.)
-            "network.trr.mode" = 2;
+            # Use DNS-over-HTTPS (DoH) with Quad9. Mode 3 is strict DoH with no
+            # fallback; mode 2's fallback would drop to the system resolver,
+            # which is itself DoT to Quad9 (system/dns.nix), so the fallback
+            # bought nothing but a plaintext path when resolved was down.
+            "network.trr.mode" = 3;
             "network.trr.uri" = "https://dns.quad9.net/dns-query";
+
+            # The whole ~/.librewolf profile is persisted across the root wipe,
+            # so a disk cache would outlive every other trace of a session.
+            "browser.cache.disk.enable" = false;
+
+            "dom.security.https_only_mode" = true;
+            "network.dns.disablePrefetch" = true;
+            "network.predictor.enabled" = false;
+            "network.http.speculativeParallelLimit" = 0;
+            "beacon.enabled" = false;
 
             "parfait.blur.enabled" = true;
           };
