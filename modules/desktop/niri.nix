@@ -20,7 +20,6 @@
     }:
     let
       terminal = "ghostty";
-      # The quickshell launcher, same as under hyprland; fuzzel is gone.
       menu = [
         "qs"
         "ipc"
@@ -129,7 +128,6 @@
         binds = with config.lib.niri.actions; {
           "Mod+Shift+Slash".action = show-hotkey-overlay;
 
-          # Suggested binds for running programs: terminal, app launcher, lock.
           "Mod+T" = {
             hotkey-overlay.title = "Open a Terminal: ${terminal}";
             action = spawn terminal;
@@ -137,10 +135,6 @@
           "Mod+D" = {
             hotkey-overlay.title = "Run an Application";
             action = spawn menu;
-          };
-          "Super+Alt+L" = {
-            hotkey-overlay.title = "Lock the Screen: swaylock";
-            action = spawn "swaylock";
           };
 
           # Volume / mic through the quickshell OSD (see quickshell/qml/osd/Osd.qml).
