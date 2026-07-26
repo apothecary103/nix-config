@@ -8,7 +8,7 @@
       programs.helix = {
         enable = true;
         defaultEditor = true;
-        package = inputs.helix.packages.${pkgs.system}.default;
+        package = inputs.helix.packages.${pkgs.stdenv.hostPlatform.system}.default;
 
         themes = {
           "catppuccin_${flavour}_transparent" = {
