@@ -13,10 +13,10 @@
         enable = true;
         pinentry.package = if pkgs.stdenv.isDarwin then pkgs.pinentry_mac else pkgs.pinentry-gnome3;
 
-        defaultCacheTtl = 3600;
-        maxCacheTtl = 86400;
-        defaultCacheTtlSsh = 1800;
-        maxCacheTtlSsh = 86400;
+        defaultCacheTtl = 600;
+        maxCacheTtl = 7200;
+        defaultCacheTtlSsh = 600;
+        maxCacheTtlSsh = 7200;
 
         enableBashIntegration = true;
         enableFishIntegration = true;
@@ -65,5 +65,15 @@
       services.pass-secret-service = lib.mkIf pkgs.stdenv.isLinux {
         enable = true;
       };
+    };
+
+  # niri-flake turns gnome-keyring on unconditionally, which leaves two daemons
+  # racing to claim org.freedesktop.secrets via D-Bus activation. The keyring
+  # loses nothing by going: its PAM auto-unlock hooks security.pam.services.login,
+  # and login here is greetd, so it never fires.
+  flake.modules.nixos.base =
+    { lib, ... }:
+    {
+      services.gnome.gnome-keyring.enable = lib.mkForce false;
     };
 }
