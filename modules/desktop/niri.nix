@@ -93,11 +93,6 @@
             };
             clip-to-geometry = true;
           }
-          # Work around WezTerm's initial-configure bug with an empty default width.
-          {
-            matches = [ { app-id = ''^org\.wezfurlong\.wezterm$''; } ];
-            default-column-width = { };
-          }
           # Float the Firefox picture-in-picture player.
           {
             matches = [
