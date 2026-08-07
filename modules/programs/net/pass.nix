@@ -17,11 +17,6 @@
         maxCacheTtl = 7200;
         defaultCacheTtlSsh = 600;
         maxCacheTtlSsh = 7200;
-
-        enableBashIntegration = true;
-        enableFishIntegration = true;
-        enableZshIntegration = true;
-        enableNushellIntegration = true;
       };
 
       programs.password-store = {
