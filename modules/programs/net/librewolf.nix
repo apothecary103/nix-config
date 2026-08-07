@@ -108,6 +108,7 @@
             "beacon.enabled" = false;
 
             "parfait.blur.enabled" = true;
+            "parfait.transparency.enabled" = false;
           };
         };
       };
