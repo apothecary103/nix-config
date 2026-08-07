@@ -31,8 +31,11 @@
         "helium-browser"
         "obs"
         "linearmouse"
-        "homerow"
-        "whichspace"
+        "playcover-community"
+        "teamspeak-client@beta"
+        "steam"
+        "finetune"
+        "blackhole-2ch"
       ];
     };
   };
