@@ -73,7 +73,7 @@
         shift + alt - l : yabai -m window --swap east
 
         # Toggle float: Alt + f
-        alt - f : yabai -m window --toggle float --grid 4:4:1:1:2:2
+        alt - v : yabai -m window --toggle float --grid 4:4:1:1:2:2
 
         # Restart yabai: Shift + Alt + r
         shift + alt - r : launchctl kickstart -k "gui/''${UID}/org.nixos.yabai"
