@@ -31,6 +31,7 @@
     home.packages = with pkgs; [
       llama-cpp
       qemu
+      aseprite
     ];
   };
 }
