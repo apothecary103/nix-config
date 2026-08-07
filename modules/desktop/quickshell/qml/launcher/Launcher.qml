@@ -152,9 +152,8 @@ Scope {
                     Layout.bottomMargin: 15
                     spacing: 10
 
-                    Text {
+                    MonoText {
                         text: "\u{F002}" // magnifier
-                        font.family: Theme.fontMono
                         font.weight: Font.Medium
                         font.pointSize: 12
                         color: Colors.subtext1
@@ -286,12 +285,11 @@ Scope {
                                 iconName: entry.modelData.icon
                             }
 
-                            Text {
+                            MonoText {
                                 anchors.verticalCenter: parent.verticalCenter
                                 width: parent.width - 18 - parent.spacing
                                 textFormat: Text.StyledText
                                 text: root.highlightName(entry.modelData.name || "", root.query)
-                                font.family: Theme.fontMono
                                 font.pointSize: 12
                                 font.weight: Font.Medium
                                 color: entry.ListView.isCurrentItem ? Colors.base : Colors.text

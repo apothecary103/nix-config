@@ -36,12 +36,11 @@ Row {
     Repeater {
         model: root.shown
 
-        Text {
+        MonoText {
             id: numeral
             required property var modelData
 
             text: root.numerals[numeral.modelData.idx - 1]
-            font.family: Theme.fontMono
             font.pixelSize: 13
             font.bold: true
             color: numeral.modelData.active ? Colors.blue : Colors.overlay0

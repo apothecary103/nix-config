@@ -17,7 +17,7 @@ Item {
         anchors.verticalCenter: parent.verticalCenter
         spacing: 6
 
-        Text {
+        MonoText {
             anchors.verticalCenter: parent.verticalCenter
             text: {
                 if (Audio.muted)
@@ -26,15 +26,13 @@ Item {
                     return "\u{F028}";
                 return "\u{F027}";
             }
-            font.family: Theme.fontMono
             font.pixelSize: 15
             color: Audio.muted ? Colors.overlay0 : Colors.text
         }
 
-        Text {
+        MonoText {
             anchors.verticalCenter: parent.verticalCenter
             text: Audio.muted ? "Mute" : Math.round(Audio.volume * 100) + "%"
-            font.family: Theme.fontMono
             font.pixelSize: 12
             font.weight: Font.DemiBold
             color: Audio.muted ? Colors.overlay0 : Colors.text

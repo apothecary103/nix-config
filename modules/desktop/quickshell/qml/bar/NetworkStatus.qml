@@ -85,7 +85,7 @@ Row {
     spacing: 0
     Layout.alignment: Qt.AlignVCenter
 
-    Text {
+    MonoText {
         anchors.verticalCenter: parent.verticalCenter
         text: {
             if (root.status.kind === "none")
@@ -99,7 +99,6 @@ Row {
                 return "\u{F0922}";
             return "\u{F091F}";
         }
-        font.family: Theme.fontMono
         font.pixelSize: 18
         color: root.status.kind !== "none" ? Colors.text : Colors.overlay0
     }

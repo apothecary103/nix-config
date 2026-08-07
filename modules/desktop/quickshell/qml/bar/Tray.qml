@@ -18,10 +18,9 @@ Row {
         implicitHeight: 16
         anchors.verticalCenter: parent.verticalCenter
 
-        Text {
+        MonoText {
             anchors.centerIn: parent
             text: "\u{F0141}" // chevron left
-            font.family: Theme.fontMono
             font.pixelSize: 16
             color: root.expanded ? Colors.text : Colors.subtext0
             rotation: root.expanded ? 180 : 0

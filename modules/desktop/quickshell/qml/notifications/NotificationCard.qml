@@ -159,11 +159,10 @@ Rectangle {
             Layout.fillWidth: true
             spacing: 2
 
-            Text {
+            MonoText {
                 Layout.fillWidth: true
                 visible: !!card.notif.summary
                 text: card.notif.summary
-                font.family: Theme.fontMono
                 font.pixelSize: 14
                 font.weight: Font.DemiBold
                 color: Colors.text
@@ -172,12 +171,11 @@ Rectangle {
                 elide: Text.ElideRight
             }
 
-            Text {
+            MonoText {
                 Layout.fillWidth: true
                 visible: !!card.notif.body
                 text: card.notif.body
                 textFormat: Text.StyledText
-                font.family: Theme.fontMono
                 font.pixelSize: 13
                 color: Colors.subtext0
                 wrapMode: Text.WordWrap

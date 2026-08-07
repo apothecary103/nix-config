@@ -232,24 +232,22 @@ Scope {
                     }
                 }
 
-                Text {
+                MonoText {
                     visible: root.showBar
                     text: root.percent + "%"
                     horizontalAlignment: Text.AlignRight
                     Layout.preferredWidth: 42
                     Layout.alignment: Qt.AlignVCenter
-                    font.family: Theme.fontMono
                     font.pixelSize: 17
                     font.weight: Font.DemiBold
                     color: root.dimmed ? Colors.overlay0 : Colors.text
                 }
 
-                Text {
+                MonoText {
                     visible: !root.showBar
                     Layout.fillWidth: true
                     Layout.alignment: Qt.AlignVCenter
                     text: Audio.micMuted ? "Mic muted" : "Mic on"
-                    font.family: Theme.fontMono
                     font.pixelSize: 13
                     font.weight: Font.DemiBold
                     color: root.dimmed ? Colors.overlay0 : Colors.text

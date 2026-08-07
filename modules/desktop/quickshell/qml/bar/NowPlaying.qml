@@ -35,11 +35,10 @@ Row {
             asynchronous: true
         }
 
-        Text {
+        MonoText {
             visible: !root.player || !root.player.trackArtUrl
             anchors.centerIn: parent
             text: "\u{F001}" // music note
-            font.family: Theme.fontMono
             font.pixelSize: 11
             color: Colors.overlay0
         }
@@ -49,10 +48,9 @@ Row {
         spacing: 6
         anchors.verticalCenter: parent.verticalCenter
 
-        Text {
+        MonoText {
             anchors.verticalCenter: parent.verticalCenter
             text: root.player ? (root.player.trackTitle || "Unknown") : ""
-            font.family: Theme.fontMono
             font.weight: Font.DemiBold
             font.pixelSize: 12
             color: Colors.text
@@ -60,20 +58,18 @@ Row {
             width: Math.min(implicitWidth, 130)
         }
 
-        Text {
+        MonoText {
             visible: root.player && !!root.player.trackArtist
             anchors.verticalCenter: parent.verticalCenter
             text: "·"
-            font.family: Theme.fontMono
             font.pixelSize: 12
             color: Colors.overlay0
         }
 
-        Text {
+        MonoText {
             visible: root.player && !!root.player.trackArtist
             anchors.verticalCenter: parent.verticalCenter
             text: root.player ? root.player.trackArtist : ""
-            font.family: Theme.fontMono
             font.pixelSize: 11
             font.italic: true
             font.weight: Font.Medium
@@ -88,10 +84,9 @@ Row {
         height: 16
         anchors.verticalCenter: parent.verticalCenter
 
-        Text {
+        MonoText {
             anchors.centerIn: parent
             text: root.player && root.player.isPlaying ? "\u{F04C}" : "\u{F04B}" // pause / play
-            font.family: Theme.fontMono
             font.pixelSize: 13
             color: Colors.blue
         }

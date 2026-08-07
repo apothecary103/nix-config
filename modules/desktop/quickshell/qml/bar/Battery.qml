@@ -49,12 +49,11 @@ Row {
                 color: root.low ? Colors.red : (root.charging ? Colors.green : Colors.text)
             }
 
-            Text {
+            MonoText {
                 visible: root.charging
                 anchors.centerIn: parent
                 anchors.horizontalCenterOffset: -0.5
                 text: "\u{F140B}" // charging bolt
-                font.family: Theme.fontMono
                 font.pixelSize: 9
                 color: Colors.mantle
             }
@@ -72,11 +71,10 @@ Row {
         }
     }
 
-    Text {
+    MonoText {
         anchors.verticalCenter: parent.verticalCenter
         text: root.percent + "%"
         color: Colors.text
-        font.family: Theme.fontMono
         font.pixelSize: 12
         font.weight: Font.DemiBold
     }
