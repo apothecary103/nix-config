@@ -1,35 +1,34 @@
 { username, ... }:
+let
+  clean = {
+    enable = true;
+    extraArgs = "--keep-since 7d --keep 5";
+  };
+in
 {
-  # nixpkgs ships a native programs.nh module for NixOS (root-level systemd
-  # timer, so it can also reap old /nix/var/nix/profiles/system generations).
-  # It asserts against nix.gc.automatic also being on, so turn that off here.
+  # The NixOS programs.nh module asserts against nix.gc.automatic also being on.
   flake.modules.nixos.base = {
     nix.gc.automatic = false;
 
     programs.nh = {
       enable = true;
       flake = "/home/${username}/nix-config";
-      clean = {
-        enable = true;
-        extraArgs = "--keep-since 7d --keep 5";
-      };
+      inherit clean;
     };
   };
 
-  # nh clean replaces nix's own gc on darwin too; there is just no assertion
-  # guarding the overlap like the NixOS module has, so turn it off explicitly.
+  # Same overlap on darwin, just without an assertion guarding it.
   flake.modules.darwin.base.nix.gc.automatic = false;
 
   # nix-darwin has no programs.nh module of its own, so configure it through
   # home-manager instead; it drives cleanup via a launchd agent on macOS.
-  flake.modules.homeManager.darwin = {
-    programs.nh = {
-      enable = true;
-      flake = "/Users/${username}/nix-config";
-      clean = {
+  flake.modules.homeManager.darwin =
+    { config, ... }:
+    {
+      programs.nh = {
         enable = true;
-        extraArgs = "--keep-since 7d --keep 5";
+        flake = "${config.home.homeDirectory}/nix-config";
+        inherit clean;
       };
     };
-  };
 }
