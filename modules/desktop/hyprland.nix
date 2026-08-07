@@ -21,22 +21,19 @@
         configType = "lua";
 
         settings = {
-          # ---- LUA HELPERS ----
-          # A `_var` entry renders as a plain `local niri = …` ahead of every
-          # hl.* call in the generated config, which is where the niri actions
-          # that need more than one dispatch live. The keybinds below call into
-          # it; nothing here runs at load time.
-          niri = {
+          # A `_var` entry renders as a plain `local scroll = …` ahead of every
+          # hl.* call in the generated config. The keybinds below call into it;
+          # nothing here runs at load time.
+          scroll = {
             _var = lua ''
               (function()
                   local M = {}
 
                   -- The scrolling layout has no "jump to the first/last column"
                   -- message, so walk a column at a time. With wrapping off (see
-                  -- config.scrolling below) both focus and swapcol clamp at the
-                  -- ends, so repeating the message past the edge is a no-op and
-                  -- the walk converges. A workspace can never hold more columns
-                  -- than windows, so its window count bounds the walk.
+                  -- config.scrolling below) focus and swapcol clamp at the ends,
+                  -- so stepping past the edge is a no-op; the window count
+                  -- bounds the walk since columns can never outnumber windows.
                   local function walk(msg)
                       local ws = hl.get_active_workspace()
                       for _ = 1, (ws and ws.windows or 1) do
@@ -60,15 +57,13 @@
                       walk("swapcol r")
                   end
 
-                  -- niri's set-window-height takes a percentage of the working
-                  -- area; hl.dsp.window.resize only takes logical pixels, so
-                  -- convert. monitor.height is in physical pixels while the
-                  -- reserved struts (the bar) are already logical.
-                  --
-                  -- Hyprland only redistributes height inside a column holding
-                  -- two or more windows (ScrollingAlgorithm::resizeTarget bails
-                  -- on a single one), so unlike niri a lone window cannot be
-                  -- made shorter than its column.
+                  -- Resize by a fraction of the working area, which
+                  -- hl.dsp.window.resize cannot do itself — it only takes
+                  -- logical pixels. monitor.height is physical while the
+                  -- reserved struts are already logical. Note Hyprland only
+                  -- redistributes height in a column of two or more windows
+                  -- (resizeTarget bails on one), so a lone window cannot be
+                  -- made shorter.
                   function M.window_height_by(fraction)
                       local m = hl.get_active_monitor()
                       if not m then
@@ -90,7 +85,6 @@
             '';
           };
 
-          # ---- MONITORS ----
           monitor = [
             {
               output = "eDP-1";
@@ -102,20 +96,18 @@
             }
           ];
 
-          # ---- AUTOSTART ----
           on = [
             {
               _args = [
                 "hyprland.start"
                 # quickshell already runs as a home-manager user service bound to
-                # the graphical session (same as under niri), so only the
-                # wallpaper daemon needs starting here.
+                # the graphical session, so only the wallpaper daemon needs
+                # starting here.
                 (lua ''function () hl.exec_cmd("awww-daemon") end'')
               ];
             }
           ];
 
-          # ---- ENVIRONMENT VARIABLES ----
           env = [
             {
               _args = [
@@ -143,16 +135,12 @@
             }
           ];
 
-          # ---- LOOK AND FEEL ----
           config = {
             general = {
               gaps_in = 5;
               gaps_out = 20;
               border_size = 2;
               col = {
-                # Catppuccin accent (blue) on the active border, faded down so it
-                # reads as a subtle outline rather than a glow; the inactive
-                # border fades further into a low-alpha surface tone.
                 active_border = "rgba(${hex palette.surface1}cc)";
                 inactive_border = "rgba(${hex palette.surface1}88)";
               };
@@ -184,28 +172,24 @@
             scrolling = {
               fullscreen_on_one_column = true;
 
-              # niri stops at the ends of the tape instead of wrapping around,
-              # and the Mod+Home/End walks below rely on that clamping to
-              # terminate. Hyprland defaults both to true.
+              # The Mod+Home/End walks rely on focus and swapcol clamping at the
+              # ends of the tape to terminate. Hyprland defaults both to true.
               wrap_focus = false;
               wrap_swapcol = false;
 
-              # niri's preset-column-widths default, which is what Mod+R cycles
-              # through. Hyprland's own default appends 1.0 to the same three.
+              # What Mod+R cycles through. Hyprland's own default appends 1.0 to
+              # the same three.
               explicit_column_widths = "0.333, 0.5, 0.667";
             };
 
-            # Lets direction-based focus/move cross monitor edges on their own,
-            # in addition to the explicit move-to-monitor binds below.
+            # Lets direction-based focus/move cross monitor edges on their own.
             binds = {
               window_direction_monitor_fallback = true;
             };
 
             misc = {
-              # niri tracks the pointer 1:1 while dragging or resizing, with no
-              # animation catching up behind it. Both already default to false;
-              # they are pinned so the animation set stays a faithful match even
-              # if those defaults change.
+              # Track the pointer 1:1 while dragging or resizing. Already
+              # Hyprland's defaults; pinned in case those change.
               animate_manual_resizes = false;
               animate_mouse_windowdragging = false;
             };
@@ -221,41 +205,18 @@
             };
           };
 
-          # ---- ANIMATIONS ----
-          # An exact transcription of niri's animation defaults, since niri is
-          # the reference for how this machine should feel. Sources: niri's own
-          # wiki (Configuration: Animations, plus the example shaders that
-          # replicate its default open/close), and Hyprland's spring
-          # implementation in hyprutils.
+          # Springs for movement, since `dampening` is the raw damping
+          # coefficient — c = 2 * ratio * sqrt(mass * stiffness) — so with mass
+          # hardcoded to 1 both leaves below come out critically damped
+          # (ratio 1.0), settling without overshoot:
           #
-          # niri's springs give a damping *ratio*, while Hyprland's `dampening`
-          # is the raw damping coefficient, so c = 2 * ratio * sqrt(mass *
-          # stiffness). niri hardcodes spring mass to 1, which Hyprland also
-          # accepts, so the physics transfer exactly:
-          #
-          #   niri                                    stiffness  ratio  -> dampening
-          #   window-movement, -resize, view movement  800        1.0     56.5685425
-          #   workspace-switch                        1000        1.0     63.2455532
-          #
-          # overview-open-close has no leaf to map onto: Hyprland has no overview,
-          # and it cannot gain one here. Every overview plugin renders by hooking
-          # CHyprRenderer::renderWorkspace, and Hyprland's function hooking is
-          # guarded to x86_64 (`#if !defined(__x86_64__) return false;` in
-          # src/plugins/HookSystem.cpp), so on this aarch64 machine hook
-          # installation always fails.
-          #
-          # niri's other two animations are easings, both 150ms:
-          #
-          #   window-open   ease-out-expo, scaling 50% -> 100% while fading in
-          #   window-close  ease-out-quad, scaling 100% -> 80% while fading out
-          #
-          # The scale figures come from niri's default_open/default_close example
-          # shaders, which are documented as equivalent to its built-in
-          # animations, so `popin` mirrors them rather than being guesswork.
+          #   stiffness  ratio  -> dampening
+          #   800        1.0     56.5685425
+          #   1000       1.0     63.2455532
           curve = [
             {
               _args = [
-                "niriMovement"
+                "movement"
                 {
                   type = "spring";
                   mass = 1;
@@ -266,7 +227,7 @@
             }
             {
               _args = [
-                "niriWorkspace"
+                "workspaceSwitch"
                 {
                   type = "spring";
                   mass = 1;
@@ -275,10 +236,9 @@
                 }
               ];
             }
-            # niri implements the true easing functions, Hyprland only cubic
-            # beziers. ease-out-quad — 1-(1-t)^2 — happens to have an exact
-            # bezier form: control points (1/3, 2/3) and (2/3, 1) make x(s) = s
-            # and y(s) = 2s - s^2, reproducing it to floating-point precision.
+            # Hyprland only has cubic beziers. ease-out-quad — 1-(1-t)^2 — has
+            # an exact bezier form: these control points make x(s) = s and
+            # y(s) = 2s - s^2, matching to floating-point precision.
             {
               _args = [
                 "easeOutQuad"
@@ -297,10 +257,9 @@
                 }
               ];
             }
-            # ease-out-expo — 1-2^(-10t) — is transcendental, so no cubic bezier
-            # is exact. These points are a minimax fit (max error 0.0067 of full
-            # travel, vs 0.0120 for the usual easings.net approximation) and put
-            # the initial slope at 6.855 against the true 10*ln2 = 6.931.
+            # ease-out-expo — 1-2^(-10t) — is transcendental, so no bezier is
+            # exact. A minimax fit: max error 0.0067 of full travel, initial
+            # slope 6.855 against the true 10*ln2 = 6.931.
             {
               _args = [
                 "easeOutExpo"
@@ -321,12 +280,11 @@
             }
           ];
 
-          # `speed` is in deciseconds (1 = 100ms). Hyprland ignores it entirely
-          # for spring curves — hyprutils drives those from the physics alone —
-          # so the values on the spring leaves below are descriptive only,
-          # roughly the settling time each spring works out to.
+          # `speed` is in deciseconds (1 = 100ms). Hyprland ignores it for
+          # spring curves, driving those from the physics alone, so the values
+          # on the spring leaves below are descriptive only.
           animation = [
-            # Catch-all for any leaf not named below, at niri's general tempo.
+            # Catch-all for any leaf not named below.
             {
               leaf = "global";
               enabled = true;
@@ -334,35 +292,29 @@
               bezier = "easeOutQuad";
             }
 
-            # niri's window-movement, window-resize and horizontal-view-movement
-            # all share one spring, and Hyprland's windowsMove covers the same
-            # ground. It is spelled out rather than left to inherit from windows
-            # because under the scrolling layout it fires on every focus change,
-            # making it the animation that decides how the session feels.
+            # windowsMove is spelled out rather than left to inherit because
+            # under the scrolling layout it fires on every focus change, making
+            # it the animation that decides the feel.
             {
               leaf = "windows";
               enabled = true;
               speed = 4.5;
-              spring = "niriMovement";
+              spring = "movement";
             }
             {
               leaf = "windowsMove";
               enabled = true;
               speed = 4.5;
-              spring = "niriMovement";
+              spring = "movement";
             }
 
-            # window-open / window-close. The fade leaves carry the same curve
-            # as the scale, because niri drives both from a single animation
-            # progress value.
+            # The fade leaves carry the same curve as the scale so the two stay
+            # in step.
             #
-            # niri opens/closes in 150ms (speed = 1.5). That is deliberately
-            # slowed here: a freshly-spawned client (a terminal most of all)
-            # often has not committed its first real frame by the time a 150ms
-            # open settles, so the window snaps from blank to drawn and reads as
-            # a stutter. Stretching the open to ~350ms gives the client time to
-            # paint *during* the animation, so it fades in already populated.
-            # Close is stretched less — nothing is racing a render there.
+            # Open is stretched to ~350ms because a freshly-spawned client often
+            # has not committed its first frame before a shorter animation ends,
+            # so the window snaps from blank to drawn and reads as a stutter.
+            # Close is stretched less — nothing races a render there.
             {
               leaf = "windowsIn";
               enabled = true;
@@ -396,35 +348,30 @@
               bezier = "easeOutQuad";
             }
 
-            # workspace-switch. niri stacks workspaces vertically, hence a
-            # vertical slide rather than Hyprland's default cross-fade.
-            # workspacesIn/Out and the specialWorkspace family are left to
-            # inherit this: niri has one workspace animation, not several.
+            # Workspaces stack vertically, hence a slide rather than Hyprland's
+            # default cross-fade. workspacesIn/Out and the specialWorkspace
+            # family inherit this.
             {
               leaf = "workspaces";
               enabled = true;
               speed = 4.1;
-              spring = "niriWorkspace";
+              spring = "workspaceSwitch";
               style = "slidevert";
             }
 
-            # Hyprland's render zoom, which niri has no equivalent for. Kept on
-            # the movement spring so that if the zoom is ever used it moves like
-            # everything else.
+            # Kept on the movement spring so that if the zoom is ever used it
+            # moves like everything else.
             {
               leaf = "zoomFactor";
               enabled = true;
               speed = 4.5;
-              spring = "niriMovement";
+              spring = "movement";
             }
 
-            # Everything below has no niri counterpart, and niri does not animate
-            # any of it, so neither do we. Notably: its focus ring recolours
-            # instantly, and layer-shell surfaces just appear — quickshell's
-            # surfaces animate themselves in QML (see quickshell/qml/osd/Osd.qml)
-            # and a compositor fade on top of that read as a double animation.
-            # borderangle, shadowangle and glowangle are already off by
-            # Hyprland's own defaults, as is __internal_fadeCTM's tree entry.
+            # Nothing below is animated. Notably not the layer-shell surfaces:
+            # quickshell animates its own in QML, and a compositor fade on top
+            # read as a double animation. borderangle, shadowangle, glowangle
+            # and __internal_fadeCTM are already off by Hyprland's defaults.
             {
               leaf = "border";
               enabled = false;
@@ -449,7 +396,6 @@
               leaf = "fadeLayersOut";
               enabled = false;
             }
-            # niri opens popups, dims, switches and blanks without a transition.
             {
               leaf = "fadePopups";
               enabled = false;
@@ -488,29 +434,7 @@
             }
           ];
 
-          # ---- KEYBINDINGS ----
-          # Mirrors niri's binds (modules/desktop/niri.nix) onto Hyprland's
-          # scrolling layout. What is left unbound is what Hyprland 0.56 has no
-          # equivalent for at all, verified against its dispatcher table
-          # (src/config/lua/bindings/LuaBindingsDispatchers.cpp) and the
-          # scrolling layout's message handler (CScrollingAlgorithm::layoutMsg):
-          #
-          #   Mod+Shift+Slash  show-hotkey-overlay — no overlay exists
-          #   Mod+O            toggle-overview — see the animation note above
-          #   Mod+Shift+PgUp/  move-workspace-up/down — Hyprland workspaces are
-          #     PgDn, U/I      identified, not ordered, so there is nothing to
-          #                    reorder; hl.workspace.move only moves a
-          #                    workspace between monitors
-          #   Mod+Ctrl+R,      reset-window-height /
-          #     Mod+Ctrl+      switch-preset-window-height — the scrolling
-          #     Shift+R        layout has no row-height message and no way to
-          #                    return a row to an automatic height
-          #   Mod+Escape       toggle-keyboard-shortcuts-inhibit — no dispatcher
-          #
-          # move-column-to-monitor-* is bound explicitly below even though
-          # binds.window_direction_monitor_fallback already covers it.
           bind = [
-            # Core App Launching & State
             {
               _args = [
                 "${mainMod} + T"
@@ -537,7 +461,6 @@
               ];
             }
 
-            # Window Sizing & Screen States (Niri 1:1)
             {
               _args = [
                 "${mainMod} + F"
@@ -587,7 +510,6 @@
               ];
             }
 
-            # Column Manipulation (Niri Consume/Expel style)
             {
               _args = [
                 "${mainMod} + bracketleft"
@@ -613,12 +535,9 @@
               ];
             }
 
-            # ---- SCROLLING EXTRAS (no niri counterpart) ----
-            # Hyprland's scrolling layout has a handful of layoutmsgs niri has no
-            # action for. Each was checked against the running compositor: an
-            # unknown one answers "no such layoutmsg for scrolling", and note that
-            # arguments are NOT validated (layout("focus bogus") returns ok), so
-            # only commands confirmed real are bound here.
+            # Every layoutmsg here was checked against the running compositor,
+            # which answers "no such layoutmsg for scrolling" for an unknown one
+            # but does NOT validate arguments.
 
             # Pull the active column fully into view when it is half off-screen.
             {
@@ -674,8 +593,7 @@
                 (lua ''hl.dsp.layout("fit all")'')
               ];
             }
-            # Pan the tape a column at a time without moving focus — the thing
-            # niri genuinely cannot do.
+            # Pan the tape a column at a time without moving focus.
             {
               _args = [
                 "${mainMod} + ALT + left"
@@ -689,7 +607,6 @@
               ];
             }
 
-            # Focus Navigation (Arrows)
             {
               _args = [
                 "${mainMod} + left"
@@ -715,7 +632,6 @@
               ];
             }
 
-            # Focus Navigation (Vim Keys - Niri Defaults)
             {
               _args = [
                 "${mainMod} + H"
@@ -741,7 +657,6 @@
               ];
             }
 
-            # Move Column/Window (Arrows)
             {
               _args = [
                 "${mainMod} + CTRL + left"
@@ -767,7 +682,6 @@
               ];
             }
 
-            # Move Column/Window (Vim Keys)
             {
               _args = [
                 "${mainMod} + CTRL + H"
@@ -793,34 +707,33 @@
               ];
             }
 
-            # Ends of the Tape (Niri Home/End). No single message does this, so
-            # these walk the tape — see the `niri` helper above.
+            # No single message jumps to the ends of the tape, so these walk it
+            # — see the `scroll` helper above.
             {
               _args = [
                 "${mainMod} + Home"
-                (lua "function() niri.focus_column_first() end")
+                (lua "function() scroll.focus_column_first() end")
               ];
             }
             {
               _args = [
                 "${mainMod} + End"
-                (lua "function() niri.focus_column_last() end")
+                (lua "function() scroll.focus_column_last() end")
               ];
             }
             {
               _args = [
                 "${mainMod} + CTRL + Home"
-                (lua "function() niri.move_column_to_first() end")
+                (lua "function() scroll.move_column_to_first() end")
               ];
             }
             {
               _args = [
                 "${mainMod} + CTRL + End"
-                (lua "function() niri.move_column_to_last() end")
+                (lua "function() scroll.move_column_to_last() end")
               ];
             }
 
-            # Monitor Focus (Arrows + Vim Keys)
             {
               _args = [
                 "${mainMod} + SHIFT + left"
@@ -870,9 +783,8 @@
               ];
             }
 
-            # Move Column to Monitor (Niri Mod+Shift+Ctrl+…). These are bound
-            # even though binds.window_direction_monitor_fallback already carries
-            # a column across an edge, because niri has them as explicit keys.
+            # Bound explicitly even though window_direction_monitor_fallback
+            # already carries a column across an edge.
           ]
           ++
             lib.concatMap
@@ -913,9 +825,8 @@
                 }
               ]
           ++ [
-            # Niri's Mod+Shift+V. Hyprland has no single action for this, so it
-            # branches on the focused window: cycle_next only walks one set at a
-            # time, and jumping to the set you are already in would go nowhere.
+            # No single action cycles between the floating and tiled sets, so
+            # branch on the focused window: cycle_next only walks one at a time.
             {
               _args = [
                 "${mainMod} + SHIFT + V"
@@ -932,7 +843,6 @@
               ];
             }
 
-            # Column Width Presets (Niri R keys)
             {
               _args = [
                 "${mainMod} + R"
@@ -946,7 +856,6 @@
               ];
             }
 
-            # Resize Column Width / Window Height (Niri Minus/Equal keys)
             {
               _args = [
                 "${mainMod} + minus"
@@ -959,23 +868,19 @@
                 (lua ''hl.dsp.layout("colresize +0.1")'')
               ];
             }
-            # Window height goes through the helper rather than a resize
-            # dispatcher: hl.dsp.window.resize takes logical pixels, while niri
-            # takes a percentage of the working area.
             {
               _args = [
                 "${mainMod} + SHIFT + minus"
-                (lua "function() niri.window_height_by(-0.1) end")
+                (lua "function() scroll.window_height_by(-0.1) end")
               ];
             }
             {
               _args = [
                 "${mainMod} + SHIFT + equal"
-                (lua "function() niri.window_height_by(0.1) end")
+                (lua "function() scroll.window_height_by(0.1) end")
               ];
             }
 
-            # Lateral Workspace / Column Scrolling (Niri PageUp/Down + U/I)
             {
               _args = [
                 "${mainMod} + Page_Down"
@@ -1025,8 +930,6 @@
               ];
             }
 
-            # Niri Mouse Wheel behavior: vertical wheel scrolls workspaces,
-            # horizontal wheel scrolls columns.
             {
               _args = [
                 "${mainMod} + mouse_down"
@@ -1100,7 +1003,6 @@
               ];
             }
 
-            # Mouse Drag/Resize
             {
               _args = [
                 "${mainMod} + mouse:272"
@@ -1116,7 +1018,6 @@
               ];
             }
 
-            # Multimedia Keys
             {
               _args = [
                 "XF86AudioRaiseVolume"
@@ -1178,7 +1079,6 @@
               ];
             }
 
-            # Playerctl
             {
               _args = [
                 "XF86AudioNext"
@@ -1208,7 +1108,8 @@
               ];
             }
 
-            # Screenshots (Niri Shift+3/4/5 + Print fallbacks)
+            # This MacBook has no Print key, so mirror macOS's ⌘⇧3/4/5 on Mod
+            # (= Command). Print is kept for external keyboards.
             {
               _args = [
                 "${mainMod} + SHIFT + 3"
@@ -1252,7 +1153,6 @@
               ];
             }
 
-            # Quit / Power (Niri Shift+E, Ctrl+Alt+Delete, Shift+P)
             {
               _args = [
                 "${mainMod} + SHIFT + E"
@@ -1272,34 +1172,30 @@
               ];
             }
           ]
-          ++ (
-            # Idiomatic Nix list generation for Workspaces 1-10
-            builtins.concatLists (
-              builtins.genList (
-                i:
-                let
-                  workspace = i + 1;
-                  key = if workspace == 10 then "0" else toString workspace;
-                in
-                [
-                  {
-                    _args = [
-                      "${mainMod} + ${key}"
-                      (lua "hl.dsp.focus({ workspace = ${toString workspace} })")
-                    ];
-                  }
-                  {
-                    _args = [
-                      "${mainMod} + CTRL + ${key}"
-                      (lua "hl.dsp.window.move({ workspace = ${toString workspace} })")
-                    ];
-                  }
-                ]
-              ) 10
-            )
-          );
+          ++ (builtins.concatLists (
+            builtins.genList (
+              i:
+              let
+                workspace = i + 1;
+                key = if workspace == 10 then "0" else toString workspace;
+              in
+              [
+                {
+                  _args = [
+                    "${mainMod} + ${key}"
+                    (lua "hl.dsp.focus({ workspace = ${toString workspace} })")
+                  ];
+                }
+                {
+                  _args = [
+                    "${mainMod} + CTRL + ${key}"
+                    (lua "hl.dsp.window.move({ workspace = ${toString workspace} })")
+                  ];
+                }
+              ]
+            ) 10
+          ));
 
-          # ---- WINDOWS AND WORKSPACES ----
           window_rule = [
             {
               name = "suppress-maximize-events";
@@ -1320,23 +1216,13 @@
               };
               no_focus = true;
             }
-            {
-              name = "move-hyprland-run";
-              match = {
-                class = "hyprland-run";
-              };
-              move = "20 monitor_h-120";
-              float = true;
-            }
           ];
 
-          # Blur behind quickshell's surfaces, matching niri's layer-rules. The
-          # namespace is a regex, so `^bar$` is anchored to keep bar-strut out:
-          # it is the invisible full-width surface that reserves the top edge
-          # (see quickshell/qml/bar/Bar.qml), and blurring it would blur the
-          # whole strip rather than the two pills. ignore_alpha exempts the
-          # see-through parts of the surfaces that are larger than what they
-          # draw — the launcher's full-screen backdrop above all.
+          # The namespace is a regex, so `^bar$` is anchored to keep out
+          # bar-strut — the invisible full-width surface that reserves the top
+          # edge (quickshell/qml/bar/Bar.qml); blurring it would blur the whole
+          # strip rather than the two pills. ignore_alpha exempts the see-through
+          # parts of surfaces larger than what they draw.
           layer_rule = [
             {
               name = "blur-bar";
