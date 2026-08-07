@@ -45,6 +45,13 @@
       flake = false;
     };
     catppuccin.url = "github:catppuccin/nix";
+    # catppuccin/nix vendors this too, but only as a derivation whose build hook
+    # is fixed to the host platform, so reading it from there would make every
+    # palette consumer an IFD needing an aarch64-linux builder.
+    catppuccin-palette = {
+      url = "github:catppuccin/palette";
+      flake = false;
+    };
     nvf.url = "github:notashelf/nvf";
     nix-index-database = {
       url = "github:nix-community/nix-index-database";
