@@ -49,6 +49,7 @@
               "https://claude.ai"
               "https://gemini.google.com"
               "https://fluxer.app"
+              "https://web.telegram.org"
             ];
           };
         };
