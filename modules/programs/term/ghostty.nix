@@ -17,7 +17,8 @@
         window-decoration = "server";
         alpha-blending = "linear";
 
-        background-opacity = 0.93;
+        background-opacity = 0.95;
+        background-blur = 2;
         window-padding-x = 20;
         window-padding-y = 10;
       };
