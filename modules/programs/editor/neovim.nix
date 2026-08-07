@@ -1,5 +1,5 @@
 { inputs, ... }: {
-  flake.modules.homeManager.base = { pkgs, ... }: {
+  flake.modules.homeManager.base = { config, pkgs, ... }: {
     imports = [ inputs.nvf.homeManagerModules.default ];
 
     programs.nvf = {
@@ -44,7 +44,7 @@
           theme = {
             enable = true;
             name = "catppuccin";
-            style = if pkgs.stdenv.isDarwin then "macchiato" else "mocha";
+            style = config.catppuccin.flavor;
             transparent = true;
           };
 
@@ -81,8 +81,6 @@
           utility.oil-nvim.enable = true;
           autocomplete.blink-cmp.enable = true;
 
-          # only show the bufferline
-          # when more than one buffer is open
           tabline.nvimBufferline = {
             enable = true;
             setupOpts.options.always_show_bufferline = false;

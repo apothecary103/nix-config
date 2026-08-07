@@ -1,8 +1,8 @@
 { inputs, ... }: {
   flake.modules.homeManager.base =
-    { pkgs, ... }:
+    { config, pkgs, ... }:
     let
-      flavour = if pkgs.stdenv.isDarwin then "macchiato" else "mocha";
+      inherit (config.catppuccin) flavor;
     in
     {
       programs.helix = {
@@ -11,8 +11,8 @@
         package = inputs.helix.packages.${pkgs.stdenv.hostPlatform.system}.default;
 
         themes = {
-          "catppuccin_${flavour}_transparent" = {
-            inherits = "catppuccin_${flavour}";
+          "catppuccin_${flavor}_transparent" = {
+            inherits = "catppuccin_${flavor}";
             "ui.background" = {
               bg = "none";
             };
@@ -20,7 +20,7 @@
         };
 
         settings = {
-          theme = "catppuccin_${flavour}_transparent";
+          theme = "catppuccin_${flavor}_transparent";
 
           editor = {
             true-color = true;

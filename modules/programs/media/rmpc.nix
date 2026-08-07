@@ -8,9 +8,7 @@
       ...
     }:
     let
-      # The palette arg already follows the per-platform catppuccin flavor
-      # (theme.nix), so just name the theme accordingly.
-      flavour = if pkgs.stdenv.isDarwin then "macchiato" else "mocha";
+      inherit (config.catppuccin) flavor;
       inherit (rmpcLib)
         variant
         enum
@@ -44,7 +42,7 @@
 
         settings = {
           address = "127.0.0.1:6600";
-          theme = "catppuccin-${flavour}";
+          theme = "catppuccin-${flavor}";
           lyrics_dir = "${config.home.homeDirectory}/.lyrics";
 
           album_art = {
@@ -96,7 +94,7 @@
           ];
         };
 
-        themes."catppuccin-${flavour}" = {
+        themes."catppuccin-${flavor}" = {
           default_album_art_path = null;
           symbols = {
             song = "🎵";
