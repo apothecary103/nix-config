@@ -1,7 +1,6 @@
 {
   flake.modules.homeManager.base = { pkgs, ... }: {
     home.packages = with pkgs; [
-      # CLI Tools
       ripgrep
       fd
       aria2
@@ -20,7 +19,6 @@
       glow
       util-linux
 
-      # GUI Applications
       prismlauncher
       signal-desktop
       vesktop

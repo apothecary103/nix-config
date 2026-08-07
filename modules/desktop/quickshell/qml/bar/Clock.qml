@@ -6,8 +6,6 @@ import ".."
 MonoText {
     id: root
 
-    // Wakes 60x less often than a per-second timer, for a read-out that never
-    // shows seconds.
     SystemClock {
         id: clock
         precision: SystemClock.Minutes

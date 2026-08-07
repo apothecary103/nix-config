@@ -1,17 +1,14 @@
-# Ephemeral root and home: frieren wipes the btrfs @ subvolume on every boot
-# (see modules/hosts/frieren/impermanence.nix), and /home lives on @, so it is
-# wiped too. Anything not on a persistent subvolume (@nix, @persist, @log) is
-# gone after a reboot unless preservation bind-mounts it back from /persist.
-# /var/log is its own subvolume, so it is already persistent and not listed
-# here.
+# frieren wipes the btrfs @ subvolume on every boot (see
+# modules/hosts/frieren/impermanence.nix) and /home lives on @, so anything not
+# on @nix, @persist or @log is gone unless bind-mounted back from /persist.
+# /var/log is its own subvolume, hence absent here.
 { inputs, username, ... }:
 {
   flake.modules.nixos.base = {
     imports = [ inputs.preservation.nixosModules.preservation ];
 
-    # A wiped root means `passwd` would not survive a reboot, so passwords are
-    # declarative: the hashes live on the persistent volume and are set once at
-    # install time (see the README). mkpasswd -m yescrypt generates them.
+    # `passwd` would not survive a reboot, so the hashes live on the persistent
+    # volume, set once at install time with mkpasswd -m yescrypt.
     users.mutableUsers = false;
     users.users.${username}.hashedPasswordFile = "/persist/passwords/${username}";
     users.users.root.hashedPasswordFile = "/persist/passwords/root";
@@ -54,9 +51,8 @@
           }
         ];
 
-        # Home is wiped each boot, so keep only what home-manager does not
-        # regenerate: secrets and long-lived app state. Anything not listed
-        # here disappears on reboot, which is the point. Tune as needed.
+        # Only what home-manager does not regenerate: secrets and long-lived
+        # app state.
         users.${username} = {
           directories = [
             {
@@ -80,14 +76,13 @@
             ".local/share"
             ".local/state"
 
-            # App state outside ~/.local: Claude Code, gh auth, chat clients.
             ".claude"
             ".config/gh"
             ".config/Signal"
             ".config/vesktop"
 
-            # The quickshell launcher's frecency store, which is what orders the
-            # app list — without this the ordering resets on every boot.
+            # The quickshell launcher's frecency store, which orders the app
+            # list — without this the ordering resets on every boot.
             ".cache/quickshell"
           ];
           files = [ ".claude.json" ];
@@ -99,18 +94,17 @@
     # would otherwise fail; see the preservation impermanence example.
     systemd.suppressedSystemUnits = [ "systemd-machine-id-commit.service" ];
 
-    # Preservation creates the persisted subdirs, but not the home root itself
-    # (it used to live on the persistent @home). On the wiped root, create it
-    # with the right ownership so the user can write to ~ and home-manager can
-    # lay down its files.
+    # Preservation creates the persisted subdirs but not the home root itself,
+    # which on a wiped root has to exist with the right ownership before
+    # home-manager can lay down its files.
     systemd.tmpfiles.settings.preservation-home."/home/${username}".d = {
       user = username;
       group = "users";
       mode = "0700";
     };
 
-    # The hashes are placed by hand at install time, so pin their mode rather
-    # than trusting whatever umask was in effect in the installer shell.
+    # Placed by hand at install time, so pin the mode rather than trusting the
+    # installer shell's umask.
     systemd.tmpfiles.settings.password-hashes = {
       "/persist/passwords".d = {
         user = "root";

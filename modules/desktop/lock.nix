@@ -1,8 +1,7 @@
 # hyprlock and hypridle are plain ext-session-lock-v1 / ext-idle-notify-v1
 # clients, so the same pair locks both niri and Hyprland. The compositors bind
 # `loginctl lock-session` rather than hyprlock directly, so the keybind, the
-# idle timer and the resume-from-suspend path all go through logind and stay in
-# sync with hypridle's state machine.
+# idle timer and the resume-from-suspend path all go through logind.
 {
   flake.modules.nixos.base = {
     security.pam.services.hyprlock = { };

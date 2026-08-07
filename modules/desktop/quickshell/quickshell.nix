@@ -1,8 +1,7 @@
 { lib, ... }:
 {
   flake.modules.nixos.base = {
-    # The bar's battery widget reads UPower rather than sysfs, so it needs no
-    # machine-specific device path.
+    # The bar's battery widget reads UPower rather than sysfs.
     services.upower.enable = true;
   };
 
@@ -36,13 +35,9 @@
     {
       home.packages = [
         pkgs.quickshell
-        # The OSD drives the backlight through brightnessctl.
         pkgs.brightnessctl
       ];
 
-      # ~/.config/quickshell is a symlink into the store, which also matters on
-      # frieren: /home is wiped every boot (see system/preservation.nix), so an
-      # unmanaged config there would not survive a reboot.
       xdg.configFile."quickshell".source = shellRoot;
 
       systemd.user.services.quickshell = {
@@ -53,9 +48,9 @@
         };
 
         Service = {
-          # No PATH override: the shell shells out to brightnessctl and niri and
-          # launches desktop entries, so it wants the session PATH the compositor
-          # imports into the user manager.
+          # No PATH override: the shell launches desktop entries and shells out
+          # to brightnessctl and niri, so it wants the session PATH the
+          # compositor imports into the user manager.
           ExecStart = "${lib.getExe pkgs.quickshell} --no-duplicate";
           Restart = "on-failure";
           RestartSec = 2;

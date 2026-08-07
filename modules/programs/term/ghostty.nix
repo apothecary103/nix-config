@@ -8,12 +8,10 @@
         font-family = if pkgs.stdenv.isDarwin then "Maple Mono NF CN" else "Maple Mono NF CN Medium";
         font-size = if pkgs.stdenv.isDarwin then 18 else 12;
 
-        # macOS specific tweaks
         font-thicken = true;
         macos-titlebar-style = "hidden";
         macos-option-as-alt = true;
 
-        # Wayland specific tweaks
         window-decoration = "server";
         alpha-blending = "linear";
 

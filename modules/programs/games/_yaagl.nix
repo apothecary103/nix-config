@@ -8,26 +8,16 @@
   writeText,
 }:
 let
-  # Latest upstream release. Bump this (and the per-variant `hash` fields) to
-  # update every launcher at once. The launchers' own self-updater is preserved
-  # so they can still pull point releases on their own between Nix upgrades.
+  # Bump this and the per-variant `hash` fields together. The launchers' own
+  # self-updater still pulls point releases between Nix upgrades.
   version = "0.3.18";
 
-  # Build one .app bundle for a single game/channel combo.
-  #
-  # yaagl ships a `Contents/MacOS/parameterized` launcher whose job is to rsync
-  # the immutable bundle's `Resources/` into a writable
-  # `~/Library/Application Support/<distName>/` directory and then run the
-  # Neutralino binary from there with `--path`. That is *why* the self-updater
-  # works at all: it rewrites `resources.neu` and `sidecar/` inside that
-  # writable copy, never the read-only Nix store path.
-  #
-  # We replace that launcher with an equivalent that:
-  #   * uses Nix-provided `rsync`/`coreutils` (system rsync was removed from
-  #     recent macOS), and
-  #   * drives the sync by *version stamp* instead of trusting mtimes, so a
-  #     Nix upgrade to a newer release always lands cleanly while a user's own
-  #     in-app update (newer than the Nix version) is never clobbered.
+  # yaagl's `Contents/MacOS/parameterized` launcher rsyncs the bundle's
+  # `Resources/` into a writable `~/Library/Application Support/<distName>/` and
+  # runs Neutralino from there, which is why the self-updater works at all.
+  # Replaced below with an equivalent that uses Nix's rsync/coreutils (recent
+  # macOS dropped the system rsync) and drives the sync by version stamp, so a
+  # Nix upgrade lands cleanly without clobbering a newer in-app update.
   mkYaagl =
     {
       pname,
@@ -109,18 +99,14 @@ let
         runHook preInstall
 
         mkdir -p "$out/Applications"
-        # Nix normalises store mtimes to the epoch, so the launcher below drives
-        # updates via a version stamp instead of trusting file mtimes.
         tar -xzf "$src" -C "$out/Applications" --no-same-owner
 
         app="$out/Applications/${appBundle}"
         chmod +x "$app/Contents/MacOS/Yaagl"
 
-        # Replace the bundled launcher with our Nix-deps one.
         cp ${parameterized} "$app/Contents/MacOS/parameterized"
         chmod +x "$app/Contents/MacOS/parameterized"
 
-        # Convenience CLI entry point (e.g. `yaagl-genshin-cn`).
         mkdir -p "$out/bin"
         cat > "$out/bin/yaagl-${pname}" <<BIN
         #!${bash}/bin/bash

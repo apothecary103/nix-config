@@ -29,23 +29,19 @@
       };
 
       NSGlobalDomain = {
-        # Keyboard
         AppleKeyboardUIMode = 3;
         ApplePressAndHoldEnabled = false;
         InitialKeyRepeat = 10;
         KeyRepeat = 2;
 
-        # Text Correction
         NSAutomaticCapitalizationEnabled = false;
         NSAutomaticDashSubstitutionEnabled = false;
         NSAutomaticPeriodSubstitutionEnabled = false;
         NSAutomaticQuoteSubstitutionEnabled = false;
 
-        # Windows and Menus
         _HIHideMenuBar = false;
         NSWindowResizeTime = 0.001;
 
-        # File Saving
         NSDocumentSaveNewDocumentsToCloud = false;
         NSNavPanelExpandedStateForSaveMode = true;
         NSNavPanelExpandedStateForSaveMode2 = true;

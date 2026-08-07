@@ -20,13 +20,10 @@ Singleton {
     readonly property real step: 0.05
     readonly property real max: 1.5
 
-    // Emitted only for changes made through the functions below, which is what
-    // the OSD wants to show. Watching the volume properties instead would also
-    // fire for the values that settle during startup, and telling those apart
-    // needs a guess at how long startup takes.
-    //
-    // The trade is that a change made by something outside the shell (a bare
-    // `wpctl set-volume`) does not raise the OSD.
+    // Emitted only for changes made through the functions below. Watching the
+    // volume properties instead would also fire for the values that settle
+    // during startup. The trade is that a bare `wpctl set-volume` from outside
+    // the shell does not raise the OSD.
     signal changed(string kind)
 
     function adjustVolume(delta) {

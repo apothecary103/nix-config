@@ -32,7 +32,7 @@ Image {
     onIconNameChanged: root.candIndex = 0
 
     // Empty rather than a broken-image placeholder once the candidates run out,
-    // so callers can bind their visibility to `status === Image.Ready`.
+    // so callers can bind visibility to `status === Image.Ready`.
     source: root.candIndex < root.candidates.length ? root.candidates[root.candIndex] : ""
     onStatusChanged: {
         if (root.status === Image.Error && root.candIndex < root.candidates.length - 1)

@@ -32,40 +32,34 @@
           PASSWORD_STORE_DIR = "${config.home.homeDirectory}/.password-store";
           PASSWORD_STORE_CLIP_TIME = "45";
           PASSWORD_STORE_UMASK = "077";
-          PASSWORD_STORE_KEY = "mail@apothecary.moe"; # Must match your GPG key ID/email
+          PASSWORD_STORE_KEY = "mail@apothecary.moe";
         };
       };
 
-      # Wires up the native messaging host, but you still must install the
-      # "Browserpass" add-on inside your browser for this to actually work.
+      # The native messaging host only; the Browserpass add-on still has to be
+      # installed in the browser by hand.
       programs.browserpass = {
         enable = true;
-        browsers = [ "librewolf" ]; # Defaults to all supported browsers if omitted
+        browsers = [ "librewolf" ];
       };
 
-      # Helium (a Chromium fork, installed as a Homebrew cask on darwin) isn't
-      # in programs.browserpass's supported-browser list, so register its native
-      # messaging host by hand. The chromium host manifest browserpass ships
-      # already whitelists the Browserpass extension IDs; Helium loads it from
-      # its app-support NativeMessagingHosts dir (bundle id net.imput.helium).
-      # You still have to install the Browserpass extension from the Chrome Web
-      # Store for this to work.
+      # Helium (a Chromium fork) isn't in programs.browserpass's supported list,
+      # so register its native messaging host by hand. The chromium manifest
+      # browserpass ships already whitelists the extension IDs.
       home.file."Library/Application Support/net.imput.helium/NativeMessagingHosts/com.github.browserpass.native.json" =
         lib.mkIf pkgs.stdenv.isDarwin {
           source = "${pkgs.browserpass}/lib/browserpass/hosts/chromium/com.github.browserpass.native.json";
         };
 
-      # Exposes pass to the Freedesktop Secret Service API.
-      # WARNING: Causes a build-time error if gnome-keyring is also enabled.
+      # Conflicts at build time with gnome-keyring, disabled below.
       services.pass-secret-service = lib.mkIf pkgs.stdenv.isLinux {
         enable = true;
       };
     };
 
-  # niri-flake turns gnome-keyring on unconditionally, which leaves two daemons
-  # racing to claim org.freedesktop.secrets via D-Bus activation. The keyring
-  # loses nothing by going: its PAM auto-unlock hooks security.pam.services.login,
-  # and login here is greetd, so it never fires.
+  # niri-flake turns gnome-keyring on unconditionally, leaving two daemons
+  # racing to claim org.freedesktop.secrets. The keyring loses nothing by going:
+  # its PAM auto-unlock hooks security.pam.services.login, which greetd bypasses.
   flake.modules.nixos.base =
     { lib, ... }:
     {

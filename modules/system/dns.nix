@@ -19,8 +19,8 @@
         # most names and the DNS/DNSOverTLS settings above do nothing.
         Domains = [ "~." ];
 
-        # resolved would otherwise introduce the link-local responders this
-        # machine currently doesn't run at all, broadcasting the hostname.
+        # resolved would otherwise broadcast the hostname over responders this
+        # machine does not otherwise run.
         LLMNR = "no";
         MulticastDNS = "no";
       };

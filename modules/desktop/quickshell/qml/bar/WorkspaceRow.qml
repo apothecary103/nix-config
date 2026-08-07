@@ -1,5 +1,3 @@
-// Bound, so the Repeater delegate below can reach `root` without relying on
-// dynamic scope lookup.
 pragma ComponentBehavior: Bound
 
 import QtQuick
@@ -9,10 +7,8 @@ import ".."
 Row {
     id: root
 
-    // Counting from 零, so the first workspace reads as zero.
     readonly property var numerals: ["零", "一", "二", "三", "四", "五", "六", "七", "八", "九"]
-    // Always shown, so the row does not jump around as workspaces come and go;
-    // anything past this appears only while it exists.
+    // Always shown, so the row does not jump around as workspaces come and go.
     readonly property int pinned: 5
 
     readonly property var shown: {

@@ -18,11 +18,9 @@ Singleton {
         return "file://" + root.dir + "/" + name + ".svg";
     }
 
-    // Listed once at startup because Pixora is installed by hand rather than by
-    // nix, so the set has to be discovered at runtime. AppIcon checks has()
-    // before pointing an Image at a Pixora path; letting the Image fail and fall
-    // back instead looks simpler but logs a failed load for every app Pixora
-    // lacks, once per delegate that shows it.
+    // Pixora is installed by hand rather than by nix, so the set has to be
+    // discovered at runtime. AppIcon gates on has() rather than letting the
+    // Image fail over, which would log a failed load per delegate.
     Process {
         running: true
         command: ["sh", "-c", "ls " + root.dir + " 2>/dev/null"]

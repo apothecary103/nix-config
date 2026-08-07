@@ -1,12 +1,9 @@
 # Only knobs that are additive on aarch64/linux-asahi. Most of what hardening
-# guides list is either already set by nixpkgs' kernel common-config
-# (dmesg_restrict, init_on_alloc, hardened usercopy, slab freelist hardening) or
-# x86-only and silently ignored here (pti, nosmt, microcode, spectre_v2=, ...).
-# nixpkgs' hardened profile was removed in 26.05, so this is hand-rolled.
+# guides list is either already in nixpkgs' kernel common-config or x86-only and
+# silently ignored here. nixpkgs' hardened profile was removed in 26.05.
 {
   flake.modules.nixos.base = {
-    # nohibernate + kexec_load_disabled. Free: swap is a 2G zram/swapfile pair
-    # and hibernation was never possible on this machine.
+    # nohibernate + kexec_load_disabled; hibernation was never possible here.
     security.protectKernelImage = true;
 
     # Additive: upstream defaults SLAB_MERGE_DEFAULT to y.

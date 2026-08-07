@@ -1,7 +1,6 @@
-# Ephemeral root wipe. The preservation module (modules/system/preservation.nix)
-# declares WHAT survives; this declares HOW the root is reset: on every boot the
-# @ subvolume is deleted and recreated from a pristine, read-only @-blank
-# snapshot (created once at install time, see the README).
+# modules/system/preservation.nix declares what survives; this declares how the
+# root is reset — on every boot @ is deleted and recreated from the read-only
+# @-blank snapshot taken once at install time (see the README).
 {
   flake.modules.nixos."hosts/frieren" =
     { pkgs, ... }:
@@ -39,7 +38,6 @@
         '';
       };
 
-      # Make sure the btrfs userspace tool ends up in the initrd.
       boot.initrd.systemd.storePaths = [ pkgs.btrfs-progs ];
     };
 }

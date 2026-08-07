@@ -1,5 +1,3 @@
-// Bound, so the Repeater delegate below can reach `stack` without relying on
-// dynamic scope lookup.
 pragma ComponentBehavior: Bound
 
 import QtQuick
@@ -32,7 +30,6 @@ Scope {
             right: true
         }
 
-        // Just below the bar, sharing its right margin.
         margins {
             top: Theme.barMargin + Theme.barHeight + 8
             right: Theme.barMargin
@@ -47,7 +44,6 @@ Scope {
         WlrLayershell.layer: WlrLayer.Overlay
         WlrLayershell.namespace: "notifications"
         exclusionMode: ExclusionMode.Ignore
-        // Clicks pass through everywhere except the cards themselves.
         mask: Region {
             item: stack
         }

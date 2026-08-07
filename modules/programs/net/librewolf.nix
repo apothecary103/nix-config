@@ -82,18 +82,15 @@
             # Allows the Parfait theme to render SVGs correctly in dark mode
             "svg.context-properties.content.enabled" = true;
 
-            # Disable Resist Fingerprinting (RFP). It can break some websites,
-            # particularly those that rely on canvas. It also forces GMT as the
-            # timezone and often causes websites to prefer a light theme.
+            # RFP breaks canvas-heavy sites, forces GMT and pushes sites to a
+            # light theme. Replaced by fingerprintingProtection below.
             "privacy.resistFingerprinting" = false;
 
-            # Substitute RFP with Firefox's newer, user-friendly protection.
             "privacy.fingerprintingProtection" = true;
 
-            # Use DNS-over-HTTPS (DoH) with Quad9. Mode 3 is strict DoH with no
-            # fallback; mode 2's fallback would drop to the system resolver,
-            # which is itself DoT to Quad9 (system/dns.nix), so the fallback
-            # bought nothing but a plaintext path when resolved was down.
+            # Mode 3 is strict DoH. Mode 2's fallback drops to the system
+            # resolver, itself DoT to Quad9 (system/dns.nix), so it buys nothing
+            # but a plaintext path when resolved is down.
             "network.trr.mode" = 3;
             "network.trr.uri" = "https://dns.quad9.net/dns-query";
 
@@ -113,7 +110,6 @@
         };
       };
 
-      # This symlinks the fetched repository into LibreWolf profile's chrome directory.
       home.file."${chromePath}" = {
         source = parfaitTheme;
         recursive = true;

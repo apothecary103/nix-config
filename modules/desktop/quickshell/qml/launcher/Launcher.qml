@@ -18,9 +18,7 @@ Scope {
         }
     }
 
-    // Launch counts, so the list is ordered most-used first. JsonAdapter both
-    // parses the file and writes it back, so there is no shell quoting to get
-    // wrong.
+    // Launch counts, so the list is ordered most-used first.
     FileView {
         id: usageFile
         path: Quickshell.env("HOME") + "/.cache/quickshell/launcher-usage.json"
@@ -122,7 +120,6 @@ Scope {
             search.forceActiveFocus();
         }
 
-        // Click-away to dismiss; the box below absorbs its own clicks.
         MouseArea {
             anchors.fill: parent
             onClicked: root.open = false
@@ -248,15 +245,13 @@ Scope {
                     snapMode: ListView.SnapToItem
                     highlightRangeMode: ListView.NoHighlightRange
 
-                    // Paginated: moving past the last visible row reveals the
-                    // next block of rows with the selection at the top, rather
-                    // than scrolling a line at a time.
+                    // Paginated: moving past the last visible row jumps a whole
+                    // page rather than scrolling a line at a time.
                     onCurrentIndexChanged: positionViewAtIndex(Math.floor(currentIndex / list.rows) * list.rows, ListView.Beginning)
 
-                    // Trailing slack so a final page holding fewer than `rows`
-                    // entries can still scroll its first item to the top;
-                    // otherwise StopAtBounds clamps and the page re-shows rows
-                    // from the one before it.
+                    // Trailing slack so a final short page can still scroll its
+                    // first item to the top; otherwise StopAtBounds clamps and
+                    // the page re-shows rows from the one before it.
                     footer: Item {
                         width: list.width
                         height: (list.rows - 1) * (list.rowHeight + list.spacing)

@@ -36,10 +36,8 @@ Scope {
         }
     }
 
-    // --- brightness ----------------------------------------------------------
-    // brightnessctl is the single source of truth: `-m` prints
-    // device,class,current,percent,max for the first backlight, which avoids
-    // having to find the device's sysfs path and parse two files out of it.
+    // `brightnessctl -m` prints device,class,current,percent,max for the first
+    // backlight, which avoids finding its sysfs path and parsing two files.
     property int brightnessPercent: 0
 
     Process {
@@ -62,15 +60,13 @@ Scope {
         root.reveal("brightness");
     }
 
-    // Seed the read-out so the first brightness keypress shows the real level
-    // rather than animating up from zero.
+    // Seed the read-out so the first keypress shows the real level rather than
+    // animating up from zero.
     Component.onCompleted: {
         brightnessProc.command = ["brightnessctl", "-m"];
         brightnessProc.running = true;
     }
 
-    // --- IPC -----------------------------------------------------------------
-    // The call names the hyprland and niri keybinds use.
     IpcHandler {
         target: "osd"
 
@@ -94,7 +90,6 @@ Scope {
         }
     }
 
-    // --- derived display -----------------------------------------------------
     readonly property bool dimmed: (root.mode === "volume" && Audio.muted) || (root.mode === "micmute" && Audio.micMuted)
     readonly property bool showBar: root.mode !== "micmute"
 
@@ -124,11 +119,9 @@ Scope {
         return Colors.mauve;
     }
 
-    // --- window --------------------------------------------------------------
     PanelWindow {
         visible: root.shown
 
-        // Anchored to the bottom edge only; the compositor centres it there.
         anchors {
             bottom: true
         }
@@ -143,7 +136,6 @@ Scope {
         WlrLayershell.layer: WlrLayer.Overlay
         WlrLayershell.namespace: "osd"
         exclusionMode: ExclusionMode.Ignore
-        // Fully click-through — never steals focus or blocks the pointer.
         mask: Region {}
 
         Rectangle {
@@ -174,10 +166,9 @@ Scope {
                 anchors.rightMargin: 18
                 spacing: 13
 
-                // The icons are Adwaita symbolics, recoloured by MultiEffect to
-                // match the rest of the pill. Their fill must stay white:
-                // colorization scales colorizationColor by the source's
-                // luminance, so a darker fill only ever yields a dim tint.
+                // The Adwaita symbolics are recoloured by MultiEffect, whose
+                // colorization scales colorizationColor by source luminance —
+                // so their fill must stay white or the tint comes out dim.
                 Item {
                     Layout.preferredWidth: 19
                     Layout.preferredHeight: 19

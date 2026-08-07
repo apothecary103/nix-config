@@ -1,7 +1,4 @@
 { inputs, ... }: {
-  # Niri (scrollable-tiling Wayland compositor) is the default session. The
-  # NixOS module installs the compositor, its wayland-session entry, portals
-  # and polkit wiring; the settings below are written by home-manager.
   flake.modules.nixos.base = { pkgs, ... }: {
     nixpkgs.overlays = [ inputs.niri.overlays.niri ];
     programs.niri = {
@@ -34,7 +31,6 @@
       programs.niri.package = pkgs.niri-unstable;
 
       programs.niri.settings = {
-        # ---- INPUT ----
         # xkb is left empty so niri pulls its settings from
         # org.freedesktop.locale1.
         input = {
@@ -46,10 +42,6 @@
           };
         };
 
-        # ---- LAYOUT / LOOK & FEEL ----
-        # Mostly niri's built-in defaults. The per-window border stays off (no
-        # outline box); only the focus-ring is kept, as a thin subtle surface0
-        # ring on active and inactive columns alike.
         layout = {
           border.enable = false;
           focus-ring = {
@@ -59,7 +51,6 @@
           };
         };
 
-        # ---- CURSOR ----
         # `cursor.theme`/`cursor.size` also export XCURSOR_THEME/XCURSOR_SIZE to
         # spawned processes, so a separate environment block isn't needed for them.
         cursor = {
@@ -67,23 +58,18 @@
           size = 24;
         };
 
-        # ---- AUTOSTART ----
-        # quickshell (bar, notifications, launcher, OSD) runs as a home-manager
-        # user service and comes up with the graphical session; niri only starts
-        # the wallpaper daemon.
+        # quickshell runs as a home-manager user service bound to the graphical
+        # session, so only the wallpaper daemon is started here.
         spawn-at-startup = [
           { argv = [ "awww-daemon" ]; }
         ];
 
         prefer-no-csd = true;
 
-        # ---- WINDOW RULES ----
         window-rules = [
-          # Round every window's corners (no match = applies to all), matching the
-          # 8px rounding used under hyprland. clip-to-geometry is what makes it
-          # actually look rounded: it trims client content — including GL and video
-          # surfaces that ignore the radius — to the rounded shape, and the
-          # focus-ring follows the same radius rather than boxing the window.
+          # No match = applies to all. clip-to-geometry is what makes the
+          # rounding visible: it trims client content — including GL and video
+          # surfaces that ignore the radius — to the rounded shape.
           {
             geometry-corner-radius = {
               top-left = 8.0;
@@ -93,7 +79,6 @@
             };
             clip-to-geometry = true;
           }
-          # Float the Firefox picture-in-picture player.
           {
             matches = [
               {
@@ -119,7 +104,6 @@
           }
         ];
 
-        # ---- KEYBINDINGS ----
         binds = with config.lib.niri.actions; {
           "Mod+Shift+Slash".action = show-hotkey-overlay;
 
@@ -132,7 +116,6 @@
             action = spawn menu;
           };
 
-          # Volume / mic through the quickshell OSD (see quickshell/qml/osd/Osd.qml).
           "XF86AudioRaiseVolume" = {
             allow-when-locked = true;
             action = spawn "qs" "ipc" "call" "osd" "volumeUp";
@@ -150,7 +133,6 @@
             action = spawn "qs" "ipc" "call" "osd" "micMuteToggle";
           };
 
-          # Media keys via playerctl (MPRIS).
           "XF86AudioPlay" = {
             allow-when-locked = true;
             action = spawn-sh "playerctl play-pause";
@@ -172,7 +154,6 @@
             action = spawn-sh "playerctl next";
           };
 
-          # Brightness through the quickshell OSD (see quickshell/qml/osd/Osd.qml).
           "XF86MonBrightnessUp" = {
             allow-when-locked = true;
             action = spawn "qs" "ipc" "call" "osd" "brightnessUp";
@@ -320,10 +301,8 @@
 
           "Mod+W".action = toggle-column-tabbed-display;
 
-          # This MacBook has no Print key, so mirror macOS's screenshot muscle
-          # memory on Mod (= the Command key): ⌘⇧3 whole screen, ⌘⇧4 interactive
-          # region/window picker, ⌘⇧5 focused window. Print bindings are kept as
-          # a fallback for external keyboards.
+          # This MacBook has no Print key, so mirror macOS's ⌘⇧3/4/5 on Mod
+          # (= Command). Print is kept for external keyboards.
           "Mod+Shift+3".action.screenshot-screen = [ ];
           "Mod+Shift+4".action.screenshot = [ ];
           "Mod+Shift+5".action.screenshot-window = [ ];
@@ -346,18 +325,14 @@
         };
       };
 
-      # ---- OUTPUTS / 10-BIT COLOUR (eDP-1) ----
-      # niri auto-picks the mode, refresh rate and (fractional) scale for the
-      # internal Retina panel from its EDID; we only pin the bit depth. `max-bpc
-      # 10` drives the panel at 10 bits per channel — the option that keeps us on
-      # niri-unstable. It isn't in niri-flake's typed settings schema yet, so we
-      # append it as raw KDL to the rendered config and re-validate the whole file
-      # against niri-unstable (mkForce replaces niri-flake's own writer source).
+      # Everything but bit depth comes from the panel's EDID. `max-bpc 10` is
+      # the option that keeps us on niri-unstable and is not in niri-flake's
+      # typed schema yet, so it is appended as raw KDL and the whole file
+      # re-validated (mkForce replaces niri-flake's own writer source).
       # Requires a niri restart, not a live-reload.
       xdg.configFile.niri-config.source = lib.mkForce (
         inputs.niri.lib.internal.validated-config-for pkgs pkgs.niri-unstable ''
           ${config.programs.niri.finalConfig}
-          // 10-bit colour on the internal Retina panel (see module note).
           output "eDP-1" {
               max-bpc 10
           }

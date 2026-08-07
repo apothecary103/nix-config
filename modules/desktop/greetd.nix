@@ -2,10 +2,9 @@
   flake.modules.nixos.base =
     { pkgs, ... }:
     let
-      # Session menu for tuigreet (F3 to switch). Niri is the default via
-      # --cmd; Hyprland stays one keypress away. Every Exec name resolves on
-      # the user's login PATH (niri-session from programs.niri, start-hyprland
-      # from the home-manager profile).
+      # The tuigreet session menu (F3). Every Exec name resolves on the user's
+      # login PATH: niri-session from programs.niri, start-hyprland from the
+      # home-manager profile.
       sessions = pkgs.symlinkJoin {
         name = "greetd-wayland-sessions";
         paths = [

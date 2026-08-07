@@ -1,6 +1,3 @@
-# nix build .#zmk        → both halves' .uf2 in ./result
-# nix run   .#zmk-flash   → copy firmware to a mounted controller
-# nix run   .#zmk-update  → bump West deps and the zephyrDepsHash below
 { inputs, ... }: {
   perSystem =
     {

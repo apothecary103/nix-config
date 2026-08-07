@@ -10,9 +10,9 @@ Singleton {
     readonly property bool underHyprland: !!Quickshell.env("HYPRLAND_INSTANCE_SIGNATURE")
     readonly property bool underNiri: !!Quickshell.env("NIRI_SOCKET")
 
-    // [{ id, idx, active }] sorted by idx, where idx is the 1-based position the
-    // bar labels workspaces by. Either compositor can be the running session
-    // (greetd offers both), so this cannot bind to Quickshell.Hyprland directly.
+    // [{ id, idx, active }] sorted by idx, the 1-based position the bar labels
+    // workspaces by. Either compositor can be the running session (greetd offers
+    // both), so this cannot bind to Quickshell.Hyprland directly.
     readonly property var list: root.underNiri ? root.niriList : root.hyprlandList
 
     function activate(ws) {
@@ -21,12 +21,11 @@ Singleton {
         } else if (root.underHyprland) {
             // This Hyprland evaluates dispatch payloads as Lua, so the classic
             // `dispatch workspace N` string is a syntax error rather than a
-            // workspace switch. Same hl.dsp API the keybinds in hyprland.nix use.
+            // workspace switch.
             Hyprland.dispatch('hl.dsp.focus({ workspace = "' + ws.id + '" })');
         }
     }
 
-    // --- hyprland ------------------------------------------------------------
     // Hyprland ids are global and 1-based, so they double as the label position.
     readonly property var hyprlandList: {
         if (!root.underHyprland)
@@ -37,7 +36,6 @@ Singleton {
             .sort((a, b) => a.idx - b.idx);
     }
 
-    // --- niri ----------------------------------------------------------------
     property var niriList: []
 
     // Quickshell 0.3.0 ships no niri backend — WindowManager.windowsets is empty

@@ -27,8 +27,6 @@ Rectangle {
     radius: Theme.radius
     color: Colors.mantle
 
-    // Fade and slide in from the right. `entered` flips once on load and the
-    // Behaviors below animate everything bound to it.
     property bool entered: false
     Component.onCompleted: card.entered = true
 
@@ -58,7 +56,6 @@ Rectangle {
         onTriggered: card.notif.dismiss()
     }
 
-    // Borderless; critical urgency gets an accent stripe instead.
     Rectangle {
         visible: card.critical
         anchors.left: parent.left
@@ -91,7 +88,7 @@ Rectangle {
 
             readonly property bool hasImage: !!card.notif.image
             // Only take up space once something resolves, so a missing icon
-            // leaves a clean text-only card rather than an empty square.
+            // leaves a text-only card rather than an empty square.
             readonly property bool resolved: thumb.hasImage ? image.status === Image.Ready : appIcon.status === Image.Ready
 
             visible: thumb.resolved
@@ -99,8 +96,6 @@ Rectangle {
             implicitWidth: 40
             implicitHeight: 40
 
-            // The notification's own image (sender avatar, album art) when it
-            // has one, otherwise the sending app's icon.
             ClippingRectangle {
                 anchors.fill: parent
                 radius: 6
@@ -125,8 +120,6 @@ Rectangle {
                 }
             }
 
-            // App badge, ringed in the card colour so it reads as a separate
-            // mark sitting on the image.
             Rectangle {
                 visible: thumb.hasImage && badge.status === Image.Ready
                 width: 18

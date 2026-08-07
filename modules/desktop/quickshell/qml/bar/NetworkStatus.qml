@@ -32,8 +32,7 @@ Row {
     readonly property string iface: root.status.iface
 
     // The arrows are a liveness hint, not a rate read-out, so bytes moved since
-    // the last poll are only compared against a threshold: above it counts as
-    // activity, below it is background chatter.
+    // the last poll are only thresholded rather than turned into a rate.
     readonly property int idleBytes: 1024
     property bool receiving: false
     property bool transmitting: false
@@ -41,8 +40,8 @@ Row {
     property int lastRx: -1
     property int lastTx: -1
 
-    // Switching interfaces invalidates the byte baseline — without this reset a
-    // stale counter reads as a huge burst of traffic on the new interface.
+    // Without this reset the previous interface's counter reads as a huge burst
+    // of traffic on the new one.
     onIfaceChanged: {
         root.lastRx = -1;
         root.lastTx = -1;

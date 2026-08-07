@@ -6,8 +6,8 @@ import ".."
 Row {
     id: root
 
-    // UPower's aggregate display device, so there is no machine-specific sysfs
-    // path and no polling. Requires services.upower.enable (quickshell.nix).
+    // The aggregate display device, so no machine-specific sysfs path and no
+    // polling. Requires services.upower.enable (quickshell.nix).
     readonly property var device: UPower.displayDevice
     readonly property bool present: !!root.device && root.device.ready && root.device.isPresent
     // UPower's D-Bus property is 0-100 but Quickshell normalises it to 0-1.
@@ -59,7 +59,6 @@ Row {
             }
         }
 
-        // The nub on the positive terminal.
         Rectangle {
             anchors.left: shell.right
             anchors.verticalCenter: parent.verticalCenter

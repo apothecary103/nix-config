@@ -7,8 +7,7 @@ import ".."
 Row {
     id: root
 
-    // Prefer a player that is actually playing; otherwise the most recent one
-    // that is merely paused with a track loaded.
+    // Prefer a player that is actually playing, else the most recent paused one.
     readonly property var player: {
         const loaded = Mpris.players.values.filter(p => p.playbackState !== MprisPlaybackState.Stopped && p.trackTitle);
         if (loaded.length === 0)
