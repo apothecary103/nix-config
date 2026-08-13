@@ -2,12 +2,37 @@
 {
   flake.modules.homeManager.base =
     {
+      config,
       lib,
       pkgs,
       ...
     }:
     let
+      # The one switch: the enables, the palette and every themed program follow it.
+      active = "evergarden";
+
       flavor = if pkgs.stdenv.isDarwin then "macchiato" else "mocha";
+
+      # The hand-styled configs were written against catppuccin's names. These
+      # four have no counterpart in the ports, so they borrow the nearest hue;
+      # every other name is spelled the same in all three palettes.
+      compat =
+        p:
+        p
+        // {
+          mauve = p.purple;
+          lavender = p.blue;
+          sapphire = p.skye;
+          sky = p.skye;
+        };
+
+      palettes = {
+        catppuccin = lib.mapAttrs (_: color: color.hex) (
+          (lib.importJSON "${inputs.catppuccin-palette}/palette.json").${flavor}.colors
+        );
+        evergarden = compat config.evergarden.palette;
+        luna = compat config.luna.palette;
+      };
     in
     {
       imports = [
@@ -16,26 +41,23 @@
         inputs.luna.homeModules.default
       ];
 
-      # Imported so switching is one `enable` away; only one of the three may be
-      # on at a time, since they all write the same program themes.
       evergarden = {
-        enable = false;
+        enable = active == "evergarden";
         flavor = "fall";
         accent = "green";
       };
 
       luna = {
-        enable = false;
+        enable = active == "luna";
         accent = "blue";
       };
 
       catppuccin = {
-        enable = true;
+        enable = active == "catppuccin";
         autoEnable = true;
         inherit flavor;
         accent = "blue";
 
-        helix.enable = false;
         nushell.enable = false;
         mpv.enable = false;
         librewolf.enable = false;
@@ -45,9 +67,7 @@
         gtk.icon.enable = false;
       };
 
-      # Raw hex, for the hand-styled configs the catppuccin module doesn't cover.
-      _module.args.palette = lib.mapAttrs (_: color: color.hex) (
-        (lib.importJSON "${inputs.catppuccin-palette}/palette.json").${flavor}.colors
-      );
+      # Raw hex, for the hand-styled configs no theme module covers.
+      _module.args.palette = palettes.${active};
     };
 }
