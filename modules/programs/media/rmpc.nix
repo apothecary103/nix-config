@@ -8,7 +8,6 @@
       ...
     }:
     let
-      inherit (config.catppuccin) flavor;
       inherit (rmpcLib)
         variant
         enum
@@ -42,7 +41,7 @@
 
         settings = {
           address = "127.0.0.1:6600";
-          theme = "catppuccin-${flavor}";
+          theme = "custom";
           lyrics_dir = "${config.home.homeDirectory}/.lyrics";
 
           album_art = {
@@ -94,7 +93,7 @@
           ];
         };
 
-        themes."catppuccin-${flavor}" = {
+        themes.custom = {
           default_album_art_path = null;
           symbols = {
             song = "🎵";
