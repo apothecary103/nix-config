@@ -10,8 +10,11 @@
     let
       inherit (config.catppuccin) flavor accent sources;
 
-      # Yazi layers preset < flavor < theme.toml, so repackaging catppuccin's
-      # theme as a flavor leaves theme.toml free for our overrides.
+      # catppuccin's own yazi module writes theme.toml, which is where the
+      # overrides below live, so its theme is repackaged as a flavor instead —
+      # yazi layers preset < flavor < theme.toml. evergarden and luna ship a
+      # flavor already, so this is only needed while catppuccin is the one on.
+      catppuccinActive = config.catppuccin.enable;
       flavorName = "catppuccin-${flavor}";
       flavorPkg = pkgs.runCommand "yazi-flavor-${flavorName}" { } ''
         mkdir -p $out
@@ -52,7 +55,7 @@
           });
         };
 
-        flavors.${flavorName} = flavorPkg;
+        flavors = lib.mkIf catppuccinActive { ${flavorName} = flavorPkg; };
 
         # The hovered row's "" / "" caps are styled apart from the row itself
         # (indicator.padding + Entity:style_rev), so swapping them for spaces in
@@ -132,7 +135,7 @@
         };
 
         theme = {
-          flavor = {
+          flavor = lib.mkIf catppuccinActive {
             dark = flavorName;
             light = flavorName;
           };
