@@ -9,7 +9,6 @@
       wget
       ffmpeg
       broot
-      btop
       nixd
       nil
       nixfmt
