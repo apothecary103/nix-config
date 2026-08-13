@@ -52,6 +52,10 @@
       url = "github:catppuccin/palette";
       flake = false;
     };
+    # Not published yet, so these are the working copies in ~/Projects; swap
+    # both for github: once they are pushed.
+    evergarden.url = "git+file:///Users/apothecary/Projects/evergarden-nix";
+    luna.url = "git+file:///Users/apothecary/Projects/luna-nix";
     nix-wrapper-modules = {
       url = "github:BirdeeHub/nix-wrapper-modules";
       inputs.nixpkgs.follows = "nixpkgs";

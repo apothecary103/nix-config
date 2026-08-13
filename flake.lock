@@ -138,6 +138,21 @@
         "type": "github"
       }
     },
+    "evergarden": {
+      "locked": {
+        "lastModified": 1786619280,
+        "narHash": "sha256-9TJAv4znd3qqcAsehKPxX1MAh5GXf4W9PHnaaPePtnE=",
+        "ref": "refs/heads/main",
+        "rev": "87ac7104756189130770040b5162ad3ca6fa39fd",
+        "revCount": 11,
+        "type": "git",
+        "url": "file:///Users/apothecary/Projects/evergarden-nix"
+      },
+      "original": {
+        "type": "git",
+        "url": "file:///Users/apothecary/Projects/evergarden-nix"
+      }
+    },
     "flake-compat": {
       "locked": {
         "lastModified": 1761640442,
@@ -275,6 +290,21 @@
         "owner": "vic",
         "repo": "import-tree",
         "type": "github"
+      }
+    },
+    "luna": {
+      "locked": {
+        "lastModified": 1786619553,
+        "narHash": "sha256-FgIstDWQ9P7ibWhd5jBAsS0aC8bLOHtoZ9a6AEgZyqY=",
+        "ref": "refs/heads/main",
+        "rev": "339c2556b82bff00985432a9a28de7e2bd67fad7",
+        "revCount": 11,
+        "type": "git",
+        "url": "file:///Users/apothecary/Projects/luna-nix"
+      },
+      "original": {
+        "type": "git",
+        "url": "file:///Users/apothecary/Projects/luna-nix"
       }
     },
     "luna-nvim": {
@@ -566,12 +596,14 @@
         "catppuccin": "catppuccin",
         "catppuccin-palette": "catppuccin-palette",
         "disko": "disko",
+        "evergarden": "evergarden",
         "flake-parts": "flake-parts",
         "helix": "helix",
         "home-manager": "home-manager",
         "homebrew-cask": "homebrew-cask",
         "homebrew-core": "homebrew-core",
         "import-tree": "import-tree",
+        "luna": "luna",
         "luna-nvim": "luna-nvim",
         "niri": "niri",
         "nix-darwin": "nix-darwin",

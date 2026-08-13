@@ -10,7 +10,24 @@
       flavor = if pkgs.stdenv.isDarwin then "macchiato" else "mocha";
     in
     {
-      imports = [ inputs.catppuccin.homeModules.catppuccin ];
+      imports = [
+        inputs.catppuccin.homeModules.catppuccin
+        inputs.evergarden.homeModules.default
+        inputs.luna.homeModules.default
+      ];
+
+      # Imported so switching is one `enable` away; only one of the three may be
+      # on at a time, since they all write the same program themes.
+      evergarden = {
+        enable = false;
+        flavor = "fall";
+        accent = "green";
+      };
+
+      luna = {
+        enable = false;
+        accent = "blue";
+      };
 
       catppuccin = {
         enable = true;
