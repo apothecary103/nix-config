@@ -52,7 +52,18 @@
       url = "github:catppuccin/palette";
       flake = false;
     };
-    nvf.url = "github:notashelf/nvf";
+    nix-wrapper-modules = {
+      url = "github:BirdeeHub/nix-wrapper-modules";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
+    luna-nvim = {
+      url = "github:wtfox/luna.nvim";
+      flake = false;
+    };
+    bg-nvim = {
+      url = "github:typicode/bg.nvim";
+      flake = false;
+    };
     nix-index-database = {
       url = "github:nix-community/nix-index-database";
       inputs.nixpkgs.follows = "nixpkgs";
