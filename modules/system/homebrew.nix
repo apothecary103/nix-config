@@ -36,6 +36,7 @@
         "steam"
         "finetune"
         "blackhole-2ch"
+        "claude"
       ];
     };
   };
