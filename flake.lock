@@ -140,11 +140,11 @@
     },
     "evergarden": {
       "locked": {
-        "lastModified": 1786619280,
-        "narHash": "sha256-9TJAv4znd3qqcAsehKPxX1MAh5GXf4W9PHnaaPePtnE=",
+        "lastModified": 1786643057,
+        "narHash": "sha256-LWOPot9zXueXAZ9NJGE9ihQrYxrsPdVDiwNBW/OZF30=",
         "ref": "refs/heads/main",
-        "rev": "87ac7104756189130770040b5162ad3ca6fa39fd",
-        "revCount": 11,
+        "rev": "d2ed433ac345570aac6af94077479f33685935e0",
+        "revCount": 16,
         "type": "git",
         "url": "file:///Users/apothecary/Projects/evergarden-nix"
       },
@@ -294,11 +294,11 @@
     },
     "luna": {
       "locked": {
-        "lastModified": 1786619553,
-        "narHash": "sha256-FgIstDWQ9P7ibWhd5jBAsS0aC8bLOHtoZ9a6AEgZyqY=",
+        "lastModified": 1786643057,
+        "narHash": "sha256-6kTGKJ27jC43W2tzsyki4bMIVbkiMQWkVgFr/iGiLLo=",
         "ref": "refs/heads/main",
-        "rev": "339c2556b82bff00985432a9a28de7e2bd67fad7",
-        "revCount": 11,
+        "rev": "11923fe5fef24a7cdb3b39be00e7b44ee242ca6d",
+        "revCount": 16,
         "type": "git",
         "url": "file:///Users/apothecary/Projects/luna-nix"
       },
