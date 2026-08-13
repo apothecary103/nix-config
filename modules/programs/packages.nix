@@ -20,7 +20,6 @@
       glow
       util-linux
       tree-sitter
-      neovim
       imagemagick
 
       # Editor tooling: language servers and formatters nvim expects on PATH
