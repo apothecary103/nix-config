@@ -40,19 +40,52 @@
         # Yazi hardcodes rounded corners on every modal (input, confirm, pick,
         # completion, tasks, notify, spotter) in Rust; theme.toml only styles them.
         package = pkgs.yazi.override {
-          yazi-unwrapped = pkgs.yazi-unwrapped.overrideAttrs (old: {
-            postPatch = (old.postPatch or "") + ''
-              substituteInPlace \
-                yazi-fm/src/input/input.rs \
-                yazi-fm/src/confirm/confirm.rs \
-                yazi-fm/src/pick/pick.rs \
-                yazi-fm/src/cmp/cmp.rs \
-                yazi-fm/src/tasks/tasks.rs \
-                yazi-fm/src/notify/notify.rs \
-                yazi-plugin/src/utils/spot.rs \
-                --replace-fail "BorderType::Rounded" "BorderType::Plain"
-            '';
-          });
+          yazi-unwrapped = pkgs.yazi-unwrapped.overrideAttrs (
+            old:
+            let
+              # Track sxyazi/yazi's main branch rather than the last tagged
+              # release, so fixes/features not yet released are available.
+              # nixpkgs' cargoHash is a literal in its package.nix, not derived
+              # from finalAttrs, so overriding it directly is a no-op; the
+              # vendor directory has to be overridden instead.
+              codeSrc = pkgs.fetchFromGitHub {
+                owner = "sxyazi";
+                repo = "yazi";
+                rev = "caa7797eb9e344a478b3a9f8772e0202328aeb0f";
+                hash = "sha256-F3ZMeu92F2f9mVRGc0v/TPXlb1QFjbsLox30PbMNPN4=";
+              };
+              srcs = old.passthru.srcs // {
+                code_src = codeSrc;
+              };
+              srcsList = builtins.attrValues srcs;
+              sourceRoot = srcs.code_src.name;
+            in
+            {
+              inherit sourceRoot;
+              srcs = srcsList;
+              passthru = old.passthru // {
+                inherit srcs;
+              };
+              cargoDeps = pkgs.rustPlatform.fetchCargoVendor {
+                inherit (old) pname version;
+                inherit sourceRoot;
+                srcs = srcsList;
+                hash = "sha256-E12sYD8XXRemgcLbZh19PsOl7/FBuWXy6UsHynANKm4=";
+              };
+
+              postPatch = (old.postPatch or "") + ''
+                substituteInPlace \
+                  yazi-fm/src/input/input.rs \
+                  yazi-fm/src/confirm/confirm.rs \
+                  yazi-fm/src/pick/pick.rs \
+                  yazi-fm/src/cmp/cmp.rs \
+                  yazi-fm/src/tasks/tasks.rs \
+                  yazi-fm/src/notify/notify.rs \
+                  yazi-plugin/src/utils/spot.rs \
+                  --replace-fail "BorderType::Rounded" "BorderType::Plain"
+              '';
+            }
+          );
         };
 
         flavors = lib.mkIf catppuccinActive { ${flavorName} = flavorPkg; };
@@ -224,6 +257,18 @@
             inactive = {
               fg = palette.overlay1;
               bg = "reset";
+            };
+
+            # The preset's rounded powerline caps take their fg from the tab
+            # backgrounds, which are "reset" above, so they'd paint as blobs in
+            # the plain text colour. The tab names carry their own spaces.
+            sep_inner = {
+              open = "";
+              close = "";
+            };
+            sep_outer = {
+              open = "";
+              close = "";
             };
           };
 
