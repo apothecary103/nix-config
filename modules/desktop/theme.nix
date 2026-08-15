@@ -9,7 +9,7 @@
     }:
     let
       # The one switch: the enables, the palette and every themed program follow it.
-      active = "evergarden";
+      active = "luna";
 
       flavor = if pkgs.stdenv.isDarwin then "macchiato" else "mocha";
 
