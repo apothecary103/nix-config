@@ -44,6 +44,7 @@
       url = "github:agg23/yabai/macos-27";
       flake = false;
     };
+    zellij.url = "github:a-kenji/zellij-nix";
     catppuccin.url = "github:catppuccin/nix";
     # catppuccin/nix vendors this too, but only as a derivation whose build hook
     # is fixed to the host platform, so reading it from there would make every
