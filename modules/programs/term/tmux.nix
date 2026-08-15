@@ -8,6 +8,9 @@
     {
       programs.tmux = {
         enable = true;
+        # Its port hardcodes solid backgrounds on every status-bar style; we
+        # style the bar ourselves below and want it transparent instead.
+        luna.enable = false;
         shortcut = "a";
         baseIndex = 1;
         escapeTime = 0;
@@ -51,20 +54,30 @@
 
           set -g status-position bottom
           set -g status-justify left
-          set -g status-style "bg=${palette.mantle},fg=${palette.text}"
+          set -g status-style "fg=${palette.text}"
+          # Set explicitly: these inherit nothing, so a server carrying a
+          # previous theme's values keeps painting a bar background.
+          set -g status-left-style default
+          set -g status-right-style default
+          setw -g window-status-style default
+          setw -g window-status-current-style default
 
-          set -g status-left ""
+          set -g status-left-length 20
+          set -g status-left "#[fg=${palette.mauve}] #S  "
 
           set -g status-right-length 50
-          set -g status-right "#[fg=${palette.subtext0},bg=${palette.mantle}] %H:%M "
+          set -g status-right "#[fg=${palette.overlay0}]%H:%M "
 
-          setw -g window-status-format "#[fg=${palette.surface2},bg=${palette.mantle}] #I #W "
+          setw -g window-status-format "#[fg=${palette.overlay0}]#I:#W"
 
-          setw -g window-status-current-format "#[fg=${palette.mantle},bg=${palette.blue},bold] #I #W#{?window_zoomed_flag, [Z],} "
+          setw -g window-status-current-format "#[fg=${palette.blue}]#I:#W#{?window_zoomed_flag, [Z],}"
+
+          set -g window-status-separator " #[fg=${palette.overlay0}]/#[default] "
 
           set -g pane-border-style "fg=${palette.surface0}"
           set -g pane-active-border-style "fg=${palette.mauve}"
-          set -g message-style "bg=${palette.surface0},fg=${palette.text},bold"
+          set -g message-style "fg=${palette.text},bold"
+          set -g message-command-style "fg=${palette.text},bold"
         '';
       };
     };
