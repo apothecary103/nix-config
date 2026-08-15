@@ -160,7 +160,15 @@ return {
 		end,
 	},
 
-	{ "lazydev.nvim", ft = "lua", after = function() require("lazydev").setup({}) end },
+	-- blink builds every provider in `sources.default` to read its trigger
+	-- characters, and that require runs before the provider's own enabled check,
+	-- so `ft` alone leaves the module missing in every non-Lua buffer.
+	{
+		"lazydev.nvim",
+		ft = "lua",
+		on_require = "lazydev",
+		after = function() require("lazydev").setup({}) end,
+	},
 
 	-- LSP progress in the bottom right. Notifications stay with snacks, so
 	-- `notification.override_vim_notify` is left off.

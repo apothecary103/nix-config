@@ -46,7 +46,8 @@ return {
 				},
 				signature = { enabled = true, window = { border = border } },
 				sources = {
-					-- lazydev yields nothing outside Lua, so it is safe to list globally.
+					-- lazydev yields nothing outside Lua, so it is safe to list globally
+					-- for results; loading is what needs care, hence its `on_require`.
 					default = { "lsp", "path", "snippets", "buffer", "lazydev" },
 					providers = {
 						lazydev = { name = "LazyDev", module = "lazydev.integrations.blink", score_offset = 100 },
