@@ -1,11 +1,11 @@
-{ inputs, ... }: {
+{
   flake.modules.homeManager.base =
     { pkgs, ... }:
     {
       programs.helix = {
         enable = true;
         defaultEditor = true;
-        package = inputs.helix.packages.${pkgs.stdenv.hostPlatform.system}.default;
+        package = pkgs.steelix;
 
         # The theme itself comes from whichever module desktop/theme.nix has
         # active; only the see-through background is ours.
