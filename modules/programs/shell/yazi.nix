@@ -1,27 +1,11 @@
 {
   flake.modules.homeManager.base =
     {
-      config,
-      lib,
       pkgs,
       palette,
       ...
     }:
     let
-      inherit (config.catppuccin) flavor accent sources;
-
-      # catppuccin's own yazi module writes theme.toml, which is where the
-      # overrides below live, so its theme is repackaged as a flavor instead —
-      # yazi layers preset < flavor < theme.toml. evergarden and luna ship a
-      # flavor already, so this is only needed while catppuccin is the one on.
-      catppuccinActive = config.catppuccin.enable;
-      flavorName = "catppuccin-${flavor}";
-      flavorPkg = pkgs.runCommand "yazi-flavor-${flavorName}" { } ''
-        mkdir -p $out
-        cp ${sources.yazi}/${flavor}/catppuccin-${flavor}-${accent}.toml $out/flavor.toml
-        cp "${sources.bat}/Catppuccin ${lib.toSentenceCase flavor}.tmTheme" $out/tmtheme.xml
-      '';
-
       # The statusline: one solid bar, uniform text, no bold anywhere.
       bar = {
         fg = palette.subtext1;
@@ -30,9 +14,6 @@
       };
     in
     {
-      # We ship the flavor ourselves, above.
-      catppuccin.yazi.enable = false;
-
       programs.yazi = {
         enable = true;
         shellWrapperName = "yy";
@@ -87,8 +68,6 @@
             }
           );
         };
-
-        flavors = lib.mkIf catppuccinActive { ${flavorName} = flavorPkg; };
 
         # The hovered row's "" / "" caps are styled apart from the row itself
         # (indicator.padding + Entity:style_rev), so swapping them for spaces in
@@ -168,11 +147,6 @@
         };
 
         theme = {
-          flavor = lib.mkIf catppuccinActive {
-            dark = flavorName;
-            light = flavorName;
-          };
-
           # MIME types are only fetched for the folder you're in, so in a preview
           # pane the flavor's mime rules match nothing and its files come out
           # uncoloured. Same colours keyed off the extension first, with the

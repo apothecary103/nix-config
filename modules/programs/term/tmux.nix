@@ -8,9 +8,6 @@
     {
       programs.tmux = {
         enable = true;
-        # Its port hardcodes solid backgrounds on every status-bar style; we
-        # style the bar ourselves below and want it transparent instead.
-        luna.enable = false;
         shortcut = "a";
         baseIndex = 1;
         escapeTime = 0;

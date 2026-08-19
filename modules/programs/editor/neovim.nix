@@ -35,6 +35,7 @@
             pname = "evergarden";
             data = evergarden-nvim;
           }
+          catppuccin-nvim
 
           snacks-nvim
           oil-nvim

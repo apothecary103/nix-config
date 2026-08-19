@@ -8,12 +8,19 @@ return {
 		end,
 	},
 
-	-- Loaded but not applied: setup() only records the options, so the picker
-	-- can offer `evergarden` and it comes up with these when chosen.
+	-- Loaded but not applied: setup() only records the options, so the picker can
+	-- offer these and they come up configured when chosen.
 	{
 		"evergarden",
 		after = function()
 			require("evergarden").setup({ theme = { variant = "fall", accent = "green" } })
+		end,
+	},
+
+	{
+		"catppuccin-nvim",
+		after = function()
+			require("catppuccin").setup({ background = { light = "latte", dark = "macchiato" } })
 		end,
 	},
 
