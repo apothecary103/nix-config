@@ -116,6 +116,10 @@ local servers = {
 		},
 	},
 
+	sourcekit = {
+		filetypes = { "swift" },
+	},
+
 	-- Nushell ships its own server (`nu --lsp`); nu-lint adds the lint rules on
 	-- top of it, as a second client on the same buffer.
 	nushell = {},
