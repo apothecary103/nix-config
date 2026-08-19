@@ -23,9 +23,8 @@
         enable = true;
         package = pkgs.pass.withExtensions (exts: [
           exts.pass-otp
-          # pass-import removed, taking the jeepney D-Bus dependency with it
           exts.pass-update
-          exts.pass-audit # Checks entries against the HaveIBeenPwned API
+          exts.pass-audit
         ]);
 
         settings = {

@@ -182,7 +182,6 @@
               explicit_column_widths = "0.333, 0.5, 0.667";
             };
 
-            # Lets direction-based focus/move cross monitor edges on their own.
             binds = {
               window_direction_monitor_fallback = true;
             };
@@ -284,7 +283,6 @@
           # spring curves, driving those from the physics alone, so the values
           # on the spring leaves below are descriptive only.
           animation = [
-            # Catch-all for any leaf not named below.
             {
               leaf = "global";
               enabled = true;
@@ -359,8 +357,6 @@
               style = "slidevert";
             }
 
-            # Kept on the movement spring so that if the zoom is ever used it
-            # moves like everything else.
             {
               leaf = "zoomFactor";
               enabled = true;
@@ -535,11 +531,8 @@
               ];
             }
 
-            # Every layoutmsg here was checked against the running compositor,
-            # which answers "no such layoutmsg for scrolling" for an unknown one
-            # but does NOT validate arguments.
-
-            # Pull the active column fully into view when it is half off-screen.
+            # Hyprland rejects an unknown layoutmsg but does not validate its
+            # arguments, so a typo in one of these fails silently.
             {
               _args = [
                 "${mainMod} + Z"

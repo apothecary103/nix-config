@@ -57,16 +57,6 @@
         shift + alt - 8 : yabai -m window --space 8
         shift + alt - 9 : yabai -m window --space 9
 
-        # alt - h : yabai -m window --focus west
-        # alt - j : yabai -m window --focus south
-        # alt - k : yabai -m window --focus north
-        # alt - l : yabai -m window --focus east
-
-        # shift + alt - h : yabai -m window --swap west
-        # shift + alt - j : yabai -m window --swap south
-        # shift + alt - k : yabai -m window --swap north
-        # shift + alt - l : yabai -m window --swap east
-
         alt - v : yabai -m window --toggle float --grid 4:4:1:1:2:2
 
         shift + alt - r : launchctl kickstart -k "gui/''${UID}/org.nixos.yabai"

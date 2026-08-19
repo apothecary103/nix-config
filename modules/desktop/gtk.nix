@@ -1,4 +1,4 @@
-{ ... }: {
+{
   flake.modules.nixos.base = {
     # Needed so home-manager can write the dconf keys below.
     programs.dconf.enable = true;
