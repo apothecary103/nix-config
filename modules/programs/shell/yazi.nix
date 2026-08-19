@@ -18,17 +18,19 @@
         enable = true;
         shellWrapperName = "yy";
 
-        # Yazi hardcodes rounded corners on every modal (input, confirm, pick,
-        # completion, tasks, notify, spotter) in Rust; theme.toml only styles them.
+        # Two things yazi decides in Rust, out of theme.toml's reach: the
+        # rounded corners on every modal, and the dark/light preset choice —
+        # which follows the terminal's `CSI ? 996 n` answer and carries the
+        # whole [icon] palette with it, so a terminal reporting "light" paints
+        # near-black icons over the flavor's dark background.
         package = pkgs.yazi.override {
           yazi-unwrapped = pkgs.yazi-unwrapped.overrideAttrs (
             old:
             let
-              # Track sxyazi/yazi's main branch rather than the last tagged
-              # release, so fixes/features not yet released are available.
-              # nixpkgs' cargoHash is a literal in its package.nix, not derived
-              # from finalAttrs, so overriding it directly is a no-op; the
-              # vendor directory has to be overridden instead.
+              # Tracks main rather than the last tagged release. nixpkgs'
+              # cargoHash is a literal in its package.nix, not derived from
+              # finalAttrs, so overriding it is a no-op — the vendor directory
+              # has to be overridden instead.
               codeSrc = pkgs.fetchFromGitHub {
                 owner = "sxyazi";
                 repo = "yazi";
@@ -55,6 +57,10 @@
               };
 
               postPatch = (old.postPatch or "") + ''
+                substituteInPlace yazi-actor/src/app/theme.rs \
+                  --replace-fail "use yazi_emulator::EMULATOR;" "" \
+                  --replace-fail "EMULATOR.load().light().unwrap_or_default()" "false"
+
                 substituteInPlace \
                   yazi-fm/src/input/input.rs \
                   yazi-fm/src/confirm/confirm.rs \
