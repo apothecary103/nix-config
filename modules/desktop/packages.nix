@@ -10,7 +10,6 @@
         wl-clipboard
         jq
         whitesur-cursors
-        wayfreeze
 
         loupe
 
