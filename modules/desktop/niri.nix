@@ -16,6 +16,15 @@
       ...
     }:
     let
+      # homeModules.config is only this schema plus two home-manager-shaped
+      # outputs — an `xdg.configFile` entry and the bind constructors hung off
+      # `lib` — so the schema is imported bare and the constructors rebuilt here.
+      actions = lib.mergeAttrsList (
+        map (name: { ${name} = inputs.niri.lib.kdl.magic-leaf name; }) (
+          import "${inputs.niri}/memo-binds.nix"
+        )
+      );
+
       terminal = "ghostty";
       menu = [
         "qs"
@@ -26,27 +35,7 @@
       ];
     in
     {
-      imports = [ inputs.niri.homeModules.config ];
-
-      # niri-flake's config module is the whole typed KDL schema, and only its
-      # last two lines are home-manager specific: it writes into `xdg.configFile`
-      # and hangs the bind constructors off `lib`. Declaring both lets the module
-      # import cleanly; the file itself is written below.
-      options = {
-        xdg.configFile = lib.mkOption {
-          type = lib.types.attrsOf lib.types.raw;
-          internal = true;
-          default = { };
-        };
-
-        lib = lib.mkOption {
-          type = lib.types.attrsOf lib.types.raw;
-          internal = true;
-          default = { };
-        };
-      };
-
-      config.programs.niri.package = pkgs.niri-unstable;
+      imports = [ inputs.niri.lib.internal.settings-module ];
 
       config.programs.niri.settings = {
         # xkb is left empty so niri pulls its settings from
@@ -122,7 +111,7 @@
           }
         ];
 
-        binds = with config.lib.niri.actions; {
+        binds = with actions; {
           "Mod+Shift+Slash".action = show-hotkey-overlay;
 
           "Mod+T" = {
