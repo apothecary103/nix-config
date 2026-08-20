@@ -3,8 +3,8 @@
     { pkgs, ... }:
     let
       # The tuigreet session menu (F3). Every Exec name resolves on the user's
-      # login PATH: niri-session from programs.niri, start-hyprland from the
-      # home-manager profile.
+      # login PATH: niri-session from programs.niri, Hyprland from the user's
+      # own package set.
       sessions = pkgs.symlinkJoin {
         name = "greetd-wayland-sessions";
         paths = [
@@ -19,7 +19,7 @@
             [Desktop Entry]
             Name=Hyprland
             Comment=Dynamic tiling Wayland compositor
-            Exec=start-hyprland
+            Exec=Hyprland
             Type=Application
           '')
         ];
