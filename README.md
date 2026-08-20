@@ -15,7 +15,7 @@
 
 ## The Setup
 
-- **frieren** (NixOS): Hyprland, quickshell, greetd + tuigreet
+- **frieren** (NixOS): niri, quickshell, greetd + tuigreet
 - **fern** (nix-darwin): yabai (w/ scripting addition) + skhd
 
 **Shared Stack:**
