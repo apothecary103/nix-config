@@ -1,58 +1,111 @@
 {
-  flake.modules.homeManager.base =
+  flake.modules.hjem.base =
     {
-      pkgs,
       config,
       lib,
+      pkgs,
       ...
     }:
-    {
-      programs.gpg.enable = true;
-
-      services.gpg-agent = {
-        enable = true;
-        pinentry.package = if pkgs.stdenv.isDarwin then pkgs.pinentry_mac else pkgs.pinentry-gnome3;
-
-        defaultCacheTtl = 600;
-        maxCacheTtl = 7200;
-        defaultCacheTtlSsh = 600;
-        maxCacheTtlSsh = 7200;
+    let
+      gpgSettings = {
+        personal-cipher-preferences = "AES256 AES192 AES";
+        personal-digest-preferences = "SHA512 SHA384 SHA256";
+        personal-compress-preferences = "ZLIB BZIP2 ZIP Uncompressed";
+        default-preference-list = "SHA512 SHA384 SHA256 AES256 AES192 AES ZLIB BZIP2 ZIP Uncompressed";
+        cert-digest-algo = "SHA512";
+        s2k-digest-algo = "SHA512";
+        s2k-cipher-algo = "AES256";
+        display-charset = "utf-8";
+        no-comments = true;
+        no-emit-version = true;
+        keyid-format = "0xlong";
+        list-options = "show-uid-validity";
+        verify-options = "show-uid-validity";
+        with-fingerprint = true;
+        require-cross-certification = true;
+        no-symkey-cache = true;
       };
 
-      programs.password-store = {
-        enable = true;
-        package = pkgs.pass.withExtensions (exts: [
+      pinentry = if pkgs.stdenv.isDarwin then pkgs.pinentry_mac else pkgs.pinentry-gnome3;
+    in
+    {
+      packages = [
+        pkgs.gnupg
+        (pkgs.pass.withExtensions (exts: [
           exts.pass-otp
           exts.pass-update
           exts.pass-audit
-        ]);
+        ]))
+      ];
 
-        settings = {
-          PASSWORD_STORE_DIR = "${config.home.homeDirectory}/.password-store";
-          PASSWORD_STORE_CLIP_TIME = "45";
-          PASSWORD_STORE_UMASK = "077";
-          PASSWORD_STORE_KEY = "mail@apothecary.moe";
-        };
+      environment.sessionVariables = {
+        GNUPGHOME = "${config.directory}/.gnupg";
+        PASSWORD_STORE_DIR = "${config.directory}/.password-store";
+        PASSWORD_STORE_CLIP_TIME = "45";
+        PASSWORD_STORE_UMASK = "077";
+        PASSWORD_STORE_KEY = "mail@apothecary.moe";
       };
 
-      # The native messaging host only; the Browserpass add-on still has to be
-      # installed in the browser by hand.
-      programs.browserpass = {
-        enable = true;
-        browsers = [ "librewolf" ];
-      };
-
-      # Helium (a Chromium fork) isn't in programs.browserpass's supported list,
-      # so register its native messaging host by hand. The chromium manifest
-      # browserpass ships already whitelists the extension IDs.
-      home.file."Library/Application Support/net.imput.helium/NativeMessagingHosts/com.github.browserpass.native.json" =
-        lib.mkIf pkgs.stdenv.isDarwin {
-          source = "${pkgs.browserpass}/lib/browserpass/hosts/chromium/com.github.browserpass.native.json";
+      files = {
+        # gpg refuses to read a homedir it does not own outright.
+        ".gnupg" = {
+          type = "directory";
+          permissions = "700";
         };
+
+        ".gnupg/gpg.conf".text = lib.generators.toKeyValue {
+          mkKeyValue =
+            key: value: if lib.isString value then "${key} ${value}" else lib.optionalString value key;
+        } gpgSettings;
+
+        # No unit or agent supervises gpg-agent: nothing here wants an SSH
+        # socket up front, so gpg spawns it on demand off this file.
+        ".gnupg/gpg-agent.conf".text = ''
+          default-cache-ttl 600
+          max-cache-ttl 7200
+          default-cache-ttl-ssh 600
+          max-cache-ttl-ssh 7200
+          pinentry-program ${lib.getExe pinentry}
+        '';
+      };
+    };
+
+  # The native messaging host only; the Browserpass add-on still has to be
+  # installed in the browser by hand.
+  flake.modules.hjem.linux =
+    { pkgs, ... }:
+    {
+      files.".librewolf/native-messaging-hosts/com.github.browserpass.native.json".source =
+        "${pkgs.browserpass}/lib/browserpass/hosts/firefox/com.github.browserpass.native.json";
 
       # Conflicts at build time with gnome-keyring, disabled below.
-      services.pass-secret-service = lib.mkIf pkgs.stdenv.isLinux {
-        enable = true;
+      systemd.services.pass-secret-service = {
+        description = "Pass libsecret service";
+        partOf = [ "default.target" ];
+        wantedBy = [ "default.target" ];
+
+        serviceConfig = {
+          Type = "dbus";
+          BusName = "org.freedesktop.secrets";
+          ExecStart = "${pkgs.pass-secret-service}/bin/pass_secret_service";
+        };
+      };
+
+      xdg.data.files."dbus-1/services/org.freedesktop.secrets.service".source =
+        "${pkgs.pass-secret-service}/share/dbus-1/services/org.freedesktop.secrets.service";
+    };
+
+  flake.modules.hjem.darwin =
+    { pkgs, ... }:
+    {
+      files = {
+        "Library/Application Support/LibreWolf/NativeMessagingHosts/com.github.browserpass.native.json".source =
+          "${pkgs.browserpass}/lib/browserpass/hosts/firefox/com.github.browserpass.native.json";
+
+        # Helium (a Chromium fork) needs the chromium manifest instead; the one
+        # browserpass ships already whitelists the extension IDs.
+        "Library/Application Support/net.imput.helium/NativeMessagingHosts/com.github.browserpass.native.json".source =
+          "${pkgs.browserpass}/lib/browserpass/hosts/chromium/com.github.browserpass.native.json";
       };
     };
 

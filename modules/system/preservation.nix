@@ -51,8 +51,7 @@
           }
         ];
 
-        # Only what home-manager does not regenerate: secrets and long-lived
-        # app state.
+        # Only what hjem does not regenerate: secrets and long-lived app state.
         users.${username} = {
           directories = [
             {
@@ -95,8 +94,8 @@
     systemd.suppressedSystemUnits = [ "systemd-machine-id-commit.service" ];
 
     # Preservation creates the persisted subdirs but not the home root itself,
-    # which on a wiped root has to exist with the right ownership before
-    # home-manager can lay down its files.
+    # which on a wiped root has to exist with the right ownership before hjem
+    # can lay down its files.
     systemd.tmpfiles.settings.preservation-home."/home/${username}".d = {
       user = username;
       group = "users";

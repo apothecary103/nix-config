@@ -1,75 +1,75 @@
 {
-  flake.modules.nixos.base = {
-    # Needed so home-manager can write the dconf keys below.
-    programs.dconf.enable = true;
+  flake.modules.nixos.base =
+    { lib, pkgs, ... }:
+    {
+      programs.dconf = {
+        enable = true;
 
-    # libadwaita apps decide light/dark from the xdg-desktop-portal Settings
-    # backend, not from GTK settings. niri defaults that to gnome, whose impl
-    # needs gnome-settings-daemon (absent in a bare niri session), so the query
-    # returns nothing and the apps fall back to light. The gtk backend reads
-    # `color-scheme` (set below) straight from GSettings.
-    xdg.portal.config.niri."org.freedesktop.impl.portal.Settings" = "gtk";
-  };
+        # hjem has no activation hook to run `dconf load`, so the keys ship as a
+        # system database in the user profile rather than being written into
+        # ~/.config/dconf/user. They stay overridable from the UI.
+        profiles.user.databases = [
+          {
+            settings."org/gnome/desktop/interface" = {
+              color-scheme = "prefer-dark";
+              icon-theme = "Adwaita";
+              cursor-theme = "WhiteSur-cursors";
+              # The schema types this `i`, which a bare Nix int is ambiguous for.
+              cursor-size = lib.gvariant.mkInt32 24;
+              font-name = "Adwaita Sans Medium 11";
+              monospace-font-name = "Maple Mono NF CN 11";
+            };
+          }
+        ];
+      };
 
-  flake.modules.homeManager.linux = { pkgs, ... }: {
-    # The Settings=gtk pin above needs the frontend to find the gtk backend's
-    # `.portal` file. The home-manager Hyprland module enables home-manager's
-    # xdg.portal, which repoints NIX_XDG_DESKTOP_PORTAL_DIR at the user
-    # profile's portals dir — and that dir held only hyprland.portal, so under
-    # niri the frontend saw no Settings interface at all. gnome also restores
-    # niri's screencast portal, collateral of the same issue.
-    xdg.portal.extraPortals = [
-      pkgs.xdg-desktop-portal-gtk
-      pkgs.xdg-desktop-portal-gnome
-    ];
+      # libadwaita apps decide light/dark from the xdg-desktop-portal Settings
+      # backend, not from GTK settings. niri defaults that to gnome, whose impl
+      # needs gnome-settings-daemon (absent in a bare niri session), so the query
+      # returns nothing and the apps fall back to light. The gtk backend reads
+      # `color-scheme` (set above) straight from GSettings.
+      xdg.portal = {
+        config.niri."org.freedesktop.impl.portal.Settings" = "gtk";
 
-    dconf.settings = {
-      "org/gnome/desktop/interface" = {
-        color-scheme = "prefer-dark";
-        icon-theme = "Adwaita";
-        cursor-theme = "WhiteSur-cursors";
-        cursor-size = 24;
-        font-name = "Adwaita Sans Medium 11";
-        monospace-font-name = "Maple Mono NF CN 11";
+        extraPortals = [
+          pkgs.xdg-desktop-portal-gtk
+          pkgs.xdg-desktop-portal-gnome
+        ];
       };
     };
 
-    gtk = {
-      enable = true;
+  flake.modules.hjem.linux =
+    { pkgs, ... }:
+    {
+      rum.misc.gtk = {
+        enable = true;
 
-      # Medium because the Regular cut renders too thin on a hinting-off Retina
-      # panel — see fontconfig.nix for the global rule.
-      font = {
-        name = "Adwaita Sans Medium";
-        size = 11;
-      };
+        packages = [
+          # Without this Nautilus falls back to bare hicolor and most
+          # mimetype/places icons don't render.
+          pkgs.adwaita-icon-theme
+          # Match the compositor's WhiteSur cursor so GTK apps don't flip to the
+          # default X cursor on hover.
+          pkgs.whitesur-cursors
+        ];
 
-      # Without this Nautilus falls back to bare hicolor and most
-      # mimetype/places icons don't render.
-      iconTheme = {
-        name = "Adwaita";
-        package = pkgs.adwaita-icon-theme;
-      };
+        settings = {
+          # Medium because the Regular cut renders too thin on a hinting-off
+          # Retina panel — see fontconfig.nix for the global rule.
+          font-name = "Adwaita Sans Medium 11";
 
-      # Match the compositor's WhiteSur cursor so GTK apps don't flip to the
-      # default X cursor on hover.
-      cursorTheme = {
-        name = "WhiteSur-cursors";
-        package = pkgs.whitesur-cursors;
-        size = 24;
-      };
+          icon-theme-name = "Adwaita";
+          cursor-theme-name = "WhiteSur-cursors";
+          cursor-theme-size = 24;
 
-      gtk4.theme = null;
-
-      # Keep GTK's own XSETTINGS in step with fontconfig.nix, so GTK apps don't
-      # render text differently from everything else.
-      gtk3.extraConfig = {
-        gtk-application-prefer-dark-theme = 1;
-        gtk-xft-antialias = 1;
-        gtk-xft-hinting = 0;
-        gtk-xft-hintstyle = "hintnone";
-        gtk-xft-rgba = "none";
+          # Keep GTK's own XSETTINGS in step with fontconfig.nix, so GTK apps
+          # don't render text differently from everything else.
+          application-prefer-dark-theme = 1;
+          xft-antialias = 1;
+          xft-hinting = 0;
+          xft-hintstyle = "hintnone";
+          xft-rgba = "none";
+        };
       };
     };
-  };
 }

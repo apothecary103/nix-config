@@ -7,7 +7,7 @@
     };
   };
 
-  flake.modules.homeManager.linux =
+  flake.modules.hjem.linux =
     {
       config,
       pkgs,
@@ -28,9 +28,27 @@
     {
       imports = [ inputs.niri.homeModules.config ];
 
-      programs.niri.package = pkgs.niri-unstable;
+      # niri-flake's config module is the whole typed KDL schema, and only its
+      # last two lines are home-manager specific: it writes into `xdg.configFile`
+      # and hangs the bind constructors off `lib`. Declaring both lets the module
+      # import cleanly; the file itself is written below.
+      options = {
+        xdg.configFile = lib.mkOption {
+          type = lib.types.attrsOf lib.types.raw;
+          internal = true;
+          default = { };
+        };
 
-      programs.niri.settings = {
+        lib = lib.mkOption {
+          type = lib.types.attrsOf lib.types.raw;
+          internal = true;
+          default = { };
+        };
+      };
+
+      config.programs.niri.package = pkgs.niri-unstable;
+
+      config.programs.niri.settings = {
         # xkb is left empty so niri pulls its settings from
         # org.freedesktop.locale1.
         input = {
@@ -58,8 +76,8 @@
           size = 24;
         };
 
-        # quickshell runs as a home-manager user service bound to the graphical
-        # session, so only the wallpaper daemon is started here.
+        # quickshell runs as a user service bound to the graphical session, so
+        # only the wallpaper daemon is started here.
         spawn-at-startup = [
           { argv = [ "awww-daemon" ]; }
         ];
@@ -328,15 +346,14 @@
       # Everything but bit depth comes from the panel's EDID. `max-bpc 10` is
       # the option that keeps us on niri-unstable and is not in niri-flake's
       # typed schema yet, so it is appended as raw KDL and the whole file
-      # re-validated (mkForce replaces niri-flake's own writer source).
-      # Requires a niri restart, not a live-reload.
-      xdg.configFile.niri-config.source = lib.mkForce (
-        inputs.niri.lib.internal.validated-config-for pkgs pkgs.niri-unstable ''
-          ${config.programs.niri.finalConfig}
-          output "eDP-1" {
-              max-bpc 10
-          }
-        ''
-      );
+      # re-validated. Requires a niri restart, not a live-reload.
+      config.xdg.config.files."niri/config.kdl".source =
+        inputs.niri.lib.internal.validated-config-for pkgs pkgs.niri-unstable
+          ''
+            ${config.programs.niri.finalConfig}
+            output "eDP-1" {
+                max-bpc 10
+            }
+          '';
     };
 }

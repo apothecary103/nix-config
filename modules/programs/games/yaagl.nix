@@ -2,13 +2,13 @@
 # region; the CN variants it also knows about install alongside these without
 # clashing, should they ever be wanted.
 {
-  flake.modules.homeManager.darwin =
+  flake.modules.hjem.darwin =
     { pkgs, ... }:
     let
       yaagl = pkgs.callPackage ./_yaagl.nix { };
     in
     {
-      home.packages = [
+      packages = [
         yaagl.yaagl-genshin-os
         yaagl.yaagl-hsr-os
       ];

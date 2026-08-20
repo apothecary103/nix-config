@@ -1,6 +1,6 @@
 {
-  flake.modules.homeManager.base = {
-    programs.git = {
+  flake.modules.hjem.base = {
+    rum.programs.git = {
       enable = true;
       settings = {
         user = {

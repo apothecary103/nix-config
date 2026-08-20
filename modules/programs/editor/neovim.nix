@@ -114,7 +114,7 @@
       };
     };
 
-  flake.modules.homeManager.base = {
+  flake.modules.hjem.base = {
     imports = [ config.flake.wrappers.neovim.install ];
 
     wrappers.neovim.enable = true;

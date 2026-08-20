@@ -1,6 +1,6 @@
 {
-  flake.modules.homeManager.base =
-    { pkgs, ... }:
+  flake.modules.hjem.base =
+    { lib, pkgs, ... }:
     let
       parfaitTheme = pkgs.fetchFromGitHub {
         owner = "reizumii";
@@ -9,17 +9,13 @@
         hash = "sha256-QUo1Zz6Jp9k+4nriCHHUHC8Imu4BSWTj/i+bf1xon9Y=";
       };
 
-      chromePath =
-        if pkgs.stdenv.isDarwin then
-          "Library/Application Support/LibreWolf/Profiles/default/chrome"
-        else
-          ".librewolf/default/chrome";
-    in
-    {
-      programs.librewolf = {
-        enable = true;
+      inherit (pkgs.stdenv) isDarwin;
 
-        policies = {
+      configPath = if isDarwin then "Library/Application Support/LibreWolf" else ".librewolf";
+      profilePath = if isDarwin then "${configPath}/Profiles/default" else "${configPath}/default";
+
+      package = pkgs.librewolf.override (old: {
+        extraPolicies = (old.extraPolicies or { }) // {
           SearchEngines = {
             Default = "Startpage";
             PreventInstalls = true;
@@ -53,66 +49,79 @@
             ];
           };
         };
+      });
 
-        profiles.default = {
-          isDefault = true;
-          extensions.force = true;
+      bookmarks = pkgs.writeText "bookmarks.html" ''
+        <!DOCTYPE NETSCAPE-Bookmark-file-1>
+        <META HTTP-EQUIV="Content-Type" CONTENT="text/html; charset=UTF-8">
+        <TITLE>Bookmarks</TITLE>
+        <H1>Bookmarks Menu</H1>
+        <DL><p>
+          <DT><A HREF="https://search.nixos.org" ADD_DATE="1" LAST_MODIFIED="1">NixOS Packages</A>
+          <DT><A HREF="https://mail.proton.me/u/0/inbox" ADD_DATE="1" LAST_MODIFIED="1">Proton Mail</A>
+          <DT><A HREF="https://codeberg.org" ADD_DATE="1" LAST_MODIFIED="1">Codeberg</A>
+        </DL>
+      '';
 
-          bookmarks = {
-            force = true;
-            settings = [
-              {
-                name = "NixOS Packages";
-                url = "https://search.nixos.org";
-              }
-              {
-                name = "Proton Mail";
-                url = "https://mail.proton.me/u/0/inbox";
-              }
-              {
-                name = "Codeberg";
-                url = "https://codeberg.org";
-              }
-            ];
-          };
+      settings = {
+        # Re-imported on every start, so the list above stays the source of truth.
+        "browser.bookmarks.file" = toString bookmarks;
+        "browser.places.importBookmarksHTML" = true;
 
-          settings = {
-            # Allows LibreWolf to read the userChrome.css file
-            "toolkit.legacyUserProfileCustomizations.stylesheets" = true;
-            # Allows the Parfait theme to render SVGs correctly in dark mode
-            "svg.context-properties.content.enabled" = true;
+        # Allows LibreWolf to read the userChrome.css file
+        "toolkit.legacyUserProfileCustomizations.stylesheets" = true;
+        # Allows the Parfait theme to render SVGs correctly in dark mode
+        "svg.context-properties.content.enabled" = true;
 
-            # RFP breaks canvas-heavy sites, forces GMT and pushes sites to a
-            # light theme. Replaced by fingerprintingProtection below.
-            "privacy.resistFingerprinting" = false;
+        # RFP breaks canvas-heavy sites, forces GMT and pushes sites to a
+        # light theme. Replaced by fingerprintingProtection below.
+        "privacy.resistFingerprinting" = false;
 
-            "privacy.fingerprintingProtection" = true;
+        "privacy.fingerprintingProtection" = true;
 
-            # Mode 3 is strict DoH. Mode 2's fallback drops to the system
-            # resolver, itself DoT to Quad9 (system/dns.nix), so it buys nothing
-            # but a plaintext path when resolved is down.
-            "network.trr.mode" = 3;
-            "network.trr.uri" = "https://dns.quad9.net/dns-query";
+        # Mode 3 is strict DoH. Mode 2's fallback drops to the system
+        # resolver, itself DoT to Quad9 (system/dns.nix), so it buys nothing
+        # but a plaintext path when resolved is down.
+        "network.trr.mode" = 3;
+        "network.trr.uri" = "https://dns.quad9.net/dns-query";
 
-            # The whole ~/.librewolf profile is persisted across the root wipe,
-            # so a disk cache would outlive every other trace of a session.
-            "browser.cache.disk.enable" = false;
+        # The whole ~/.librewolf profile is persisted across the root wipe,
+        # so a disk cache would outlive every other trace of a session.
+        "browser.cache.disk.enable" = false;
 
-            "dom.security.https_only_mode" = true;
-            "network.dns.disablePrefetch" = true;
-            "network.predictor.enabled" = false;
-            "network.http.speculativeParallelLimit" = 0;
-            "beacon.enabled" = false;
+        "dom.security.https_only_mode" = true;
+        "network.dns.disablePrefetch" = true;
+        "network.predictor.enabled" = false;
+        "network.http.speculativeParallelLimit" = 0;
+        "beacon.enabled" = false;
 
-            "parfait.blur.enabled" = true;
-            "parfait.transparency.enabled" = false;
-          };
-        };
+        "parfait.blur.enabled" = true;
+        "parfait.transparency.enabled" = false;
       };
+    in
+    {
+      packages = [ package ];
 
-      home.file."${chromePath}" = {
-        source = parfaitTheme;
-        recursive = true;
+      files = {
+        "${configPath}/profiles.ini".text = lib.generators.toINI { } ({
+          General = {
+            StartWithLastProfile = 1;
+          }
+          // lib.optionalAttrs (!isDarwin) { Version = 2; };
+
+          Profile0 = {
+            Name = "default";
+            Path = if isDarwin then "Profiles/default" else "default";
+            IsRelative = 1;
+            Default = 1;
+          };
+        });
+
+        "${profilePath}/user.js".text = lib.concatLines (
+          lib.mapAttrsToList (name: value: ''user_pref("${name}", ${builtins.toJSON value});'') settings
+        );
+
+        "${profilePath}/chrome".source = parfaitTheme;
       };
     };
 }

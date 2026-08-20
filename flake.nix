@@ -12,9 +12,14 @@
       url = "github:nix-darwin/nix-darwin";
       inputs.nixpkgs.follows = "nixpkgs";
     };
-    home-manager = {
-      url = "github:nix-community/home-manager";
+    hjem = {
+      url = "github:feel-co/hjem";
       inputs.nixpkgs.follows = "nixpkgs";
+    };
+    hjem-rum = {
+      url = "github:snugnug/hjem-rum";
+      inputs.nixpkgs.follows = "nixpkgs";
+      inputs.hjem.follows = "hjem";
     };
     nix-homebrew.url = "github:zhaofengli/nix-homebrew";
     homebrew-core = {
@@ -44,16 +49,10 @@
       flake = false;
     };
     zellij.url = "github:a-kenji/zellij-nix";
-    catppuccin.url = "github:catppuccin/nix";
-    # catppuccin/nix vendors this too, but only as a derivation whose build hook
-    # is fixed to the host platform, so reading it from there would make every
-    # palette consumer an IFD needing an aarch64-linux builder.
-    catppuccin-palette = {
-      url = "github:catppuccin/palette";
-      flake = false;
-    };
     # Not published yet, so these are the working copies in ~/Projects; swap
-    # both for github: once they are pushed.
+    # all three for github: once they are pushed. catppuccin is a fork of
+    # catppuccin/nix carrying the hjem modules upstream has no interest in.
+    catppuccin.url = "git+file:///Users/apothecary/Projects/catppuccin-nix";
     evergarden.url = "git+file:///Users/apothecary/Projects/evergarden-nix";
     luna.url = "git+file:///Users/apothecary/Projects/luna-nix";
     nix-wrapper-modules = {
@@ -72,7 +71,6 @@
       url = "github:nix-community/nix-index-database";
       inputs.nixpkgs.follows = "nixpkgs";
     };
-    rmpc.url = "github:apothecary103/rmpc/feat/home-manager-module";
     zmk-nix = {
       url = "github:lilyinstarlight/zmk-nix";
       inputs.nixpkgs.follows = "nixpkgs";
@@ -81,6 +79,6 @@
 
   # Dendritic pattern: every file under modules/ is a flake-parts module,
   # auto-imported by import-tree. Features contribute to
-  # flake.modules.{nixos,darwin,homeManager}.* and hosts compose them.
+  # flake.modules.{nixos,darwin,hjem}.* and hosts compose them.
   outputs = inputs: inputs.flake-parts.lib.mkFlake { inherit inputs; } (inputs.import-tree ./modules);
 }

@@ -1,5 +1,5 @@
 {
-  flake.modules.homeManager.base.home.sessionVariables = {
+  flake.modules.hjem.base.environment.sessionVariables = {
     DO_NOT_TRACK = "1";
     DOTNET_CLI_TELEMETRY_OPTOUT = "1";
     NEXT_TELEMETRY_DISABLED = "1";

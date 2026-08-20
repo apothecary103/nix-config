@@ -7,7 +7,7 @@
     security.pam.services.hyprlock = { };
   };
 
-  flake.modules.homeManager.linux =
+  flake.modules.hjem.linux =
     { lib, pkgs, ... }:
     let
       loginctl = lib.getExe' pkgs.systemd "loginctl";
@@ -19,7 +19,7 @@
     {
       # Colours, background and input-field come from catppuccin's bundled
       # hyprlock.conf (desktop/theme.nix, autoEnable).
-      programs.hyprlock = {
+      rum.programs.hyprlock = {
         enable = true;
 
         settings.general = {
@@ -29,7 +29,7 @@
         };
       };
 
-      services.hypridle = {
+      rum.programs.hypridle = {
         enable = true;
 
         settings = {
@@ -51,6 +51,19 @@
               on-timeout = "${systemctl} suspend";
             }
           ];
+        };
+      };
+
+      # rum's module only writes the config, so the daemon needs its own unit.
+      systemd.services.hypridle = {
+        description = "Idle management daemon";
+        partOf = [ "graphical-session.target" ];
+        after = [ "graphical-session.target" ];
+        wantedBy = [ "graphical-session.target" ];
+
+        serviceConfig = {
+          ExecStart = lib.getExe pkgs.hypridle;
+          Restart = "on-failure";
         };
       };
     };

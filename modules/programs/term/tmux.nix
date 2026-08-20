@@ -1,26 +1,36 @@
 {
-  flake.modules.homeManager.base =
+  flake.modules.hjem.base =
     {
+      config,
       pkgs,
       palette,
+      theme,
       ...
     }:
     {
-      programs.tmux = {
-        enable = true;
-        shortcut = "a";
-        baseIndex = 1;
-        escapeTime = 0;
-        historyLimit = 50000;
-        keyMode = "vi";
-        mouse = true;
-        terminal = "tmux-256color";
+      packages = [ pkgs.tmux ];
 
-        plugins = with pkgs.tmuxPlugins; [
-          yank
-        ];
+      # tmux has no rum module, so the config file, the plugin and the port are
+      # all loaded by hand. The port comes first: its styles are the base that
+      # the status line below overrides.
+      xdg.config.files."tmux/tmux.conf".text = # shell
+        ''
+          set -g prefix C-a
+          unbind C-b
+          bind C-a send-prefix
 
-        extraConfig = /* shell */ ''
+          set -g base-index 1
+          setw -g pane-base-index 1
+          set -sg escape-time 0
+          set -g history-limit 50000
+          setw -g mode-keys vi
+          set -g mouse on
+          set -g default-terminal "tmux-256color"
+
+          run-shell ${pkgs.tmuxPlugins.yank}/share/tmux-plugins/yank/yank.tmux
+
+          source-file -q ${config.xdg.config.directory}/${theme.tmux.configFile}
+
           set -g window-style "bg=default"
           set -g window-active-style "bg=default"
           set -as terminal-features ",*:RGB"
@@ -76,6 +86,5 @@
           set -g message-style "fg=${palette.text},bold"
           set -g message-command-style "fg=${palette.text},bold"
         '';
-      };
     };
 }

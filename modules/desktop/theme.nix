@@ -1,6 +1,6 @@
 { inputs, ... }:
 {
-  flake.modules.homeManager.base =
+  flake.modules.hjem.base =
     {
       config,
       lib,
@@ -28,41 +28,35 @@
         };
 
       palettes = {
-        catppuccin = lib.mapAttrs (_: color: color.hex) (
-          (lib.importJSON "${inputs.catppuccin-palette}/palette.json").${flavor}.colors
-        );
+        catppuccin = config.catppuccin.palette;
         evergarden = compat config.evergarden.palette;
         luna = compat config.luna.palette;
       };
 
-      helixTheme = "catppuccin-${config.catppuccin.helix.flavor}";
-
-      # catppuccin's own yazi module writes theme.toml, which is where yazi.nix's
-      # overrides live, so its theme is repackaged as a flavor instead — yazi
-      # layers preset < flavor < theme.toml. evergarden and luna ship a flavor.
-      yaziFlavor = "catppuccin-${flavor}";
-      yaziFlavorPkg = pkgs.runCommand "yazi-flavor-${yaziFlavor}" { } ''
-        mkdir -p $out
-        cp ${config.catppuccin.sources.yazi}/${flavor}/${yaziFlavor}-${config.catppuccin.accent}.toml $out/flavor.toml
-        cp "${config.catppuccin.sources.bat}/Catppuccin ${lib.toSentenceCase flavor}.tmTheme" $out/tmtheme.xml
-      '';
+      helixTheme = config.catppuccin.helix.themeName;
     in
     {
       imports = [
-        inputs.catppuccin.homeModules.catppuccin
-        inputs.evergarden.homeModules.default
-        inputs.luna.homeModules.default
+        inputs.catppuccin.hjemModules.default
+        inputs.evergarden.hjemModules.default
+        inputs.luna.hjemModules.default
       ];
 
       evergarden = {
         enable = active == "evergarden";
         flavor = "fall";
         accent = "green";
+        helix.transparent = true;
       };
 
       luna = {
         enable = active == "luna";
         accent = "blue";
+        helix.transparent = true;
+
+        # Its port hardcodes solid backgrounds on every status-bar style;
+        # term/tmux.nix styles the bar itself and wants it transparent.
+        tmux.enable = false;
       };
 
       catppuccin = {
@@ -70,27 +64,20 @@
         autoEnable = true;
         inherit flavor;
         accent = "blue";
-
-        nushell.enable = false;
-        mpv.enable = false;
-        librewolf.enable = false;
-        yazi.enable = false;
-
-        # gtk.nix sets Adwaita; without this catppuccin forces Papirus-Dark and
-        # the two fight over gtk.iconTheme.name.
-        gtk.icon.enable = false;
       };
 
-      # Raw hex, for the hand-styled configs no theme module covers.
+      # Raw hex, for the hand-styled configs no port covers.
       _module.args.palette = palettes.${active};
 
-      programs.helix = {
-        evergarden.transparent = true;
-        luna.transparent = true;
+      # The active port's own options, so the modules that have to name a theme
+      # (btop's color_theme, zellij's theme, tmux's source-file) can read it
+      # without knowing which of the three is on.
+      _module.args.theme = config.${active};
 
-        # catppuccin/nix ships no transparent variant, so re-export its theme
-        # with the background dropped — helix reads "no bg" as the terminal's.
-        # `inherits` also pulls in the palette that `fg` resolves against.
+      # catppuccin ships no transparent variant, so re-export its theme with the
+      # background dropped — helix reads "no bg" as the terminal's. `inherits`
+      # also pulls in the palette that `fg` resolves against.
+      rum.programs.helix = {
         themes = onCatppuccin {
           "${helixTheme}-transparent" = {
             inherits = helixTheme;
@@ -98,18 +85,6 @@
           };
         };
         settings.theme = onCatppuccin (lib.mkForce "${helixTheme}-transparent");
-      };
-
-      # Its port hardcodes solid backgrounds on every status-bar style; tmux.nix
-      # styles the bar itself and wants it transparent.
-      programs.tmux.luna.enable = false;
-
-      programs.yazi = {
-        flavors = onCatppuccin { ${yaziFlavor} = yaziFlavorPkg; };
-        theme.flavor = onCatppuccin {
-          dark = yaziFlavor;
-          light = yaziFlavor;
-        };
       };
     };
 }

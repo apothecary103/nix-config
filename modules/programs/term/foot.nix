@@ -1,5 +1,5 @@
 {
-  flake.modules.homeManager.linux.programs.foot = {
+  flake.modules.hjem.linux.rum.programs.foot = {
     enable = true;
 
     settings = {

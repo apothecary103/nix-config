@@ -71,51 +71,21 @@
     },
     "catppuccin": {
       "inputs": {
-        "nixpkgs": "nixpkgs_2"
+        "nixpkgs": "nixpkgs_2",
+        "palette": "palette"
       },
       "locked": {
-        "lastModified": 1785485193,
-        "narHash": "sha256-JgUmb34d3Zv1W5fYukqEUEDHSaWhw7WV9HVUXOmOCaA=",
-        "owner": "catppuccin",
-        "repo": "nix",
-        "rev": "41c4ebf8cb3e4052001947a457b4ac093e5dc119",
-        "type": "github"
+        "lastModified": 1787113804,
+        "narHash": "sha256-uGFH7ANK4kYAL2eOzZbY4eNPwDUZ/zesgZuOiTfGfwc=",
+        "ref": "refs/heads/main",
+        "rev": "6c5c0feefb5e1faa36609d19660a6bdf3583fb76",
+        "revCount": 722,
+        "type": "git",
+        "url": "file:///Users/apothecary/Projects/catppuccin-nix"
       },
       "original": {
-        "owner": "catppuccin",
-        "repo": "nix",
-        "type": "github"
-      }
-    },
-    "catppuccin-palette": {
-      "flake": false,
-      "locked": {
-        "lastModified": 1774131488,
-        "narHash": "sha256-hsy+GhuM4MSjnwGq1YJSLBFIbVm67SSdPRgObP00mxw=",
-        "owner": "catppuccin",
-        "repo": "palette",
-        "rev": "07d02aa110ef9eb7e7427afca5c73ba9cf7f8ebd",
-        "type": "github"
-      },
-      "original": {
-        "owner": "catppuccin",
-        "repo": "palette",
-        "type": "github"
-      }
-    },
-    "crane": {
-      "locked": {
-        "lastModified": 1773189535,
-        "narHash": "sha256-E1G/Or6MWeP+L6mpQ0iTFLpzSzlpGrITfU2220Gq47g=",
-        "owner": "ipetkov",
-        "repo": "crane",
-        "rev": "6fa2fb4cf4a89ba49fc9dd5a3eb6cde99d388269",
-        "type": "github"
-      },
-      "original": {
-        "owner": "ipetkov",
-        "repo": "crane",
-        "type": "github"
+        "type": "git",
+        "url": "file:///Users/apothecary/Projects/catppuccin-nix"
       }
     },
     "disko": {
@@ -140,11 +110,11 @@
     },
     "evergarden": {
       "locked": {
-        "lastModified": 1786643057,
-        "narHash": "sha256-LWOPot9zXueXAZ9NJGE9ihQrYxrsPdVDiwNBW/OZF30=",
+        "lastModified": 1787112255,
+        "narHash": "sha256-Gs+tZVL696DX17GGiPsyPTdZ6cLiNoqQS9lUf68hoFs=",
         "ref": "refs/heads/main",
-        "rev": "d2ed433ac345570aac6af94077479f33685935e0",
-        "revCount": 16,
+        "rev": "56151760f19b4fc0652980316e60d926415d5952",
+        "revCount": 19,
         "type": "git",
         "url": "file:///Users/apothecary/Projects/evergarden-nix"
       },
@@ -222,41 +192,46 @@
         "type": "github"
       }
     },
-    "flake-utils_2": {
-      "inputs": {
-        "systems": "systems_2"
-      },
-      "locked": {
-        "lastModified": 1731533236,
-        "narHash": "sha256-l0KFg5HjrsfsO/JpG+r7fRrqm12kzFHyUHqHCVpMMbI=",
-        "owner": "numtide",
-        "repo": "flake-utils",
-        "rev": "11707dc2f618dd54ca8739b309ec4fc024de578b",
-        "type": "github"
-      },
-      "original": {
-        "owner": "numtide",
-        "repo": "flake-utils",
-        "type": "github"
-      }
-    },
-    "home-manager": {
+    "hjem": {
       "inputs": {
         "nixpkgs": [
           "nixpkgs"
         ]
       },
       "locked": {
-        "lastModified": 1785531816,
-        "narHash": "sha256-vkMnV0JIyw+g/NmcfoajlGaAO+9a0ezia+FZohQJrik=",
-        "owner": "nix-community",
-        "repo": "home-manager",
-        "rev": "bf9ce9fec78f95f374e8dd3b503863a3ec128ebe",
+        "lastModified": 1785929776,
+        "narHash": "sha256-qwppDYdtxqtDpI1iSp7bs8prOJ0KQSvhJchfROD04f0=",
+        "owner": "feel-co",
+        "repo": "hjem",
+        "rev": "b610953d0c56da6b28fd39c21bd193b88e91341c",
         "type": "github"
       },
       "original": {
-        "owner": "nix-community",
-        "repo": "home-manager",
+        "owner": "feel-co",
+        "repo": "hjem",
+        "type": "github"
+      }
+    },
+    "hjem-rum": {
+      "inputs": {
+        "hjem": [
+          "hjem"
+        ],
+        "nixpkgs": [
+          "nixpkgs"
+        ]
+      },
+      "locked": {
+        "lastModified": 1786806107,
+        "narHash": "sha256-QQecd6eWZj41JaWf2MoTtKj55N9o4OfnQYk7S5SsJWI=",
+        "owner": "snugnug",
+        "repo": "hjem-rum",
+        "rev": "5b60842e8f76ae5e818b502f874c469a92930d42",
+        "type": "github"
+      },
+      "original": {
+        "owner": "snugnug",
+        "repo": "hjem-rum",
         "type": "github"
       }
     },
@@ -309,11 +284,11 @@
     },
     "luna": {
       "locked": {
-        "lastModified": 1786643057,
-        "narHash": "sha256-6kTGKJ27jC43W2tzsyki4bMIVbkiMQWkVgFr/iGiLLo=",
+        "lastModified": 1787112255,
+        "narHash": "sha256-O47Xf3N3SI0JXfPdvfOycPrDDb+yulSPqaerresgEzo=",
         "ref": "refs/heads/main",
-        "rev": "11923fe5fef24a7cdb3b39be00e7b44ee242ca6d",
-        "revCount": 16,
+        "rev": "6a03ed02058916a34963c33d8e5a6300689f17ad",
+        "revCount": 19,
         "type": "git",
         "url": "file:///Users/apothecary/Projects/luna-nix"
       },
@@ -524,11 +499,11 @@
     },
     "nixpkgs_2": {
       "locked": {
-        "lastModified": 1785301185,
-        "narHash": "sha256-PlAXr9kpfXhMFU0OQ7qtE8FhLQo21WXFVGqIC85UFyc=",
-        "rev": "9bc02893134c733dd85de46ee4fb2fac696b5529",
+        "lastModified": 1786534138,
+        "narHash": "sha256-Cwffw7dPM56d8spt4/queFQ1cKg69D9qrsp+wfwKvfo=",
+        "rev": "044bfe75bfe4c7bbe043dc17b5e42ea823b84a09",
         "type": "tarball",
-        "url": "https://releases.nixos.org/nixpkgs/nixpkgs-26.11pre1043539.9bc02893134c/nixexprs.tar.xz"
+        "url": "https://releases.nixos.org/nixpkgs/nixpkgs-26.11pre1052792.044bfe75bfe4/nixexprs.tar.xz"
       },
       "original": {
         "type": "tarball",
@@ -553,22 +528,6 @@
     },
     "nixpkgs_4": {
       "locked": {
-        "lastModified": 1770141374,
-        "narHash": "sha256-yD4K/vRHPwXbJf5CK3JkptBA6nFWUKNX/jlFp2eKEQc=",
-        "owner": "nixos",
-        "repo": "nixpkgs",
-        "rev": "41965737c1797c1d83cfb0b644ed0840a6220bd1",
-        "type": "github"
-      },
-      "original": {
-        "owner": "nixos",
-        "ref": "nixpkgs-unstable",
-        "repo": "nixpkgs",
-        "type": "github"
-      }
-    },
-    "nixpkgs_5": {
-      "locked": {
         "lastModified": 1786106723,
         "narHash": "sha256-zDSUbpoeo/9ZmD2+wXnzxoo1+uhL8vxc0b8yuYMKYq0=",
         "owner": "nixos",
@@ -580,6 +539,22 @@
         "owner": "nixos",
         "ref": "nixos-unstable",
         "repo": "nixpkgs",
+        "type": "github"
+      }
+    },
+    "palette": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1774131488,
+        "narHash": "sha256-hsy+GhuM4MSjnwGq1YJSLBFIbVm67SSdPRgObP00mxw=",
+        "owner": "catppuccin",
+        "repo": "palette",
+        "rev": "07d02aa110ef9eb7e7427afca5c73ba9cf7f8ebd",
+        "type": "github"
+      },
+      "original": {
+        "owner": "catppuccin",
+        "repo": "palette",
         "type": "github"
       }
     },
@@ -598,38 +573,17 @@
         "type": "github"
       }
     },
-    "rmpc": {
-      "inputs": {
-        "crane": "crane",
-        "flake-utils": "flake-utils",
-        "nixpkgs": "nixpkgs_4"
-      },
-      "locked": {
-        "lastModified": 1783910769,
-        "narHash": "sha256-8L3I1+HPRhRb2qSVwTbnMsWOQcwj86rHiVzd6qOsmkw=",
-        "owner": "apothecary103",
-        "repo": "rmpc",
-        "rev": "252852393e06c4cab638b5d7830d862f45de9d67",
-        "type": "github"
-      },
-      "original": {
-        "owner": "apothecary103",
-        "ref": "feat/home-manager-module",
-        "repo": "rmpc",
-        "type": "github"
-      }
-    },
     "root": {
       "inputs": {
         "apple-silicon": "apple-silicon",
         "asahi-firmware": "asahi-firmware",
         "bg-nvim": "bg-nvim",
         "catppuccin": "catppuccin",
-        "catppuccin-palette": "catppuccin-palette",
         "disko": "disko",
         "evergarden": "evergarden",
         "flake-parts": "flake-parts",
-        "home-manager": "home-manager",
+        "hjem": "hjem",
+        "hjem-rum": "hjem-rum",
         "homebrew-cask": "homebrew-cask",
         "homebrew-core": "homebrew-core",
         "import-tree": "import-tree",
@@ -642,7 +596,6 @@
         "nix-wrapper-modules": "nix-wrapper-modules",
         "nixpkgs": "nixpkgs_3",
         "preservation": "preservation",
-        "rmpc": "rmpc",
         "yabai-src": "yabai-src",
         "zellij": "zellij",
         "zmk-nix": "zmk-nix"
@@ -670,21 +623,6 @@
       }
     },
     "systems": {
-      "locked": {
-        "lastModified": 1681028828,
-        "narHash": "sha256-Vy1rq5AaRuLzOxct8nz4T6wlgyUR7zLU309k9mBC768=",
-        "owner": "nix-systems",
-        "repo": "default",
-        "rev": "da67096a3b9bf56a91d16901293e51ba5b49a27e",
-        "type": "github"
-      },
-      "original": {
-        "owner": "nix-systems",
-        "repo": "default",
-        "type": "github"
-      }
-    },
-    "systems_2": {
       "locked": {
         "lastModified": 1681028828,
         "narHash": "sha256-Vy1rq5AaRuLzOxct8nz4T6wlgyUR7zLU309k9mBC768=",
@@ -752,9 +690,9 @@
     "zellij": {
       "inputs": {
         "flake-compat": "flake-compat_2",
-        "flake-utils": "flake-utils_2",
+        "flake-utils": "flake-utils",
         "multitask": "multitask",
-        "nixpkgs": "nixpkgs_5",
+        "nixpkgs": "nixpkgs_4",
         "rust-overlay": "rust-overlay",
         "zellij": "zellij_2"
       },

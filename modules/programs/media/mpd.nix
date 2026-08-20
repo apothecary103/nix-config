@@ -1,97 +1,128 @@
+{ username, ... }:
+let
+  # Everything mpd keeps lives under the XDG data dir, so the same paths work
+  # on both hosts; only the audio output and the supervisor differ.
+  mkConf =
+    { home, output }:
+    ''
+      music_directory "${home}/Music"
+      playlist_directory "${home}/.local/share/mpd/playlists"
+      db_file "${home}/.local/share/mpd/tag_cache"
+      state_file "${home}/.local/share/mpd/state"
+      sticker_file "${home}/.local/share/mpd/sticker.sql"
+
+      bind_to_address "127.0.0.1"
+      port "6600"
+
+      auto_update "yes"
+      restore_paused "yes"
+
+      ${output}
+    '';
+
+  darwinHome = "/Users/${username}";
+  darwinConf = mkConf {
+    home = darwinHome;
+    output = ''
+      audio_output {
+        type "osx"
+        name "CoreAudio"
+        mixer_type "software"
+      }
+    '';
+  };
+in
 {
-  # Home-manager's mpd service is systemd-only, so on darwin we reuse its
-  # generated config file and run the daemon through our own launchd agent.
-  flake.modules.homeManager.darwin =
+  flake.modules.hjem.darwin =
+    { pkgs, ... }:
     {
-      lib,
-      config,
-      pkgs,
-      ...
-    }:
-    {
-      home.packages = with pkgs; [
-        mpc
-      ];
+      packages = [ pkgs.mpc ];
 
-      services.mpd = {
-        enable = true;
+      xdg.config.files."mpd/mpd.conf".text = darwinConf;
 
-        musicDirectory = "${config.home.homeDirectory}/Music";
-
-        network = {
-          listenAddress = "127.0.0.1";
-          port = 6600;
-        };
-
-        extraConfig = ''
-          auto_update "yes"
-          restore_paused "yes"
-
-          audio_output {
-            type "osx"
-            name "CoreAudio"
-            mixer_type "software"
-          }
-        '';
-      };
-
-      xdg.configFile."mpd/mpd.conf".text = config.services.mpd.generatedConfig;
-
-      home.activation.createMpdDir = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
-        $DRY_RUN_CMD mkdir -p "${config.xdg.dataHome}/mpd/playlists"
-      '';
-
-      launchd.agents.mpd = {
-        enable = true;
-
-        config = {
-          Label = "org.home-manager.mpd";
-
-          ProgramArguments = [
-            "${pkgs.mpd}/bin/mpd"
-            "--no-daemon"
-            "${config.xdg.configHome}/mpd/mpd.conf"
-          ];
-
-          RunAtLoad = true;
-          KeepAlive = true;
-
-          StandardOutPath = "${config.home.homeDirectory}/Library/Logs/mpd.log";
-          StandardErrorPath = "${config.home.homeDirectory}/Library/Logs/mpd.err.log";
-        };
+      # mpd will not create these itself, and hjem has no activation hook.
+      xdg.data.files = {
+        "mpd/playlists".type = "directory";
       };
     };
 
-  flake.modules.homeManager.linux =
+  # hjem manages no launchd agents, so the daemon is supervised at the system
+  # level; the config file it reads is still the user's.
+  flake.modules.darwin.base =
+    { pkgs, ... }:
+    {
+      launchd.user.agents.mpd.serviceConfig = {
+        Label = "org.nixos.mpd";
+
+        ProgramArguments = [
+          "${pkgs.mpd}/bin/mpd"
+          "--no-daemon"
+          "${darwinHome}/.config/mpd/mpd.conf"
+        ];
+
+        RunAtLoad = true;
+        KeepAlive = true;
+
+        StandardOutPath = "${darwinHome}/Library/Logs/mpd.log";
+        StandardErrorPath = "${darwinHome}/Library/Logs/mpd.err.log";
+      };
+    };
+
+  flake.modules.hjem.linux =
     {
       config,
+      lib,
       pkgs,
       ...
     }:
-    {
-      home.packages = [
-        pkgs.mpc
-        pkgs.playerctl
-      ];
-
-      services.mpd = {
-        enable = true;
-        musicDirectory = "${config.home.homeDirectory}/Music";
-
-        extraConfig = ''
+    let
+      conf = mkConf {
+        home = config.directory;
+        output = ''
           audio_output {
             type "pipewire"
             name "PipeWire Output"
           }
         '';
       };
+    in
+    {
+      packages = [
+        pkgs.mpc
+        pkgs.playerctl
+      ];
 
-      services.mpdris2-rs.enable = true;
+      xdg.config.files."mpd/mpd.conf".text = conf;
+      xdg.data.files."mpd/playlists".type = "directory";
 
-      # mpdris2-rs mishandles a *set* MPD_HOST: it ignores MPD_PORT and fails to
-      # connect, so playerctl sees no player. With both unset it falls back to
-      # localhost:6600, which is where mpd listens. Stripped from this unit
-      # only — mpc/rmpc keep the session variables the mpd module exports.
-      systemd.user.services.mpdris2-rs.Service.UnsetEnvironment = "MPD_HOST MPD_PORT";
+      systemd.services = {
+        mpd = {
+          description = "Music Player Daemon";
+          after = [
+            "network.target"
+            "sound.target"
+          ];
+          wantedBy = [ "default.target" ];
+
+          serviceConfig = {
+            Type = "notify";
+            ExecStart = "${lib.getExe pkgs.mpd} --no-daemon ${config.xdg.config.directory}/mpd/mpd.conf";
+          };
+        };
+
+        # No MPD_HOST/MPD_PORT anywhere: mpdris2-rs mishandles a set MPD_HOST by
+        # ignoring MPD_PORT and failing to connect, and every other client here
+        # names the address itself.
+        mpdris2-rs = {
+          description = "MPRIS2 bridge for mpd";
+          after = [ "mpd.service" ];
+          wantedBy = [ "default.target" ];
+
+          serviceConfig = {
+            ExecStart = lib.getExe pkgs.mpdris2-rs;
+            Restart = "on-failure";
+          };
+        };
+      };
     };
 }

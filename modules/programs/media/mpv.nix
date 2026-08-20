@@ -1,9 +1,9 @@
 {
-  flake.modules.homeManager.base =
+  flake.modules.hjem.base =
     { pkgs, ... }:
 
     {
-      programs.mpv = {
+      rum.programs.mpv = {
         enable = true;
 
         config = {

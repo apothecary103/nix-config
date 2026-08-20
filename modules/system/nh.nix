@@ -1,9 +1,11 @@
 { username, ... }:
 let
-  clean = {
-    enable = true;
-    extraArgs = "--keep-since 7d --keep 5";
-  };
+  cleanArgs = [
+    "--keep-since"
+    "7d"
+    "--keep"
+    "5"
+  ];
 in
 {
   # The NixOS programs.nh module asserts against nix.gc.automatic also being on.
@@ -13,22 +15,47 @@ in
     programs.nh = {
       enable = true;
       flake = "/home/${username}/nix-config";
-      inherit clean;
+
+      clean = {
+        enable = true;
+        extraArgs = builtins.concatStringsSep " " cleanArgs;
+      };
     };
   };
 
   # Same overlap on darwin, just without an assertion guarding it.
-  flake.modules.darwin.base.nix.gc.automatic = false;
-
-  # nix-darwin has no programs.nh module of its own, so configure it through
-  # home-manager instead; it drives cleanup via a launchd agent on macOS.
-  flake.modules.homeManager.darwin =
-    { config, ... }:
+  flake.modules.darwin.base =
+    { lib, pkgs, ... }:
     {
-      programs.nh = {
-        enable = true;
-        flake = "${config.home.homeDirectory}/nix-config";
-        inherit clean;
+      nix.gc.automatic = false;
+
+      # nix-darwin has no programs.nh module of its own, so the weekly cleanup is
+      # a launchd agent here; hjem manages no agents.
+      launchd.user.agents.nh-clean.serviceConfig = {
+        Label = "org.nixos.nh-clean";
+
+        ProgramArguments = [
+          (lib.getExe pkgs.nh)
+          "clean"
+          "user"
+        ]
+        ++ cleanArgs;
+
+        StartCalendarInterval = [
+          {
+            Weekday = 1;
+            Hour = 0;
+            Minute = 0;
+          }
+        ];
       };
+    };
+
+  flake.modules.hjem.darwin =
+    { config, pkgs, ... }:
+    {
+      packages = [ pkgs.nh ];
+
+      environment.sessionVariables.NH_FLAKE = "${config.directory}/nix-config";
     };
 }

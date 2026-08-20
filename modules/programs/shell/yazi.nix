@@ -1,6 +1,7 @@
 {
-  flake.modules.homeManager.base =
+  flake.modules.hjem.base =
     {
+      lib,
       pkgs,
       palette,
       ...
@@ -14,9 +15,8 @@
       };
     in
     {
-      programs.yazi = {
+      rum.programs.yazi = {
         enable = true;
-        shellWrapperName = "yy";
 
         # Two things yazi decides in Rust, out of theme.toml's reach: the
         # rounded corners on every modal, and the dark/light preset choice —
@@ -74,66 +74,6 @@
             }
           );
         };
-
-        # The hovered row's "" / "" caps are styled apart from the row itself
-        # (indicator.padding + Entity:style_rev), so swapping them for spaces in
-        # the theme leaves those cells unstyled. Return plain padding that
-        # inherits the row's own highlight instead.
-        initLua = # lua
-          ''
-            -- One more column of left padding on the file lists than the preset
-            -- Tab:build gives them, so the hovered row's highlight — which
-            -- ratatui fills across the whole list area — starts clear of the
-            -- pane edge rather than flush against it.
-            function Tab:build()
-            	local c = self._chunks
-            	local p = c[2].w > 0 and 0 or 1
-            	self._children = {
-            		Parent:new(c[1]:pad(ui.Pad(0, p, 0, 2)), self._tab),
-            		Current:new(c[2]:pad(ui.Pad(0, 1, 0, 2)), self._tab),
-            		Preview:new(c[3]:pad(ui.Pad(0, 1, 0, p)), self._tab),
-            		Rails:new(c, self._tab),
-            		Markers:new(c, self._tab),
-            	}
-            end
-
-            -- Hover in the current pane takes its background from the entry's
-            -- own colour — directory blue, image yellow, executable green —
-            -- instead of the flavor's one fixed accent. Files with only a
-            -- background rule of their own (orphans, dummies) have no fg to
-            -- borrow, so they fall back to the plain text colour.
-            function Entity:style()
-            	local s = self._file:style() or ui.Style()
-            	if not self._file.is_hovered then
-            		return s
-            	end
-            	return ui.Style():bg(s:fg() or "${palette.text}"):fg("${palette.base}")
-            end
-
-            -- Markers are drawn at the chunk's own left edge, which the padding
-            -- above pushed away from the rows; shift them over so a selection
-            -- bar sits flush against the entry it marks.
-            function Markers:build()
-            	self._children = {
-            		Marker:new(self._chunks[1]:pad(ui.Pad.left(1)), self._tab.parent),
-            		Marker:new(self._chunks[2]:pad(ui.Pad.left(1)), self._tab.current),
-            	}
-            end
-
-            function Entity:padding() return " " end
-
-            function Linemode:padding()
-            	if not self._file.is_hovered then
-            		return " "
-            	end
-            	return ui.Span(" "):style(Entity:new(self._file):style())
-            end
-
-            -- Size after the file name in the status bar, not before it. Ids 2
-            -- and 3 are the preset's own "length" and "name" children.
-            Status:children_remove(2, Status.LEFT)
-            Status:children_add(function(self) return ui.Line { "  ", Status.length(self) } end, 4000, Status.LEFT)
-          '';
 
         settings = {
           mgr = {
@@ -285,5 +225,89 @@
           };
         };
       };
+
+      # rum's yazi module has no initLua, and yazi loads this file itself.
+      # The hovered row's "" / "" caps are styled apart from the row itself
+      # (indicator.padding + Entity:style_rev), so swapping them for spaces in
+      # the theme leaves those cells unstyled. Return plain padding that
+      # inherits the row's own highlight instead.
+      xdg.config.files."yazi/init.lua".text = # lua
+        ''
+          -- One more column of left padding on the file lists than the preset
+          -- Tab:build gives them, so the hovered row's highlight — which
+          -- ratatui fills across the whole list area — starts clear of the
+          -- pane edge rather than flush against it.
+          function Tab:build()
+          	local c = self._chunks
+          	local p = c[2].w > 0 and 0 or 1
+          	self._children = {
+          		Parent:new(c[1]:pad(ui.Pad(0, p, 0, 2)), self._tab),
+          		Current:new(c[2]:pad(ui.Pad(0, 1, 0, 2)), self._tab),
+          		Preview:new(c[3]:pad(ui.Pad(0, 1, 0, p)), self._tab),
+          		Rails:new(c, self._tab),
+          		Markers:new(c, self._tab),
+          	}
+          end
+
+          -- Hover in the current pane takes its background from the entry's
+          -- own colour — directory blue, image yellow, executable green —
+          -- instead of the flavor's one fixed accent. Files with only a
+          -- background rule of their own (orphans, dummies) have no fg to
+          -- borrow, so they fall back to the plain text colour.
+          function Entity:style()
+          	local s = self._file:style() or ui.Style()
+          	if not self._file.is_hovered then
+          		return s
+          	end
+          	return ui.Style():bg(s:fg() or "${palette.text}"):fg("${palette.base}")
+          end
+
+          -- Markers are drawn at the chunk's own left edge, which the padding
+          -- above pushed away from the rows; shift them over so a selection
+          -- bar sits flush against the entry it marks.
+          function Markers:build()
+          	self._children = {
+          		Marker:new(self._chunks[1]:pad(ui.Pad.left(1)), self._tab.parent),
+          		Marker:new(self._chunks[2]:pad(ui.Pad.left(1)), self._tab.current),
+          	}
+          end
+
+          function Entity:padding() return " " end
+
+          function Linemode:padding()
+          	if not self._file.is_hovered then
+          		return " "
+          	end
+          	return ui.Span(" "):style(Entity:new(self._file):style())
+          end
+
+          -- Size after the file name in the status bar, not before it. Ids 2
+          -- and 3 are the preset's own "length" and "name" children.
+          Status:children_remove(2, Status.LEFT)
+          Status:children_add(function(self) return ui.Line { "  ", Status.length(self) } end, 4000, Status.LEFT)
+        '';
+
+      # Replaces the wrapper home-manager generated from `shellWrapperName`: cd
+      # to wherever yazi was left when it exits.
+      rum.programs.fish.functions.yy = # fish
+        ''
+          set -l tmp (mktemp -t yazi-cwd.XXXXXX)
+          command yazi $argv --cwd-file="$tmp"
+          if set -l cwd (command cat -- "$tmp"); and test -n "$cwd"; and test "$cwd" != "$PWD"
+              builtin cd -- "$cwd"
+          end
+          rm -f -- "$tmp"
+        '';
+
+      rum.programs.zsh.initConfig = # bash
+        ''
+          yy() {
+            local tmp; tmp="$(mktemp -t yazi-cwd.XXXXXX)"
+            command yazi "$@" --cwd-file="$tmp"
+            local cwd; cwd="$(command cat -- "$tmp")"
+            [ -n "$cwd" ] && [ "$cwd" != "$PWD" ] && builtin cd -- "$cwd"
+            rm -f -- "$tmp"
+          }
+        '';
     };
 }

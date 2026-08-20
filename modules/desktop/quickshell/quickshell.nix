@@ -5,25 +5,27 @@
     services.upower.enable = true;
   };
 
-  flake.modules.homeManager.linux =
+  flake.modules.hjem.linux =
     { pkgs, palette, ... }:
     let
       # Named Colors rather than Palette: QtQuick already exports a `Palette`
       # type, which would shadow the singleton and silently resolve to it.
-      colorsQml = pkgs.writeText "Colors.qml" /* qml */ ''
-        pragma Singleton
+      colorsQml =
+        pkgs.writeText "Colors.qml" # qml
+          ''
+            pragma Singleton
 
-        // QtQuick, not just Quickshell: the `color` value type comes from there.
-        import QtQuick
-        import Quickshell
+            // QtQuick, not just Quickshell: the `color` value type comes from there.
+            import QtQuick
+            import Quickshell
 
-        // Generated from the palette in modules/desktop/theme.nix.
-        Singleton {
-        ${lib.concatStringsSep "\n" (
-          lib.mapAttrsToList (name: hex: "    readonly property color ${name}: \"${hex}\"") palette
-        )}
-        }
-      '';
+            // Generated from the palette in modules/desktop/theme.nix.
+            Singleton {
+            ${lib.concatStringsSep "\n" (
+              lib.mapAttrsToList (name: hex: "    readonly property color ${name}: \"${hex}\"") palette
+            )}
+            }
+          '';
 
       shellRoot = pkgs.runCommandLocal "quickshell-shell" { } ''
         mkdir -p $out
@@ -33,21 +35,20 @@
       '';
     in
     {
-      home.packages = [
+      packages = [
         pkgs.quickshell
         pkgs.brightnessctl
       ];
 
-      xdg.configFile."quickshell".source = shellRoot;
+      xdg.config.files."quickshell".source = shellRoot;
 
-      systemd.user.services.quickshell = {
-        Unit = {
-          Description = "quickshell desktop shell";
-          PartOf = [ "graphical-session.target" ];
-          After = [ "graphical-session.target" ];
-        };
+      systemd.services.quickshell = {
+        description = "quickshell desktop shell";
+        partOf = [ "graphical-session.target" ];
+        after = [ "graphical-session.target" ];
+        wantedBy = [ "graphical-session.target" ];
 
-        Service = {
+        serviceConfig = {
           # No PATH override: the shell launches desktop entries and shells out
           # to brightnessctl and niri, so it wants the session PATH the
           # compositor imports into the user manager.
@@ -55,8 +56,6 @@
           Restart = "on-failure";
           RestartSec = 2;
         };
-
-        Install.WantedBy = [ "graphical-session.target" ];
       };
     };
 }

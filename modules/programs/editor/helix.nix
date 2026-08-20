@@ -1,10 +1,9 @@
 {
-  flake.modules.homeManager.base =
+  flake.modules.hjem.base =
     { pkgs, ... }:
     {
-      programs.helix = {
+      rum.programs.helix = {
         enable = true;
-        defaultEditor = true;
         package = pkgs.steelix;
 
         settings.editor = {
@@ -31,6 +30,12 @@
 
         # Per-language LSP config lives in each project's .helix/languages.toml,
         # scaffolded by templates/.
+      };
+
+      # rum has no `defaultEditor`.
+      environment.sessionVariables = {
+        EDITOR = "hx";
+        VISUAL = "hx";
       };
     };
 }
