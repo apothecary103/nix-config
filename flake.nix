@@ -49,12 +49,12 @@
       flake = false;
     };
     zellij.url = "github:a-kenji/zellij-nix";
-    # Not published yet, so these are the working copies in ~/Projects; swap
-    # all three for github: once they are pushed. catppuccin is a fork of
-    # catppuccin/nix carrying the hjem modules upstream has no interest in.
-    catppuccin.url = "git+file:///Users/apothecary/Projects/catppuccin-nix";
-    evergarden.url = "git+file:///Users/apothecary/Projects/evergarden-nix";
-    luna.url = "git+file:///Users/apothecary/Projects/luna-nix";
+    # Not published yet, so this is the working copy in ~/Projects; swap for
+    # github: once it is pushed.
+    orchard = {
+      url = "git+file:///Users/apothecary/Projects/nix-orchard";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
     nix-wrapper-modules = {
       url = "github:BirdeeHub/nix-wrapper-modules";
       inputs.nixpkgs.follows = "nixpkgs";

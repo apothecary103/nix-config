@@ -19,10 +19,14 @@
             import QtQuick
             import Quickshell
 
-            // Generated from the palette in modules/desktop/theme.nix.
+            // Generated from the palette in modules/desktop/theme.nix. The
+            // palette also carries `rainbow`, `ansi` and the theme's own
+            // unmapped names, none of which are a single colour.
             Singleton {
             ${lib.concatStringsSep "\n" (
-              lib.mapAttrsToList (name: hex: "    readonly property color ${name}: \"${hex}\"") palette
+              lib.mapAttrsToList (name: hex: "    readonly property color ${name}: \"${hex}\"") (
+                lib.filterAttrs (_: lib.isString) palette
+              )
             )}
             }
           '';

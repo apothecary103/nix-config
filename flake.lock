@@ -69,25 +69,6 @@
         "type": "github"
       }
     },
-    "catppuccin": {
-      "inputs": {
-        "nixpkgs": "nixpkgs_2",
-        "palette": "palette"
-      },
-      "locked": {
-        "lastModified": 1787113804,
-        "narHash": "sha256-uGFH7ANK4kYAL2eOzZbY4eNPwDUZ/zesgZuOiTfGfwc=",
-        "ref": "refs/heads/main",
-        "rev": "6c5c0feefb5e1faa36609d19660a6bdf3583fb76",
-        "revCount": 722,
-        "type": "git",
-        "url": "file:///Users/apothecary/Projects/catppuccin-nix"
-      },
-      "original": {
-        "type": "git",
-        "url": "file:///Users/apothecary/Projects/catppuccin-nix"
-      }
-    },
     "disko": {
       "inputs": {
         "nixpkgs": [
@@ -106,21 +87,6 @@
         "owner": "nix-community",
         "repo": "disko",
         "type": "github"
-      }
-    },
-    "evergarden": {
-      "locked": {
-        "lastModified": 1787112255,
-        "narHash": "sha256-Gs+tZVL696DX17GGiPsyPTdZ6cLiNoqQS9lUf68hoFs=",
-        "ref": "refs/heads/main",
-        "rev": "56151760f19b4fc0652980316e60d926415d5952",
-        "revCount": 19,
-        "type": "git",
-        "url": "file:///Users/apothecary/Projects/evergarden-nix"
-      },
-      "original": {
-        "type": "git",
-        "url": "file:///Users/apothecary/Projects/evergarden-nix"
       }
     },
     "flake-compat": {
@@ -280,21 +246,6 @@
         "owner": "vic",
         "repo": "import-tree",
         "type": "github"
-      }
-    },
-    "luna": {
-      "locked": {
-        "lastModified": 1787112255,
-        "narHash": "sha256-O47Xf3N3SI0JXfPdvfOycPrDDb+yulSPqaerresgEzo=",
-        "ref": "refs/heads/main",
-        "rev": "6a03ed02058916a34963c33d8e5a6300689f17ad",
-        "revCount": 19,
-        "type": "git",
-        "url": "file:///Users/apothecary/Projects/luna-nix"
-      },
-      "original": {
-        "type": "git",
-        "url": "file:///Users/apothecary/Projects/luna-nix"
       }
     },
     "luna-nvim": {
@@ -499,19 +450,6 @@
     },
     "nixpkgs_2": {
       "locked": {
-        "lastModified": 1786534138,
-        "narHash": "sha256-Cwffw7dPM56d8spt4/queFQ1cKg69D9qrsp+wfwKvfo=",
-        "rev": "044bfe75bfe4c7bbe043dc17b5e42ea823b84a09",
-        "type": "tarball",
-        "url": "https://releases.nixos.org/nixpkgs/nixpkgs-26.11pre1052792.044bfe75bfe4/nixexprs.tar.xz"
-      },
-      "original": {
-        "type": "tarball",
-        "url": "https://channels.nixos.org/nixpkgs-unstable/nixexprs.tar.xz"
-      }
-    },
-    "nixpkgs_3": {
-      "locked": {
         "lastModified": 1785602060,
         "narHash": "sha256-z7D96eESRM4CPV/XtwpwFn8IDdfLAmxz6lVWrGYXvR4=",
         "owner": "nixos",
@@ -526,7 +464,7 @@
         "type": "github"
       }
     },
-    "nixpkgs_4": {
+    "nixpkgs_3": {
       "locked": {
         "lastModified": 1786106723,
         "narHash": "sha256-zDSUbpoeo/9ZmD2+wXnzxoo1+uhL8vxc0b8yuYMKYq0=",
@@ -542,20 +480,24 @@
         "type": "github"
       }
     },
-    "palette": {
-      "flake": false,
+    "orchard": {
+      "inputs": {
+        "nixpkgs": [
+          "nixpkgs"
+        ]
+      },
       "locked": {
-        "lastModified": 1774131488,
-        "narHash": "sha256-hsy+GhuM4MSjnwGq1YJSLBFIbVm67SSdPRgObP00mxw=",
-        "owner": "catppuccin",
-        "repo": "palette",
-        "rev": "07d02aa110ef9eb7e7427afca5c73ba9cf7f8ebd",
-        "type": "github"
+        "lastModified": 1787270321,
+        "narHash": "sha256-dCwpQ6bQoVbQKYDuqrRIlqYz7YgEsr7/HRTQ/CPEiMU=",
+        "ref": "refs/heads/main",
+        "rev": "f8f240620dcf2220c4eb30ce744e7dc2a6723479",
+        "revCount": 11,
+        "type": "git",
+        "url": "file:///Users/apothecary/Projects/nix-orchard"
       },
       "original": {
-        "owner": "catppuccin",
-        "repo": "palette",
-        "type": "github"
+        "type": "git",
+        "url": "file:///Users/apothecary/Projects/nix-orchard"
       }
     },
     "preservation": {
@@ -578,23 +520,21 @@
         "apple-silicon": "apple-silicon",
         "asahi-firmware": "asahi-firmware",
         "bg-nvim": "bg-nvim",
-        "catppuccin": "catppuccin",
         "disko": "disko",
-        "evergarden": "evergarden",
         "flake-parts": "flake-parts",
         "hjem": "hjem",
         "hjem-rum": "hjem-rum",
         "homebrew-cask": "homebrew-cask",
         "homebrew-core": "homebrew-core",
         "import-tree": "import-tree",
-        "luna": "luna",
         "luna-nvim": "luna-nvim",
         "niri": "niri",
         "nix-darwin": "nix-darwin",
         "nix-homebrew": "nix-homebrew",
         "nix-index-database": "nix-index-database",
         "nix-wrapper-modules": "nix-wrapper-modules",
-        "nixpkgs": "nixpkgs_3",
+        "nixpkgs": "nixpkgs_2",
+        "orchard": "orchard",
         "preservation": "preservation",
         "yabai-src": "yabai-src",
         "zellij": "zellij",
@@ -692,7 +632,7 @@
         "flake-compat": "flake-compat_2",
         "flake-utils": "flake-utils",
         "multitask": "multitask",
-        "nixpkgs": "nixpkgs_4",
+        "nixpkgs": "nixpkgs_3",
         "rust-overlay": "rust-overlay",
         "zellij": "zellij_2"
       },
