@@ -7,10 +7,12 @@
       ...
     }:
     let
-      # The statusline: one solid bar, uniform text, no bold anywhere.
+      # The statusline: one solid bar, uniform text, no bold anywhere. The two
+      # colours are the theme's own modeline pair rather than a step off the
+      # ramp, so this reads the way the same theme's statusline does elsewhere.
       bar = {
-        fg = palette.subtext1;
-        bg = palette.mantle;
+        fg = palette.statusFg;
+        bg = palette.statusBg;
         bold = false;
       };
     in
