@@ -7,13 +7,14 @@
 
       orchard = {
         enable = true;
-        theme = "catppuccin";
-        flavour = if pkgs.stdenv.hostPlatform.isDarwin then "macchiato" else "mocha";
+        theme = "gruvbox";
+        # flavour = if pkgs.stdenv.hostPlatform.isDarwin then "macchiato" else "mocha";
+        flavour = "dark-hard";
         accent = "blue";
 
-        # No theme here ships a transparent variant, so the editor drops its
-        # background and reads the terminal's instead.
-        helix.transparent = true;
+        # Ghostty runs with a translucent background, so every port that can
+        # skip painting its own should.
+        transparent = true;
       };
 
       # Shorter names for the hand-styled configs orchard covers no port for.

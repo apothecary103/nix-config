@@ -487,11 +487,11 @@
         ]
       },
       "locked": {
-        "lastModified": 1787271402,
-        "narHash": "sha256-Mrw3nBphb27CsvIXB5MAIldgtkmC4lbosK5yFOev3mA=",
+        "lastModified": 1787273600,
+        "narHash": "sha256-ObM/cm9W7l5tVa1XMyCTnHeFQ5LY5hsyfkHEv6p4jhw=",
         "ref": "refs/heads/main",
-        "rev": "62790a61674a8b16a3975374281a4def9904daf3",
-        "revCount": 13,
+        "rev": "40e36b7bed9c02e37260d494faf95b8e6770a5c9",
+        "revCount": 18,
         "type": "git",
         "url": "file:///Users/apothecary/Projects/nix-orchard"
       },
