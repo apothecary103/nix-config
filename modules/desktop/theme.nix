@@ -1,16 +1,21 @@
 { inputs, ... }:
+let
+  # One binding for both classes, so the console cannot drift away from the
+  # user's tree.
+  wearing = {
+    theme = "evergarden";
+    flavour = "fall";
+    accent = "blue";
+  };
+in
 {
   flake.modules.hjem.base =
-    { config, pkgs, ... }:
+    { config, ... }:
     {
       imports = [ inputs.orchard.hjemModules.default ];
 
-      orchard = {
+      orchard = wearing // {
         enable = true;
-        theme = "gruvbox";
-        # flavour = if pkgs.stdenv.hostPlatform.isDarwin then "macchiato" else "mocha";
-        flavour = "dark-hard";
-        accent = "blue";
 
         # Ghostty runs with a translucent background, so every port that can
         # skip painting its own should.
@@ -26,10 +31,8 @@
   flake.modules.nixos.base = {
     imports = [ inputs.orchard.nixosModules.default ];
 
-    orchard = {
+    orchard = wearing // {
       enable = true;
-      theme = "catppuccin";
-      accent = "blue";
     };
   };
 }
