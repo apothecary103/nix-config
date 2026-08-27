@@ -1,70 +1,54 @@
 { username, ... }:
-let
-  # Everything mpd keeps lives under the XDG data dir, so the same paths work
-  # on both hosts; only the audio output and the supervisor differ.
-  mkConf =
-    { home, output }:
-    ''
-      music_directory "${home}/Music"
-      playlist_directory "${home}/.local/share/mpd/playlists"
-      db_file "${home}/.local/share/mpd/tag_cache"
-      state_file "${home}/.local/share/mpd/state"
-      sticker_file "${home}/.local/share/mpd/sticker.sql"
-
-      bind_to_address "127.0.0.1"
-      port "6600"
-
-      auto_update "yes"
-      restore_paused "yes"
-
-      ${output}
-    '';
-
-  darwinHome = "/Users/${username}";
-  darwinConf = mkConf {
-    home = darwinHome;
-    output = ''
-      audio_output {
-        type "osx"
-        name "CoreAudio"
-        mixer_type "software"
-      }
-    '';
-  };
-in
 {
-  flake.modules.hjem.darwin =
-    { pkgs, ... }:
+  flake.modules.hjem.base =
+    { config, pkgs, ... }:
     {
-      packages = [ pkgs.mpc ];
+      packages = [
+        pkgs.mpc
+        pkgs.mpd
+      ];
 
-      xdg.config.files."mpd/mpd.conf".text = darwinConf;
+      xdg.config.files."mpd/mpd.conf".text = ''
+        music_directory "${config.directory}/Music"
+        playlist_directory "${config.directory}/.local/share/mpd/playlists"
+        db_file "${config.directory}/.local/share/mpd/tag_cache"
+        state_file "${config.directory}/.local/share/mpd/state"
+        sticker_file "${config.directory}/.local/share/mpd/sticker.sql"
 
-      # mpd will not create these itself, and hjem has no activation hook.
-      xdg.data.files = {
-        "mpd/playlists".type = "directory";
-      };
+        bind_to_address "127.0.0.1"
+        port "6600"
+
+        ${if pkgs.stdenv.hostPlatform.isLinux then ''auto_update "yes"'' else ""}
+        restore_paused "yes"
+
+        audio_output {
+          type "${if pkgs.stdenv.hostPlatform.isDarwin then "osx" else "pipewire"}"
+          name "${if pkgs.stdenv.hostPlatform.isDarwin then "CoreAudio" else "PipeWire Output"}"
+          ${if pkgs.stdenv.hostPlatform.isDarwin then ''mixer_type "software"'' else ""}
+        }
+      '';
+
+      xdg.data.files."mpd/playlists".type = "directory";
     };
 
-  # hjem manages no launchd agents, so the daemon is supervised at the system
-  # level; the config file it reads is still the user's.
   flake.modules.darwin.base =
-    { pkgs, ... }:
+    { lib, pkgs, ... }:
+    let
+      home = "/Users/${username}";
+    in
     {
       launchd.user.agents.mpd.serviceConfig = {
         Label = "org.nixos.mpd";
 
         ProgramArguments = [
-          "${pkgs.mpd}/bin/mpd"
+          (lib.getExe pkgs.mpd)
           "--no-daemon"
-          "${darwinHome}/.config/mpd/mpd.conf"
+          "--stderr"
+          "${home}/.config/mpd/mpd.conf"
         ];
 
         RunAtLoad = true;
         KeepAlive = true;
-
-        StandardOutPath = "${darwinHome}/Library/Logs/mpd.log";
-        StandardErrorPath = "${darwinHome}/Library/Logs/mpd.err.log";
       };
     };
 
@@ -75,25 +59,8 @@ in
       pkgs,
       ...
     }:
-    let
-      conf = mkConf {
-        home = config.directory;
-        output = ''
-          audio_output {
-            type "pipewire"
-            name "PipeWire Output"
-          }
-        '';
-      };
-    in
     {
-      packages = [
-        pkgs.mpc
-        pkgs.playerctl
-      ];
-
-      xdg.config.files."mpd/mpd.conf".text = conf;
-      xdg.data.files."mpd/playlists".type = "directory";
+      packages = [ pkgs.playerctl ];
 
       systemd.services = {
         mpd = {

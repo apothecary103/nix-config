@@ -1,0 +1,40 @@
+#![enable(implicit_some)]
+#![enable(unwrap_newtypes)]
+#![enable(unwrap_variant_newtypes)]
+(
+    address: "127.0.0.1:6600",
+    theme: "theme",
+    lyrics_dir: "~/.lyrics",
+    album_art: (
+        method: Auto,
+        max_size_px: (width: 0, height: 0),
+        vertical_align: Top,
+    ),
+    tabs: [
+        (
+            name: "Queue",
+            pane: Split(
+                direction: Horizontal,
+                panes: [
+                    (size: "100%", pane: Pane(Queue)),
+                    (
+                        size: "42",
+                        pane: Split(
+                            direction: Vertical,
+                            panes: [
+                                (size: "20", borders: "TOP | BOTTOM", pane: Pane(AlbumArt)),
+                                (size: "100%", borders: "NONE", pane: Pane(Lyrics)),
+                            ],
+                        ),
+                    ),
+                ],
+            ),
+        ),
+        (name: "Directories", pane: Pane(Directories)),
+        (name: "Artists", pane: Pane(Artists)),
+        (name: "Album Artists", pane: Pane(AlbumArtists)),
+        (name: "Albums", pane: Pane(Albums)),
+        (name: "Playlists", pane: Pane(Playlists)),
+        (name: "Search", pane: Pane(Search)),
+    ],
+)
