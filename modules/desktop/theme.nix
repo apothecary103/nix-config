@@ -1,10 +1,8 @@
 { inputs, ... }:
 let
-  # One binding for both classes, so the console cannot drift away from the
-  # user's tree.
   wearing = {
-    theme = "evergarden";
-    flavour = "fall";
+    theme = "catppuccin";
+    flavour = "macchiato";
     accent = "blue";
   };
 in
@@ -17,8 +15,6 @@ in
       orchard = wearing // {
         enable = true;
 
-        # Ghostty runs with a translucent background, so every port that can
-        # skip painting its own should.
         transparent = true;
       };
 

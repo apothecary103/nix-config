@@ -421,15 +421,16 @@
         ]
       },
       "locked": {
-        "lastModified": 1787283868,
-        "narHash": "sha256-WciMbUubLs6/v8bl3a7D1bl0B3iYqQyVc1SV8XipONo=",
-        "ref": "refs/heads/main",
-        "rev": "3c5fbdc4f2b5d6d93b23d9fbe83fbdcd565e2d0d",
-        "revCount": 37,
+        "lastModified": 1787717988,
+        "narHash": "sha256-mwT2F61kGqCOFB6LgQB6d/Tyfnc0TCpLjohv7g5Y6XA=",
+        "ref": "main",
+        "rev": "e191a22fc99934188c5e11c7a9008cc4210b1fd1",
+        "revCount": 2,
         "type": "git",
         "url": "file:///Users/apothecary/Projects/nix-orchard"
       },
       "original": {
+        "ref": "main",
         "type": "git",
         "url": "file:///Users/apothecary/Projects/nix-orchard"
       }

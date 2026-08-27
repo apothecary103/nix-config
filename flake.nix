@@ -48,10 +48,8 @@
       url = "github:agg23/yabai/macos-27";
       flake = false;
     };
-    # Not published yet, so this is the working copy in ~/Projects; swap for
-    # github: once it is pushed.
     orchard = {
-      url = "git+file:///Users/apothecary/Projects/nix-orchard";
+      url = "git+file:///Users/apothecary/Projects/nix-orchard?ref=main";
       inputs.nixpkgs.follows = "nixpkgs";
     };
     nix-wrapper-modules = {
