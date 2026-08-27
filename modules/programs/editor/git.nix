@@ -5,7 +5,7 @@
       settings = {
         user = {
           name = "apothecary";
-          email = "113787039+apothecary103@users.noreply.github.com";
+          email = "frieren@noreply.codeberg.org";
         };
         init.defaultBranch = "main";
       };
