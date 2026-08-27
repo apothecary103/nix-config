@@ -31,6 +31,9 @@
           "/var/lib/iwd"
           "/var/lib/NetworkManager"
           "/etc/NetworkManager/system-connections"
+          # The tailscaled state: node key and prefs. Without it every boot
+          # comes up logged out and re-registers as a new machine.
+          "/var/lib/tailscale"
           # tuigreet's --remember/--remember-session state lives here.
           {
             directory = "/var/cache/tuigreet";
