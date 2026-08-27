@@ -48,7 +48,6 @@
       url = "github:agg23/yabai/macos-27";
       flake = false;
     };
-    zellij.url = "github:a-kenji/zellij-nix";
     # Not published yet, so this is the working copy in ~/Projects; swap for
     # github: once it is pushed.
     orchard = {
