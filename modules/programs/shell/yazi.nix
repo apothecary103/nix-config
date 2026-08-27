@@ -20,63 +20,6 @@
       rum.programs.yazi = {
         enable = true;
 
-        # Two things yazi decides in Rust, out of theme.toml's reach: the
-        # rounded corners on every modal, and the dark/light preset choice —
-        # which follows the terminal's `CSI ? 996 n` answer and carries the
-        # whole [icon] palette with it, so a terminal reporting "light" paints
-        # near-black icons over the flavor's dark background.
-        package = pkgs.yazi.override {
-          yazi-unwrapped = pkgs.yazi-unwrapped.overrideAttrs (
-            old:
-            let
-              # Tracks main rather than the last tagged release. nixpkgs'
-              # cargoHash is a literal in its package.nix, not derived from
-              # finalAttrs, so overriding it is a no-op — the vendor directory
-              # has to be overridden instead.
-              codeSrc = pkgs.fetchFromGitHub {
-                owner = "sxyazi";
-                repo = "yazi";
-                rev = "caa7797eb9e344a478b3a9f8772e0202328aeb0f";
-                hash = "sha256-F3ZMeu92F2f9mVRGc0v/TPXlb1QFjbsLox30PbMNPN4=";
-              };
-              srcs = old.passthru.srcs // {
-                code_src = codeSrc;
-              };
-              srcsList = builtins.attrValues srcs;
-              sourceRoot = srcs.code_src.name;
-            in
-            {
-              inherit sourceRoot;
-              srcs = srcsList;
-              passthru = old.passthru // {
-                inherit srcs;
-              };
-              cargoDeps = pkgs.rustPlatform.fetchCargoVendor {
-                inherit (old) pname version;
-                inherit sourceRoot;
-                srcs = srcsList;
-                hash = "sha256-E12sYD8XXRemgcLbZh19PsOl7/FBuWXy6UsHynANKm4=";
-              };
-
-              postPatch = (old.postPatch or "") + ''
-                substituteInPlace yazi-actor/src/app/theme.rs \
-                  --replace-fail "use yazi_emulator::EMULATOR;" "" \
-                  --replace-fail "EMULATOR.load().light().unwrap_or_default()" "false"
-
-                substituteInPlace \
-                  yazi-fm/src/input/input.rs \
-                  yazi-fm/src/confirm/confirm.rs \
-                  yazi-fm/src/pick/pick.rs \
-                  yazi-fm/src/cmp/cmp.rs \
-                  yazi-fm/src/tasks/tasks.rs \
-                  yazi-fm/src/notify/notify.rs \
-                  yazi-plugin/src/utils/spot.rs \
-                  --replace-fail "BorderType::Rounded" "BorderType::Plain"
-              '';
-            }
-          );
-        };
-
         settings = {
           mgr = {
             sort_dir_first = true;
