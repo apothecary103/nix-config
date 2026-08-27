@@ -45,8 +45,6 @@
         enable = true;
 
         packages = [
-          # Without this Nautilus falls back to bare hicolor and most
-          # mimetype/places icons don't render.
           pkgs.adwaita-icon-theme
           # Match the compositor's WhiteSur cursor so GTK apps don't flip to the
           # default X cursor on hover.
