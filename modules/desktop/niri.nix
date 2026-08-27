@@ -9,8 +9,6 @@
 
   flake.modules.hjem.linux =
     {
-      config,
-      pkgs,
       lib,
       palette,
       ...
@@ -72,6 +70,10 @@
         ];
 
         prefer-no-csd = true;
+
+        outputs."eDP-1" = {
+          scale = 2;
+        };
 
         window-rules = [
           # No match = applies to all. clip-to-geometry is what makes the
@@ -331,18 +333,5 @@
           "Mod+Shift+P".action = power-off-monitors;
         };
       };
-
-      # Everything but bit depth comes from the panel's EDID. `max-bpc 10` is
-      # the option that keeps us on niri-unstable and is not in niri-flake's
-      # typed schema yet, so it is appended as raw KDL and the whole file
-      # re-validated. Requires a niri restart, not a live-reload.
-      config.xdg.config.files."niri/config.kdl".source =
-        inputs.niri.lib.internal.validated-config-for pkgs pkgs.niri-unstable
-          ''
-            ${config.programs.niri.finalConfig}
-            output "eDP-1" {
-                max-bpc 10
-            }
-          '';
     };
 }
