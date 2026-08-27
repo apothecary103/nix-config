@@ -124,6 +124,26 @@
         "type": "github"
       }
     },
+    "helium": {
+      "inputs": {
+        "nixpkgs": [
+          "nixpkgs"
+        ]
+      },
+      "locked": {
+        "lastModified": 1787590260,
+        "narHash": "sha256-37LONM+kp466liDU1FMl6XZDYRUpwFXt4nEUozlFFQ8=",
+        "owner": "amaanq",
+        "repo": "helium-flake",
+        "rev": "f891f1c4d159b572259872a540c9273530ddad5e",
+        "type": "github"
+      },
+      "original": {
+        "owner": "amaanq",
+        "repo": "helium-flake",
+        "type": "github"
+      }
+    },
     "hjem": {
       "inputs": {
         "nixpkgs": [
@@ -457,6 +477,7 @@
         "bg-nvim": "bg-nvim",
         "disko": "disko",
         "flake-parts": "flake-parts",
+        "helium": "helium",
         "hjem": "hjem",
         "hjem-rum": "hjem-rum",
         "homebrew-cask": "homebrew-cask",

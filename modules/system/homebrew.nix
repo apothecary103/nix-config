@@ -30,7 +30,6 @@
       taps = builtins.attrNames config.nix-homebrew.taps;
 
       casks = [
-        "helium-browser"
         "obs"
         "linearmouse"
         "playcover-community"

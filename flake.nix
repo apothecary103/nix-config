@@ -48,6 +48,10 @@
       url = "github:agg23/yabai/macos-27";
       flake = false;
     };
+    helium = {
+      url = "github:amaanq/helium-flake";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
     orchard = {
       url = "git+file:///Users/apothecary/Projects/nix-orchard?ref=main";
       inputs.nixpkgs.follows = "nixpkgs";
