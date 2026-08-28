@@ -56,17 +56,9 @@
       url = "git+file:///Users/apothecary/Projects/nix-orchard?ref=main";
       inputs.nixpkgs.follows = "nixpkgs";
     };
-    nix-wrapper-modules = {
-      url = "github:BirdeeHub/nix-wrapper-modules";
+    nvf = {
+      url = "github:NotAShelf/nvf";
       inputs.nixpkgs.follows = "nixpkgs";
-    };
-    luna-nvim = {
-      url = "github:wtfox/luna.nvim";
-      flake = false;
-    };
-    bg-nvim = {
-      url = "github:typicode/bg.nvim";
-      flake = false;
     };
     nix-index-database = {
       url = "github:nix-community/nix-index-database";

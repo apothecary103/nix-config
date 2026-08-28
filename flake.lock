@@ -61,22 +61,6 @@
         "url": "ssh://git@codeberg.org/frieren/asahi-firmware"
       }
     },
-    "bg-nvim": {
-      "flake": false,
-      "locked": {
-        "lastModified": 1771454993,
-        "narHash": "sha256-s9m5OgQpehrkIU6bWj70RDEqvSzlxzpih8sRuQrtdC0=",
-        "owner": "typicode",
-        "repo": "bg.nvim",
-        "rev": "85da2c68409820466753b50c2e6f699517778a17",
-        "type": "github"
-      },
-      "original": {
-        "owner": "typicode",
-        "repo": "bg.nvim",
-        "type": "github"
-      }
-    },
     "brew-src": {
       "flake": false,
       "locked": {
@@ -127,6 +111,22 @@
         "owner": "nix-community",
         "repo": "flake-compat",
         "type": "github"
+      }
+    },
+    "flake-compat_2": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1777699697,
+        "narHash": "sha256-Eg9b/rq/ECYwNwEXs5i9wHyhxNI0JrYx2srdI2uZMaQ=",
+        "ref": "refs/heads/main",
+        "rev": "382052b74656a369c5408822af3f2501e9b1af81",
+        "revCount": 94,
+        "type": "git",
+        "url": "https://git.lix.systems/lix-project/flake-compat.git"
+      },
+      "original": {
+        "type": "git",
+        "url": "https://git.lix.systems/lix-project/flake-compat.git"
       }
     },
     "flake-parts": {
@@ -280,19 +280,18 @@
         "type": "github"
       }
     },
-    "luna-nvim": {
-      "flake": false,
+    "mnw": {
       "locked": {
-        "lastModified": 1786335882,
-        "narHash": "sha256-XLrP8m5nDY1z/jwzuElHO98ETFET63N8PE/qqUZ5h1o=",
-        "owner": "wtfox",
-        "repo": "luna.nvim",
-        "rev": "6e3174384dbaf5a79be789323790f78f4c47cc5a",
+        "lastModified": 1780772958,
+        "narHash": "sha256-VKKe8r4pwCGWZ3Yr9CPN129R4S3CKLSrlYqdYz3vKpM=",
+        "owner": "Gerg-L",
+        "repo": "mnw",
+        "rev": "0871dbf63a53610c95db04439ed8ea4d6ec9c160",
         "type": "github"
       },
       "original": {
-        "owner": "wtfox",
-        "repo": "luna.nvim",
+        "owner": "Gerg-L",
+        "repo": "mnw",
         "type": "github"
       }
     },
@@ -412,26 +411,6 @@
         "type": "github"
       }
     },
-    "nix-wrapper-modules": {
-      "inputs": {
-        "nixpkgs": [
-          "nixpkgs"
-        ]
-      },
-      "locked": {
-        "lastModified": 1782135443,
-        "narHash": "sha256-vAmbArdCyjqpVW+37aCy/PMBOLIqukUXLQuEKLwUhA4=",
-        "owner": "BirdeeHub",
-        "repo": "nix-wrapper-modules",
-        "rev": "6e7f66fa2cdf4d63162580b438f7fcf87c28a46f",
-        "type": "github"
-      },
-      "original": {
-        "owner": "BirdeeHub",
-        "repo": "nix-wrapper-modules",
-        "type": "github"
-      }
-    },
     "nixpkgs": {
       "locked": {
         "lastModified": 1786106723,
@@ -480,6 +459,28 @@
         "type": "github"
       }
     },
+    "nvf": {
+      "inputs": {
+        "flake-compat": "flake-compat_2",
+        "mnw": "mnw",
+        "nixpkgs": [
+          "nixpkgs"
+        ]
+      },
+      "locked": {
+        "lastModified": 1787776375,
+        "narHash": "sha256-gxa6C1+Xfl0ys5h0X/ocusbwT3ABIdX38mrX3MRmPnM=",
+        "owner": "NotAShelf",
+        "repo": "nvf",
+        "rev": "f019fe83c224eedb145982a9a26b764e7cb2fdd0",
+        "type": "github"
+      },
+      "original": {
+        "owner": "NotAShelf",
+        "repo": "nvf",
+        "type": "github"
+      }
+    },
     "orchard": {
       "inputs": {
         "nixpkgs": [
@@ -521,7 +522,6 @@
         "agenix": "agenix",
         "apple-silicon": "apple-silicon",
         "asahi-firmware": "asahi-firmware",
-        "bg-nvim": "bg-nvim",
         "disko": "disko",
         "flake-parts": "flake-parts",
         "helium": "helium",
@@ -530,13 +530,12 @@
         "homebrew-cask": "homebrew-cask",
         "homebrew-core": "homebrew-core",
         "import-tree": "import-tree",
-        "luna-nvim": "luna-nvim",
         "niri": "niri",
         "nix-darwin": "nix-darwin",
         "nix-homebrew": "nix-homebrew",
         "nix-index-database": "nix-index-database",
-        "nix-wrapper-modules": "nix-wrapper-modules",
         "nixpkgs": "nixpkgs_2",
+        "nvf": "nvf",
         "orchard": "orchard",
         "preservation": "preservation",
         "yabai-src": "yabai-src",

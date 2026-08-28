@@ -12,7 +12,6 @@
         ffmpeg
         broot
         nixd
-        nil
         nixfmt
         gh
         tokei
@@ -22,18 +21,6 @@
         util-linux
         tree-sitter
         imagemagick
-
-        # Editor tooling: language servers and formatters nvim expects on PATH
-        # everywhere, rather than per-project. Anything that needs a project's own
-        # dependency tree (ruff, ty, tsserver, svelte, rust-analyzer) stays in the
-        # dev shell templates instead.
-        lua-language-server
-        stylua
-        shfmt
-        taplo
-        prettierd
-        nu-lint
-        nufmt
 
         prismlauncher
         signal-desktop
