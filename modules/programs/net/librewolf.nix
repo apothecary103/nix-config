@@ -48,26 +48,26 @@
               "https://web.telegram.org"
             ];
           };
+
+          ManagedBookmarks = [
+            { toplevel_name = "Nix configuration"; }
+            {
+              name = "NixOS Packages";
+              url = "https://search.nixos.org";
+            }
+            {
+              name = "Proton Mail";
+              url = "https://mail.proton.me/u/0/inbox";
+            }
+            {
+              name = "Codeberg";
+              url = "https://codeberg.org";
+            }
+          ];
         };
       });
 
-      bookmarks = pkgs.writeText "bookmarks.html" ''
-        <!DOCTYPE NETSCAPE-Bookmark-file-1>
-        <META HTTP-EQUIV="Content-Type" CONTENT="text/html; charset=UTF-8">
-        <TITLE>Bookmarks</TITLE>
-        <H1>Bookmarks Menu</H1>
-        <DL><p>
-          <DT><A HREF="https://search.nixos.org" ADD_DATE="1" LAST_MODIFIED="1">NixOS Packages</A>
-          <DT><A HREF="https://mail.proton.me/u/0/inbox" ADD_DATE="1" LAST_MODIFIED="1">Proton Mail</A>
-          <DT><A HREF="https://codeberg.org" ADD_DATE="1" LAST_MODIFIED="1">Codeberg</A>
-        </DL>
-      '';
-
       settings = {
-        # Re-imported on every start, so the list above stays the source of truth.
-        "browser.bookmarks.file" = toString bookmarks;
-        "browser.places.importBookmarksHTML" = true;
-
         # Allows LibreWolf to read the userChrome.css file
         "toolkit.legacyUserProfileCustomizations.stylesheets" = true;
         # Allows the Parfait theme to render SVGs correctly in dark mode
@@ -103,7 +103,7 @@
       packages = [ package ];
 
       files = {
-        "${configPath}/profiles.ini".text = lib.generators.toINI { } ({
+        "${configPath}/profiles.ini".text = lib.generators.toINI { } {
           General = {
             StartWithLastProfile = 1;
           }
@@ -115,7 +115,7 @@
             IsRelative = 1;
             Default = 1;
           };
-        });
+        };
 
         "${profilePath}/user.js".text = lib.concatLines (
           lib.mapAttrsToList (name: value: ''user_pref("${name}", ${builtins.toJSON value});'') settings

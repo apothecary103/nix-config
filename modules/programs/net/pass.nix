@@ -70,8 +70,8 @@
       };
     };
 
-  # The native messaging host only; the Browserpass add-on still has to be
-  # installed in the browser by hand.
+  # Native messaging hosts for the Browserpass add-on that LibreWolf and Helium
+  # install through enterprise policy.
   flake.modules.hjem.linux =
     { pkgs, ... }:
     {
