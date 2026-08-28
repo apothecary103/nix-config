@@ -25,10 +25,6 @@
         SortDirection = 0;
       };
 
-      LaunchServices = {
-        LSQuarantine = false;
-      };
-
       NSGlobalDomain = {
         AppleKeyboardUIMode = 3;
         ApplePressAndHoldEnabled = false;
@@ -119,12 +115,6 @@
           ShowMountedServersOnDesktop = false;
           ShowRemovableMediaOnDesktop = false;
           _FXSortFoldersFirst = true;
-        };
-
-        "com.apple.frameworks.diskimages" = {
-          skip-verify = true;
-          skip-verify-locked = true;
-          skip-verify-remote = true;
         };
 
         "com.apple.Safari" = {
