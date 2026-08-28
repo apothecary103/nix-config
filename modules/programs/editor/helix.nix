@@ -9,6 +9,7 @@
         settings.editor = {
           true-color = true;
           line-number = "relative";
+          color-modes = true;
           mouse = false;
           cursorline = true;
           bufferline = "multiple";
