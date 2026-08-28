@@ -4,7 +4,7 @@
       enable = true;
 
       settings.Resolve = {
-        DNS = [
+        FallbackDNS = [
           "9.9.9.9#dns.quad9.net"
           "149.112.112.112#dns.quad9.net"
           "2620:fe::fe#dns.quad9.net"
@@ -14,10 +14,6 @@
         # portal, which is exactly where an untrusted resolver shows up.
         DNSOverTLS = "opportunistic";
         DNSSEC = "allow-downgrade";
-
-        # Without this, resolved still prefers the DHCP-supplied resolvers for
-        # most names and the DNS/DNSOverTLS settings above do nothing.
-        Domains = [ "~." ];
 
         # resolved would otherwise broadcast the hostname over responders this
         # machine does not otherwise run.
