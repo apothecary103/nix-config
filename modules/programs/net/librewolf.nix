@@ -79,10 +79,9 @@
 
         "privacy.fingerprintingProtection" = true;
 
-        # Mode 3 is strict DoH. Mode 2's fallback drops to the system
-        # resolver, itself DoT to Quad9 (system/dns.nix), so it buys nothing
-        # but a plaintext path when resolved is down.
-        "network.trr.mode" = 3;
+        # Prefer DoH, but retain system resolution for captive portals, VPN DNS
+        # and Tailscale names.
+        "network.trr.mode" = 2;
         "network.trr.uri" = "https://dns.quad9.net/dns-query";
 
         # The whole ~/.librewolf profile is persisted across the root wipe,
