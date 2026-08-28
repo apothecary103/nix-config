@@ -2,12 +2,11 @@
   flake.modules.darwin.base = { pkgs, ... }: {
     services.yabai = {
       enable = true;
-      enableScriptingAddition = true;
 
       # AhsanFazal's fork shares upstream's makefile, so nixpkgs' build and
       # postPatch apply unchanged. Its binary still reports the base version,
       # hence dropping the version-check hook.
-      package = pkgs.yabai.overrideAttrs (old: {
+      package = pkgs.yabai.overrideAttrs (_: {
         src = inputs.yabai-src;
         version = "7.1.25-unstable-${inputs.yabai-src.shortRev}";
         doInstallCheck = false;
