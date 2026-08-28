@@ -6,11 +6,6 @@
 }:
 let
   hjem = modules: {
-    # The tree is ported from home-manager, so every target path already exists
-    # as a symlink into a home-manager generation. Without this the first
-    # activation stops at the first one it finds.
-    clobberByDefault = true;
-
     extraModules = [ inputs.hjem-rum.hjemModules.default ];
     users.${username} = {
       enable = true;
