@@ -21,6 +21,7 @@
             pnpm
             typescript
             typescript-language-server
+            svelte-language-server
             tailwindcss-language-server
             # provides vscode-css-language-server + vscode-html-language-server
             vscode-langservers-extracted
