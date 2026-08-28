@@ -53,8 +53,10 @@
       inputs.nixpkgs.follows = "nixpkgs";
     };
     orchard = {
-      url = "git+file:///Users/apothecary/Projects/nix-orchard?ref=main";
+      url = "github:apothecary103/nix-orchard";
       inputs.nixpkgs.follows = "nixpkgs";
+      inputs.hjem.follows = "hjem";
+      inputs.hjem-rum.follows = "hjem-rum";
     };
     nvf = {
       url = "github:NotAShelf/nvf";

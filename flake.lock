@@ -233,6 +233,27 @@
         "type": "github"
       }
     },
+    "home-manager_2": {
+      "inputs": {
+        "nixpkgs": [
+          "orchard",
+          "nixpkgs"
+        ]
+      },
+      "locked": {
+        "lastModified": 1787797243,
+        "narHash": "sha256-8+Q7NOB7RPajRjA4pbCDLzqH+MTjnG9x6LUPLfL2joA=",
+        "owner": "nix-community",
+        "repo": "home-manager",
+        "rev": "99c9ec63390f1d8c14d95d9e8b17cc29cfbd4e11",
+        "type": "github"
+      },
+      "original": {
+        "owner": "nix-community",
+        "repo": "home-manager",
+        "type": "github"
+      }
+    },
     "homebrew-cask": {
       "flake": false,
       "locked": {
@@ -483,23 +504,29 @@
     },
     "orchard": {
       "inputs": {
+        "hjem": [
+          "hjem"
+        ],
+        "hjem-rum": [
+          "hjem-rum"
+        ],
+        "home-manager": "home-manager_2",
         "nixpkgs": [
           "nixpkgs"
         ]
       },
       "locked": {
-        "lastModified": 1787717988,
-        "narHash": "sha256-mwT2F61kGqCOFB6LgQB6d/Tyfnc0TCpLjohv7g5Y6XA=",
-        "ref": "main",
-        "rev": "e191a22fc99934188c5e11c7a9008cc4210b1fd1",
-        "revCount": 2,
-        "type": "git",
-        "url": "file:///Users/apothecary/Projects/nix-orchard"
+        "lastModified": 1787933527,
+        "narHash": "sha256-SH3BGowNvJ7yq1NoBAHKWKQ2aSP+mQ1XMyI3gPnEexU=",
+        "owner": "apothecary103",
+        "repo": "nix-orchard",
+        "rev": "12af904c04dd412575a9a630ebff3a39c3357dd9",
+        "type": "github"
       },
       "original": {
-        "ref": "main",
-        "type": "git",
-        "url": "file:///Users/apothecary/Projects/nix-orchard"
+        "owner": "apothecary103",
+        "repo": "nix-orchard",
+        "type": "github"
       }
     },
     "preservation": {

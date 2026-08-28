@@ -2,7 +2,6 @@
   flake.modules.hjem.base =
     {
       lib,
-      pkgs,
       palette,
       ...
     }:
@@ -11,8 +10,8 @@
       # colours are the theme's own modeline pair rather than a step off the
       # ramp, so this reads the way the same theme's statusline does elsewhere.
       bar = {
-        fg = palette.statusFg;
-        bg = palette.statusBg;
+        fg = palette.statusBar.foreground;
+        bg = palette.statusBar.background;
         bold = false;
       };
     in
@@ -46,65 +45,65 @@
           filetype.rules = [
             {
               url = "*.{jpg,jpeg,png,gif,bmp,webp,avif,heic,heif,tif,tiff,ico,svg}";
-              fg = palette.yellow;
+              fg = palette.hue.yellow;
             }
             {
               url = "*.{mp3,flac,wav,ogg,opus,m4a,aac,aiff,mp4,mkv,webm,mov,avi,m4v,wmv,flv}";
-              fg = palette.pink;
+              fg = palette.hue.pink;
             }
             {
               url = "*.{zip,rar,7z,tar,gz,tgz,xz,zst,bz2,lz4,lzma,iso,cpio,ar,deb,rpm}";
-              fg = palette.red;
+              fg = palette.hue.red;
             }
             {
               url = "*.{pdf,doc,docx,rtf,odt,epub}";
-              fg = palette.sky;
+              fg = palette.hue.skye;
             }
 
             {
               mime = "image/*";
-              fg = palette.yellow;
+              fg = palette.hue.yellow;
             }
             {
               mime = "{audio,video}/*";
-              fg = palette.pink;
+              fg = palette.hue.pink;
             }
             {
               mime = "application/{zip,rar,7z*,tar,gzip,xz,zstd,bzip*,lzma,compress,archive,cpio,arj,xar,ms-cab*}";
-              fg = palette.red;
+              fg = palette.hue.red;
             }
             {
               mime = "application/{pdf,doc,rtf}";
-              fg = palette.sky;
+              fg = palette.hue.skye;
             }
             {
               mime = "vfs/{absent,stale}";
-              fg = palette.surface1;
+              fg = palette.surface.neutral1;
             }
 
             {
               url = "*";
               is = "orphan";
-              bg = palette.red;
+              bg = palette.hue.red;
             }
             {
               url = "*";
               is = "exec";
-              fg = palette.green;
+              fg = palette.hue.green;
             }
             {
               url = "*";
               is = "dummy";
-              bg = palette.red;
+              bg = palette.hue.red;
             }
             {
               url = "*/";
               is = "dummy";
-              bg = palette.red;
+              bg = palette.hue.red;
             }
             {
               url = "*/";
-              fg = palette.blue;
+              fg = palette.hue.blue;
             }
           ];
 
@@ -115,12 +114,12 @@
 
           tabs = {
             active = {
-              fg = palette.text;
+              fg = palette.surface.text;
               bg = "reset";
               bold = true;
             };
             inactive = {
-              fg = palette.overlay1;
+              fg = palette.surface.neutral4;
               bg = "reset";
             };
 
@@ -138,11 +137,27 @@
           };
 
           mode = {
-            normal_main = bar;
+            # Match Catppuccin Macchiato in Helix: normal is rosewater, insert
+            # is green, and select is lavender. Yazi's unset state occupies
+            # the equivalent third slot. Only the mode badge changes colour;
+            # its percentage and item count retain the shared statusline style.
+            normal_main = {
+              fg = palette.surface.background;
+              bg = palette.ui.cursor;
+              bold = true;
+            };
             normal_alt = bar;
-            select_main = bar;
+            select_main = {
+              fg = palette.surface.background;
+              bg = palette.ui.secondaryAccent;
+              bold = true;
+            };
             select_alt = bar;
-            unset_main = bar;
+            unset_main = {
+              fg = palette.surface.background;
+              bg = palette.hue.red;
+              bold = true;
+            };
             unset_alt = bar;
           };
 
@@ -150,7 +165,7 @@
             overall = bar;
 
             progress_label = {
-              fg = palette.text;
+              fg = palette.surface.text;
               bold = false;
             };
 
@@ -164,8 +179,8 @@
             };
 
             progress_normal = {
-              fg = palette.green;
-              bg = palette.mantle;
+              fg = palette.hue.green;
+              bg = palette.surface.panel;
             };
           };
         };
@@ -204,7 +219,7 @@
           	if not self._file.is_hovered then
           		return s
           	end
-          	return ui.Style():bg(s:fg() or "${palette.text}"):fg("${palette.base}")
+          	return ui.Style():bg(s:fg() or "${palette.surface.text}"):fg("${palette.surface.background}")
           end
 
           -- Markers are drawn at the chunk's own left edge, which the padding
@@ -218,6 +233,47 @@
           end
 
           function Entity:padding() return " " end
+
+          -- Keep the mode pill separate from the item position. Yazi's preset
+          -- gives both the same `*_main` style, so without this the right-side
+          -- `n/n` counter inherits the pill's coloured background.
+          function Status:position()
+          	local cursor = self._current.cursor
+          	local length = #self._current.files
+          	local style = th.status.overall
+
+          	return ui.Line {
+          		ui.Span(th.status.sep_right.open):style(style),
+          		ui.Span(string.format(" %2d/%-2d ", math.min(cursor + 1, length), length)):style(style),
+          		ui.Span(th.status.sep_right.close):style(style),
+           }
+          end
+
+          -- Helix gives each modeline field the same visual breathing room.
+          -- Match the three-cell gaps already used on the left of this bar:
+          -- mode → filename → size, then permissions → percentage → position.
+          function Status:percent()
+          	local cursor = self._current.cursor
+          	local length = #self._current.files
+          	local percent = cursor ~= 0 and length ~= 0 and math.floor((cursor + 1) * 100 / length) or 0
+          	local text = percent == 0 and "Top" or percent == 100 and "Bot" or string.format("%2d%%", percent)
+          	local style = self:style().alt
+
+          	return ui.Line {
+          		ui.Span("   " .. th.status.sep_right.open):fg(style:bg()),
+          		ui.Span(text .. "  "):style(style),
+          	}
+          end
+
+          -- The preset puts one space before the hovered filename; leave one
+          -- more cell between the mode pill and the filename.
+          function Status:name()
+          	local hovered = self._current.hovered
+          	if not hovered then
+          		return ""
+          	end
+          	return "  " .. ui.printable(hovered.name)
+          end
 
           function Linemode:padding()
           	if not self._file.is_hovered then
@@ -244,15 +300,21 @@
           rm -f -- "$tmp"
         '';
 
-      rum.programs.zsh.initConfig = # bash
-        ''
-          yy() {
-            local tmp; tmp="$(mktemp -t yazi-cwd.XXXXXX)"
-            command yazi "$@" --cwd-file="$tmp"
-            local cwd; cwd="$(command cat -- "$tmp")"
-            [ -n "$cwd" ] && [ "$cwd" != "$PWD" ] && builtin cd -- "$cwd"
-            rm -f -- "$tmp"
-          }
-        '';
+      rum.programs.nushell.extraConfig =
+        lib.mkAfter # nu
+          ''
+            def --env yy [...args] {
+              let tmp = (^mktemp -t yazi-cwd.XXXXXX | str trim)
+              try {
+                ^yazi ...$args --cwd-file $tmp
+                let cwd = (open $tmp | str trim)
+                if ($cwd | is-not-empty) and $cwd != $env.PWD {
+                  cd $cwd
+                }
+              } finally {
+                ^rm -f $tmp
+              }
+            }
+          '';
     };
 }

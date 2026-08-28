@@ -61,7 +61,7 @@
 
           set -g status-position bottom
           set -g status-justify left
-          set -g status-style "fg=${palette.text}"
+          set -g status-style "fg=${palette.surface.text}"
           # Set explicitly: these inherit nothing, so a server carrying a
           # previous theme's values keeps painting a bar background.
           set -g status-left-style default
@@ -70,21 +70,21 @@
           setw -g window-status-current-style default
 
           set -g status-left-length 20
-          set -g status-left "#[fg=${palette.mauve}] #S  "
+          set -g status-left "#[fg=${palette.hue.purple}] #S  "
 
           set -g status-right-length 50
-          set -g status-right "#[fg=${palette.overlay0}]%H:%M "
+          set -g status-right "#[fg=${palette.surface.neutral3}]%H:%M "
 
-          setw -g window-status-format "#[fg=${palette.overlay0}]#I:#W"
+          setw -g window-status-format "#[fg=${palette.surface.neutral3}]#I:#W"
 
-          setw -g window-status-current-format "#[fg=${palette.blue}]#I:#W#{?window_zoomed_flag, [Z],}"
+          setw -g window-status-current-format "#[fg=${palette.hue.blue}]#I:#W#{?window_zoomed_flag, [Z],}"
 
-          set -g window-status-separator " #[fg=${palette.overlay0}]/#[default] "
+          set -g window-status-separator " #[fg=${palette.surface.neutral3}]/#[default] "
 
-          set -g pane-border-style "fg=${palette.surface0}"
-          set -g pane-active-border-style "fg=${palette.mauve}"
-          set -g message-style "fg=${palette.text},bold"
-          set -g message-command-style "fg=${palette.text},bold"
+          set -g pane-border-style "fg=${palette.surface.neutral0}"
+          set -g pane-active-border-style "fg=${palette.hue.purple}"
+          set -g message-style "fg=${palette.surface.text},bold"
+          set -g message-command-style "fg=${palette.surface.text},bold"
         '';
     };
 }

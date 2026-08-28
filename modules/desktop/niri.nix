@@ -51,8 +51,8 @@
           border.enable = false;
           focus-ring = {
             width = 2;
-            active.color = palette.surface0;
-            inactive.color = palette.surface0;
+            active.color = palette.surface.neutral0;
+            inactive.color = palette.surface.neutral0;
           };
         };
 

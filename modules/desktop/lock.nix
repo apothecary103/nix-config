@@ -38,7 +38,7 @@
 
           background = [
             {
-              color = rgb palette.base;
+              color = rgb palette.surface.background;
               blur_passes = 0;
             }
           ];
@@ -46,7 +46,7 @@
           label = [
             {
               text = "$TIME";
-              color = rgb palette.text;
+              color = rgb palette.surface.text;
               font_size = 92;
               font_family = "Maple Mono NF CN";
               position = "0, 128";
@@ -55,7 +55,7 @@
             }
             {
               text = ''cmd[update:60000] date +"%A, %-d %B"'';
-              color = rgb palette.subtext0;
+              color = rgb palette.surface.textDim;
               font_size = 20;
               font_family = "Adwaita Sans";
               position = "0, 56";
@@ -74,19 +74,19 @@
               outline_thickness = 2;
               rounding = 12;
 
-              outer_color = rgb palette.surface1;
-              inner_color = rgb palette.mantle;
-              font_color = rgb palette.text;
-              check_color = rgb palette.warning;
-              fail_color = rgb palette.error;
-              capslock_color = rgb palette.accent;
+              outer_color = rgb palette.surface.neutral1;
+              inner_color = rgb palette.surface.panel;
+              font_color = rgb palette.surface.text;
+              check_color = rgb palette.status.warning;
+              fail_color = rgb palette.status.error;
+              capslock_color = rgb palette.ui.accent;
 
               dots_size = 0.28;
               dots_spacing = 0.32;
               dots_center = true;
 
               fade_on_empty = false;
-              placeholder_text = ''<span foreground="##${lib.removePrefix "#" palette.overlay1}">Password</span>'';
+              placeholder_text = ''<span foreground="##${lib.removePrefix "#" palette.surface.neutral4}">Password</span>'';
               fail_text = "<i>$FAIL ($ATTEMPTS)</i>";
 
               shadow_passes = 0;
