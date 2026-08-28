@@ -8,10 +8,7 @@ let
   ];
 in
 {
-  # The NixOS programs.nh module asserts against nix.gc.automatic also being on.
   flake.modules.nixos.base = {
-    nix.gc.automatic = false;
-
     programs.nh = {
       enable = true;
       flake = "/home/${username}/nix-config";
@@ -23,12 +20,9 @@ in
     };
   };
 
-  # Same overlap on darwin, just without an assertion guarding it.
   flake.modules.darwin.base =
     { lib, pkgs, ... }:
     {
-      nix.gc.automatic = false;
-
       # nix-darwin has no programs.nh module of its own, so the weekly cleanup is
       # a launchd agent here; hjem manages no agents.
       launchd.user.agents.nh-clean.serviceConfig = {
