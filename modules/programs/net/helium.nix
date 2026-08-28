@@ -49,7 +49,7 @@ in
       system.activationScripts.postActivation.text = ''
         install -d -m 0755 "$(dirname "${target}")"
         install -m 0644 ${plist} "${target}"
-        /usr/bin/killall cfprefsd 2>/dev/null || true
+        /usr/bin/killall -u ${username} cfprefsd 2>/dev/null || true
       '';
     };
 }
