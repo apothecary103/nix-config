@@ -32,13 +32,13 @@
             "rust-src"
             "rustc"
             "rustfmt"
+            "rust-analyzer"
           ];
         in
         {
           default = pkgs.mkShell {
             packages = [
               rustToolchain
-              pkgs.rust-analyzer
             ];
 
             RUST_SRC_PATH = "${rustToolchain}/lib/rustlib/src/rust/library";
