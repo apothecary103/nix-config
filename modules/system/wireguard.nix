@@ -99,10 +99,10 @@ in
               [Interface]
               Address = ${lib.concatStringsSep ", " address}
               DNS = ${lib.concatStringsSep ", " dns}
-              # %i is the utun device wg-quick actually allocated. Loading the key
-              # here rather than inlining it keeps this file, which /etc exposes as
-              # a world-readable store symlink, free of secrets.
-              PostUp = ${pkgs.wireguard-tools}/bin/wg set %i private-key <(cat ${config.age.secrets.proton-wireguard.path})
+              # %i is the utun device wg-quick actually allocated. Referencing the
+              # key by path rather than inlining it keeps this file, which /etc
+              # exposes as a world-readable store symlink, free of secrets.
+              PostUp = ${pkgs.wireguard-tools}/bin/wg set %i private-key ${config.age.secrets.proton-wireguard.path}
 
               [Peer]
               PublicKey = ${server.publicKey}
