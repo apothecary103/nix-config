@@ -25,7 +25,7 @@
       # mutableTaps = false makes the taps read-only store paths, so `brew
       # update` can only fail on them.
       onActivation.autoUpdate = false;
-      onActivation.cleanup = "zap";
+      onActivation.cleanup = "uninstall";
 
       taps = builtins.attrNames config.nix-homebrew.taps;
 
