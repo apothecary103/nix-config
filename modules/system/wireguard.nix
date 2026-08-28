@@ -66,11 +66,14 @@ in
       # routing conflict rather than redundancy. Starting one therefore has to
       # stop the others; this is what makes switching exit servers a single
       # `systemctl start`.
-      systemd.services = lib.genAttrs (map (name: "wg-quick-${name}") names) (unit: {
-        conflicts = map (other: "wg-quick-${other}.service") (
-          lib.remove (lib.removePrefix "wg-quick-" unit) names
-        );
-      });
+      systemd.services = lib.listToAttrs (
+        map (
+          name:
+          lib.nameValuePair "wg-quick-${name}" {
+            conflicts = map (other: "wg-quick-${other}.service") (lib.remove name names);
+          }
+        ) names
+      );
 
       # wg-quick moves the default route behind an fwmark policy rule, which the
       # strict reverse-path filter's FIB lookup does not reproduce for the
