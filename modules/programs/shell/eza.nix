@@ -20,9 +20,6 @@
       rum.programs = {
         fish.aliases = aliases;
         nushell.aliases = aliases;
-        zsh.initConfig = lib.concatLines (
-          lib.mapAttrsToList (name: value: "alias ${name}=${lib.escapeShellArg value}") aliases
-        );
       };
     };
 }

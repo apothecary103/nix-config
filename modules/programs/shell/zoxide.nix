@@ -7,7 +7,6 @@
     ];
     integrations = {
       fish.enable = true;
-      zsh.enable = true;
       nushell.enable = true;
     };
   };
