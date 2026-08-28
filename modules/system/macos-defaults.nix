@@ -1,3 +1,4 @@
+{ username, ... }:
 {
   flake.modules.darwin.base = { config, ... }: {
     security.pam.services.sudo_local.touchIdAuth = true;
@@ -111,7 +112,7 @@
 
         "com.apple.finder" = {
           NewWindowTarget = "PfHm";
-          NewWindowTargetPath = "file://$HOME/";
+          NewWindowTargetPath = "file://${config.users.users.${username}.home}/";
           QLEnableTextSelection = true;
           ShowExternalHardDrivesOnDesktop = false;
           ShowHardDrivesOnDesktop = false;
