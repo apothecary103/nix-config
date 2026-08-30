@@ -75,6 +75,13 @@
         # .helix/languages.toml is scaffolded by templates/.
       };
 
+      # Steel resolves helix.scm relative to init.scm, so both files must exist
+      # even when no Steel configuration is needed yet.
+      xdg.config.files = {
+        "helix/helix.scm".text = "";
+        "helix/init.scm".text = "";
+      };
+
       # rum currently has no `defaultEditor` option.
       environment.sessionVariables = {
         EDITOR = "hx";
