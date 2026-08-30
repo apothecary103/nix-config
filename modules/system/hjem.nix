@@ -6,6 +6,9 @@
 }:
 let
   hjem = modules: {
+    # Managed links may outlive their store targets after garbage collection.
+    # Let the next activation replace those stale links with the new generation.
+    clobberByDefault = true;
     extraModules = [ inputs.hjem-rum.hjemModules.default ];
     users.${username} = {
       enable = true;
