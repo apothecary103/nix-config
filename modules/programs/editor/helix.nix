@@ -1,39 +1,81 @@
+{ inputs, ... }:
 {
   flake.modules.hjem.base =
     { pkgs, ... }:
     {
       rum.programs.helix = {
         enable = true;
-        package = pkgs.steelix;
 
-        settings.editor = {
-          true-color = true;
-          line-number = "relative";
-          color-modes = true;
-          mouse = false;
-          cursorline = true;
-          bufferline = "multiple";
-          default-line-ending = "lf";
-          lsp.display-messages = true;
+        package = inputs.steelix.packages.${pkgs.system}.helix.overrideAttrs (previous: {
+          cargoBuildFeatures = (previous.cargoBuildFeatures or [ ]) ++ [ "steel" ];
+        });
 
-          cursor-shape = {
-            insert = "bar";
-            select = "underline";
+        settings = {
+          editor = {
+            true-color = true;
+            line-number = "relative";
+            color-modes = true;
+            mouse = false;
+            cursorline = true;
+            bufferline = "multiple";
+            default-line-ending = "lf";
+
+            lsp.display-messages = true;
+
+            cursor-shape = {
+              insert = "bar";
+              select = "underline";
+            };
+
+            file-picker = {
+              hidden = false;
+              git-ignore = true;
+            };
+
+            soft-wrap.enable = true;
           };
 
-          file-picker = {
-            hidden = false;
-            git-ignore = true;
-          };
+          keys = {
+            normal = {
+              # Buffer navigation
+              "A-h" = "goto_previous_buffer";
+              "A-l" = "goto_next_buffer";
 
-          soft-wrap.enable = true;
+              space.q = ":buffer-close";
+
+              # Syntax-tree navigation
+              tab = "move_parent_node_end";
+              "S-tab" = "move_parent_node_start";
+
+              # Subword navigation
+              "A-w" = "move_next_sub_word_start";
+              "A-b" = "move_prev_sub_word_start";
+              "A-e" = "move_next_sub_word_end";
+            };
+
+            insert = {
+              "S-tab" = "move_parent_node_start";
+            };
+
+            select = {
+              # Syntax-tree selection
+              tab = "extend_parent_node_end";
+              "S-tab" = "extend_parent_node_start";
+
+              # Subword selection.
+              "A-w" = "extend_next_sub_word_start";
+              "A-b" = "extend_prev_sub_word_start";
+              "A-e" = "extend_next_sub_word_end";
+            };
+          };
         };
 
-        # Per-language LSP config lives in each project's .helix/languages.toml,
-        # scaffolded by templates/.
+        # Keep language/LSP configuration project-local.
+        #
+        # .helix/languages.toml is scaffolded by templates/.
       };
 
-      # rum has no `defaultEditor`.
+      # rum currently has no `defaultEditor` option.
       environment.sessionVariables = {
         EDITOR = "hx";
         VISUAL = "hx";

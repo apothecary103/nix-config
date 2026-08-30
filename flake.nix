@@ -30,7 +30,7 @@
       url = "github:homebrew/homebrew-cask";
       flake = false;
     };
-    apple-silicon.url = "github:tpwrules/nixos-apple-silicon";
+    apple-silicon.url = "github:nix-community/nixos-apple-silicon";
     asahi-firmware = {
       url = "git+ssh://git@codeberg.org/frieren/asahi-firmware?ref=main";
       flake = false;
@@ -57,6 +57,10 @@
       inputs.nixpkgs.follows = "nixpkgs";
       inputs.hjem.follows = "hjem";
       inputs.hjem-rum.follows = "hjem-rum";
+    };
+    steelix = {
+      url = "github:mattwparas/helix/steel-event-system";
+      inputs.nixpkgs.follows = "nixpkgs";
     };
     nvf = {
       url = "github:NotAShelf/nvf";
