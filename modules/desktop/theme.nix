@@ -1,19 +1,15 @@
 { inputs, ... }:
-let
-  wearing = {
-    theme = "catppuccin";
-    flavour = "macchiato";
-    accent = "blue";
-  };
-in
 {
   flake.modules.hjem.base =
     { config, ... }:
     {
       imports = [ inputs.orchard.hjemModules.default ];
 
-      orchard = wearing // {
+      orchard = {
         enable = true;
+        theme = "catppuccin";
+        flavour = "macchiato";
+        accent = "blue";
 
         transparent = true;
       };
@@ -22,13 +18,4 @@ in
       _module.args.palette = config.orchard.palette;
       _module.args.theme = config.orchard;
     };
-
-  # The virtual console, which is system-level rather than per-user.
-  flake.modules.nixos.base = {
-    imports = [ inputs.orchard.nixosModules.default ];
-
-    orchard = wearing // {
-      enable = true;
-    };
-  };
 }
