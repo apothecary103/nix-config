@@ -16,7 +16,7 @@
               cursor-theme = "WhiteSur-cursors";
               # The schema types this `i`, which a bare Nix int is ambiguous for.
               cursor-size = lib.gvariant.mkInt32 24;
-              font-name = "Adwaita Sans Medium 11";
+              font-name = "Adwaita Sans 11";
               monospace-font-name = "Maple Mono NF CN 11";
             };
           }
@@ -52,9 +52,8 @@
         ];
 
         settings = {
-          # Medium because the Regular cut renders too thin on a hinting-off
-          # Retina panel — see fontconfig.nix for the global rule.
-          font-name = "Adwaita Sans Medium 11";
+          # Comes out Medium: fontconfig.nix promotes Adwaita Sans globally.
+          font-name = "Adwaita Sans 11";
 
           icon-theme-name = "Adwaita";
           cursor-theme-name = "WhiteSur-cursors";

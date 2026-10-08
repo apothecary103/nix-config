@@ -4,11 +4,11 @@
     {
       rum.programs.ghostty = {
         enable = true;
-        package = if pkgs.stdenv.isDarwin then pkgs.ghostty-bin else pkgs.ghostty;
+        package = if pkgs.stdenv.hostPlatform.isDarwin then pkgs.ghostty-bin else pkgs.ghostty;
 
         settings = {
-          font-family = if pkgs.stdenv.isDarwin then "Maple Mono NF CN" else "Maple Mono NF CN Medium";
-          font-size = if pkgs.stdenv.isDarwin then 18 else 12;
+          font-family = "Maple Mono NF CN";
+          font-size = if pkgs.stdenv.hostPlatform.isDarwin then 18 else 12;
 
           font-thicken = true;
           macos-titlebar-style = "hidden";

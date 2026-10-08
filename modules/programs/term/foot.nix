@@ -4,7 +4,7 @@
 
     settings = {
       main = {
-        font = "Maple Mono NF CN:weight=medium:size=12";
+        font = "Maple Mono NF CN:size=12";
         pad = "20x10";
       };
 
