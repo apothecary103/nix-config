@@ -4,9 +4,9 @@
 # every per-server config generated from it, so all interfaces read the same
 # file.
 #
-# The pasted config puts all three servers under one [Interface]. WireGuard
-# routes to peers by AllowedIPs, so three peers each claiming 0.0.0.0/0 collide
-# and only one is reachable — hence one interface per exit server.
+# The pasted config puts every server under one [Interface]. WireGuard routes to
+# peers by AllowedIPs, so peers each claiming 0.0.0.0/0 collide and only one is
+# reachable — hence one interface per exit server.
 { lib, ... }:
 let
   servers = {
@@ -21,6 +21,10 @@ let
     hk = {
       publicKey = "giBCbR12im6jWSvwEQ0mJ1PH8NUhRFUDedozBSYC8n4=";
       endpoint = "146.70.113.114:51820";
+    };
+    ua = {
+      publicKey = "vx4tC7xZn44VN4dyiK0yUBHRC3/cmlwwaLuPpq3rIQg=";
+      endpoint = "156.146.50.17:51820";
     };
   };
 
@@ -40,10 +44,12 @@ let
     "::/0"
   ];
 
-  names = map (region: "proton-${region}") (lib.attrNames servers);
+  interface = region: "proton-${region}";
+
+  names = map interface (lib.attrNames servers);
 
   eachServer =
-    f: lib.mapAttrs' (region: server: lib.nameValuePair "proton-${region}" (f server)) servers;
+    f: lib.mapAttrs' (region: server: lib.nameValuePair (interface region) (f server)) servers;
 in
 {
   flake.modules.nixos.base =
@@ -66,14 +72,9 @@ in
       # routing conflict rather than redundancy. Starting one therefore has to
       # stop the others; this is what makes switching exit servers a single
       # `systemctl start`.
-      systemd.services = lib.listToAttrs (
-        map (
-          name:
-          lib.nameValuePair "wg-quick-${name}" {
-            conflicts = map (other: "wg-quick-${other}.service") (lib.remove name names);
-          }
-        ) names
-      );
+      systemd.services = lib.genAttrs (map (name: "wg-quick-${name}") names) (unit: {
+        conflicts = lib.remove "${unit}.service" (map (name: "wg-quick-${name}.service") names);
+      });
 
       # wg-quick moves the default route behind an fwmark policy rule, which the
       # strict reverse-path filter's FIB lookup does not reproduce for the
