@@ -20,6 +20,11 @@
         right_padding = 10;
         window_gap = 10;
 
+        # The Flora bar (~/.config/flora) floats over the top edge: 8pt margin
+        # plus a 34pt pill. macOS has no struts, so yabai keeps that band free;
+        # top_padding then leaves one window_gap below the bar.
+        external_bar = "all:42:0";
+
         mouse_follows_focus = "on";
         focus_follows_mouse = "autoraise";
         window_placement = "second_child";
@@ -28,14 +33,14 @@
       extraConfig = ''
         yabai -m rule --add app="^System Settings$" manage=off
         yabai -m rule --add app="^Calculator$" manage=off
+        # Flora's bar, launcher and control centre are panels, not windows to tile.
+        yabai -m rule --add app="^flora$" manage=off
       '';
     };
 
     services.skhd = {
       enable = true;
       skhdConfig = ''
-        alt - t: open -n -a Ghostty
-
         alt - 1 : yabai -m space --focus 1
         alt - 2 : yabai -m space --focus 2
         alt - 3 : yabai -m space --focus 3
@@ -56,7 +61,9 @@
         shift + alt - 8 : yabai -m window --space 8
         shift + alt - 9 : yabai -m window --space 9
 
-        alt - v : yabai -m window --toggle float --grid 4:4:1:1:2:2
+        # skhd has no literal for ",", so it takes the raw keycode (kVK_ANSI_Comma);
+        # a bare "," is a parse error that stops skhd loading its config at all.
+        alt - 0x2B : yabai -m window --toggle float --grid 4:4:1:1:2:2
 
         shift + alt - r : launchctl kickstart -k "gui/''${UID}/org.nixos.yabai"
       '';
