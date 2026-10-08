@@ -1,15 +1,15 @@
-{ inputs, ... }: {
+{
   perSystem =
     {
+      inputs',
       lib,
       pkgs,
-      system,
       ...
     }:
     {
       packages =
         let
-          zmk = inputs.zmk-nix.legacyPackages.${system}.buildSplitKeyboard {
+          zmk = inputs'.zmk-nix.legacyPackages.buildSplitKeyboard {
             name = "zmk-cradio";
             src = lib.sourceFilesBySuffices ../../zmk [
               ".conf"
@@ -29,9 +29,8 @@
         {
           default = zmk;
           inherit zmk;
-          zmk-update = inputs.zmk-nix.packages.${system}.update;
-        }
-        // {
+          zmk-update = inputs'.zmk-nix.packages.update;
+
           zmk-flash =
             if pkgs.stdenv.hostPlatform.isDarwin then
               pkgs.writeShellApplication {
@@ -95,9 +94,9 @@
                 };
               }
             else
-              inputs.zmk-nix.packages.${system}.flash.override { firmware = zmk; };
+              inputs'.zmk-nix.packages.flash.override { firmware = zmk; };
         };
 
-      devShells.zmk = inputs.zmk-nix.devShells.${system}.default;
+      devShells.zmk = inputs'.zmk-nix.devShells.default;
     };
 }
