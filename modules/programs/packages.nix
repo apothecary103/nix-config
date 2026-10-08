@@ -17,6 +17,7 @@
         tokei
         krabby
         claude-code
+        grok-build
         glow
         util-linux
         tree-sitter
@@ -35,7 +36,9 @@
         llama-cpp
         qemu
         aseprite
+        blender
         moonlight-qt
+        openlogi
       ];
     };
 }
