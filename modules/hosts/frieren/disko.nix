@@ -11,9 +11,8 @@ in
 
     disko.devices.disk.root = {
       type = "disk";
-      # The existing LUKS header UUID from the Asahi installer, so the
-      # already-installed machine keeps booting. A fresh destructive disko run
-      # wants the raw partition instead, since luksFormat assigns a new UUID.
+      # frieren-install (./install.nix) luksFormats the Root partition with
+      # this UUID, so the same value serves both a fresh install and boot.
       device = "/dev/disk/by-uuid/a0c92d69-f406-4dc1-89af-000fc1ac204e";
       content = {
         type = "luks";
@@ -30,12 +29,6 @@ in
               mountpoint = "/nix";
               inherit mountOptions;
             };
-            "@persist" = {
-              mountpoint = "/persist";
-              inherit mountOptions;
-            };
-            # No @home subvolume: /home rides on the wiped @ root and what
-            # survives is opt-in via modules/system/preservation.nix.
             "@log" = {
               mountpoint = "/var/log";
               inherit mountOptions;

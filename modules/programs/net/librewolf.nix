@@ -85,8 +85,7 @@
         "network.trr.mode" = 2;
         "network.trr.uri" = "https://dns.quad9.net/dns-query";
 
-        # The whole ~/.librewolf profile is persisted across the root wipe,
-        # so a disk cache would outlive every other trace of a session.
+        # A disk cache would outlive every other trace of a session.
         "browser.cache.disk.enable" = false;
 
         "dom.security.https_only_mode" = true;
