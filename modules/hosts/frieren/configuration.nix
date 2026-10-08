@@ -20,8 +20,10 @@
       };
       kernelParams = [ "appledrm.show_notch=1" ];
     };
-    hardware.asahi.peripheralFirmwareDirectory = inputs.asahi-firmware;
-    hardware.asahi.enable = true;
+    hardware.asahi = {
+      enable = true;
+      peripheralFirmwareDirectory = inputs.asahi-firmware;
+    };
 
     # This records the on-disk schema from the original installation. Do not
     # bump it when updating nixpkgs; only change it for a deliberate reinstall.

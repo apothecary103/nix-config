@@ -3,7 +3,7 @@
 # @-blank snapshot taken once at install time (see the README).
 {
   flake.modules.nixos."hosts/frieren" =
-    { pkgs, ... }:
+    { lib, pkgs, ... }:
     {
       # Preservation bind-mounts state out of /persist, so it must be mounted
       # early rather than as a late fileSystems target.
@@ -20,7 +20,7 @@
         unitConfig.DefaultDependencies = "no";
         serviceConfig.Type = "oneshot";
         script = ''
-          btrfs=${pkgs.btrfs-progs}/bin/btrfs
+          btrfs=${lib.getExe' pkgs.btrfs-progs "btrfs"}
           mkdir -p /mnt
           mount -o subvol=/ /dev/mapper/cryptroot /mnt
           trap 'umount /mnt' EXIT

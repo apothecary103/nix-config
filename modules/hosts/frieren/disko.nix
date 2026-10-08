@@ -1,4 +1,10 @@
 { inputs, ... }:
+let
+  mountOptions = [
+    "compress=zstd"
+    "noatime"
+  ];
+in
 {
   flake.modules.nixos."hosts/frieren" = {
     imports = [ inputs.disko.nixosModules.disko ];
@@ -18,33 +24,21 @@
           subvolumes = {
             "@" = {
               mountpoint = "/";
-              mountOptions = [
-                "compress=zstd"
-                "noatime"
-              ];
+              inherit mountOptions;
             };
             "@nix" = {
               mountpoint = "/nix";
-              mountOptions = [
-                "compress=zstd"
-                "noatime"
-              ];
+              inherit mountOptions;
             };
             "@persist" = {
               mountpoint = "/persist";
-              mountOptions = [
-                "compress=zstd"
-                "noatime"
-              ];
+              inherit mountOptions;
             };
             # No @home subvolume: /home rides on the wiped @ root and what
             # survives is opt-in via modules/system/preservation.nix.
             "@log" = {
               mountpoint = "/var/log";
-              mountOptions = [
-                "compress=zstd"
-                "noatime"
-              ];
+              inherit mountOptions;
             };
             # disko creates the swapfile NOCOW and wires up swapDevices for it.
             "@swap" = {
