@@ -9,8 +9,8 @@
     in
     {
       packages = [
-        yaagl.yaagl-genshin-os
-        yaagl.yaagl-hsr-os
+        yaagl.genshin-os
+        yaagl.hsr-os
       ];
     };
 }

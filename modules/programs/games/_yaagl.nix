@@ -127,56 +127,46 @@ let
       };
     };
 
-  # One entry per game / region. `distName` is both the .app bundle name and the
-  # `~/Library/Application Support/<distName>` folder yaagl runs from.
-  variants = [
-    {
-      pname = "genshin-cn";
+  # One entry per game / region, keyed by pname suffix. `distName` is both the
+  # .app bundle name and the `~/Library/Application Support/<distName>` folder
+  # yaagl runs from.
+  variants = {
+    genshin-cn = {
       distName = "Yaagl";
       asset = "Yaagl.app.tar.gz";
       hash = "sha256-W22NlsRFv9H5Bd9XwAYRUyZRFwMrHy7xn6y6sK0JTDA=";
       description = "Yet Another Anime Game Launcher — Genshin Impact (CN / miHoYo)";
-    }
-    {
-      pname = "genshin-os";
+    };
+    genshin-os = {
       distName = "Yaagl OS";
       asset = "Yaagl.OS.app.tar.gz";
       hash = "sha256-CWrsaF3dAAH5Gx1iKFgbkFTAFZjDnQF/C43ovsHEa+c=";
       description = "Yet Another Anime Game Launcher — Genshin Impact (Global / HoYoverse)";
-    }
-    {
-      pname = "hsr-cn";
+    };
+    hsr-cn = {
       distName = "Yaagl HSR";
       asset = "Yaagl.HSR.app.tar.gz";
       hash = "sha256-pM6BwMm+md3lsaEakn1qlFim3HZ17bZ0nnaPOMe80jU=";
       description = "Yet Another Anime Game Launcher — Honkai: Star Rail (CN / miHoYo)";
-    }
-    {
-      pname = "hsr-os";
+    };
+    hsr-os = {
       distName = "Yaagl HSR OS";
       asset = "Yaagl.HSR.OS.app.tar.gz";
       hash = "sha256-TZQcsN4sZgFPlHeXEwQyVmHGByEfn44xONKhRQ2oaQU=";
       description = "Yet Another Anime Game Launcher — Honkai: Star Rail (Global / HoYoverse)";
-    }
-    {
-      pname = "zzz-cn";
+    };
+    zzz-cn = {
       distName = "Yaagl ZZZ";
       asset = "Yaagl.ZZZ.app.tar.gz";
       hash = "sha256-jl9jVWSmOSDfUVHjrw5LJ8F7kMAxWa3Iq0x5SUuQBDU=";
       description = "Yet Another Anime Game Launcher — Zenless Zone Zero (CN / miHoYo)";
-    }
-    {
-      pname = "zzz-os";
+    };
+    zzz-os = {
       distName = "Yaagl ZZZ OS";
       asset = "Yaagl.ZZZ.OS.app.tar.gz";
       hash = "sha256-GS863FRxW97wuV6IHqc6C6AGNuGycE0A80o4AIa7Jhc=";
       description = "Yet Another Anime Game Launcher — Zenless Zone Zero (Global / HoYoverse)";
-    }
-  ];
+    };
+  };
 in
-builtins.listToAttrs (
-  map (v: {
-    name = "yaagl-${v.pname}";
-    value = mkYaagl v;
-  }) variants
-)
+lib.mapAttrs (pname: variant: mkYaagl (variant // { inherit pname; })) variants
