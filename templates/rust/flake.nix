@@ -18,15 +18,13 @@
         "aarch64-linux"
         "x86_64-linux"
       ];
+      forAllSystems = f: nixpkgs.lib.genAttrs systems (system: f nixpkgs.legacyPackages.${system});
     in
     {
-      devShells = nixpkgs.lib.genAttrs systems (
-        system:
+      devShells = forAllSystems (
+        pkgs:
         let
-          pkgs = nixpkgs.legacyPackages.${system};
-          fenixPkgs = fenix.packages.${system};
-
-          rustToolchain = fenixPkgs.stable.withComponents [
+          rustToolchain = fenix.packages.${pkgs.stdenv.hostPlatform.system}.stable.withComponents [
             "cargo"
             "clippy"
             "rust-src"
