@@ -15,11 +15,11 @@
     {
       packages = [ pkgs.eza ];
 
+      # Fish only: in nushell `ls` returns a table the rest of the pipeline can
+      # act on, which aliasing it to eza would throw away.
+      #
       # The colours come from ~/.config/eza/theme.yml, written by the active
       # port (desktop/theme.nix).
-      rum.programs = {
-        fish.aliases = aliases;
-        nushell.aliases = aliases;
-      };
+      rum.programs.fish.aliases = aliases;
     };
 }

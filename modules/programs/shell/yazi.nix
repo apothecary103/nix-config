@@ -137,10 +137,10 @@
           };
 
           mode = {
-            # Match Catppuccin Macchiato in Helix: normal is rosewater, insert
-            # is green, and select is lavender. Yazi's unset state occupies
-            # the equivalent third slot. Only the mode badge changes colour;
-            # its percentage and item count retain the shared statusline style.
+            # The same two accents Helix gives its normal and select modes.
+            # Yazi's unset state occupies the equivalent third slot. Only the
+            # mode badge changes colour; its percentage and item count retain
+            # the shared statusline style.
             normal_main = {
               fg = palette.surface.background;
               bg = palette.ui.cursor;
