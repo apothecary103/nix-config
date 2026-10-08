@@ -17,11 +17,7 @@
       # homeModules.config is only this schema plus two home-manager-shaped
       # outputs — an `xdg.configFile` entry and the bind constructors hung off
       # `lib` — so the schema is imported bare and the constructors rebuilt here.
-      actions = lib.mergeAttrsList (
-        map (name: { ${name} = inputs.niri.lib.kdl.magic-leaf name; }) (
-          import "${inputs.niri}/memo-binds.nix"
-        )
-      );
+      actions = lib.genAttrs (import "${inputs.niri}/memo-binds.nix") inputs.niri.lib.kdl.magic-leaf;
 
       terminal = "ghostty";
       menu = [
@@ -71,9 +67,7 @@
 
         prefer-no-csd = true;
 
-        outputs."eDP-1" = {
-          scale = 2;
-        };
+        outputs."eDP-1".scale = 2;
 
         window-rules = [
           # No match = applies to all. clip-to-geometry is what makes the
