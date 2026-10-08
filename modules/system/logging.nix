@@ -6,10 +6,10 @@
 
     # /var/log is persistent, so without a retention policy the journal keeps
     # every SSID, BSSID and USB device ever seen, without bound.
-    services.journald.extraConfig = ''
-      SystemMaxUse=512M
-      SystemMaxFileSize=64M
-      MaxRetentionSec=1month
-    '';
+    services.journald.settings.Journal = {
+      SystemMaxUse = "512M";
+      SystemMaxFileSize = "64M";
+      MaxRetentionSec = "1month";
+    };
   };
 }

@@ -1,11 +1,9 @@
-{ inputs, ... }:
 let
   nix = {
     nixpkgs.config.allowUnfree = true;
 
     nix = {
       channel.enable = false;
-      registry.nixpkgs.flake = inputs.nixpkgs;
 
       settings = {
         experimental-features = [

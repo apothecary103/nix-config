@@ -1,7 +1,6 @@
 { username, ... }: {
   flake.modules.darwin.base = { pkgs, ... }: {
     users.users.${username} = {
-      name = username;
       home = "/Users/${username}";
       description = username;
       shell = pkgs.fish;

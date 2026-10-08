@@ -4,7 +4,7 @@
   ...
 }:
 {
-  flake.modules.darwin.base = { config, ... }: {
+  flake.modules.darwin.base = { config, lib, ... }: {
     imports = [ inputs.nix-homebrew.darwinModules.nix-homebrew ];
 
     nix-homebrew = {
@@ -27,7 +27,7 @@
       onActivation.autoUpdate = false;
       onActivation.cleanup = "uninstall";
 
-      taps = builtins.attrNames config.nix-homebrew.taps;
+      taps = lib.attrNames config.nix-homebrew.taps;
 
       casks = [
         "obs"
