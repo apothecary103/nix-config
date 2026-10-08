@@ -6,9 +6,11 @@
       rum.programs.helix = {
         enable = true;
 
-        package = inputs.steelix.packages.${pkgs.system}.helix.overrideAttrs (previous: {
-          cargoBuildFeatures = (previous.cargoBuildFeatures or [ ]) ++ [ "steel" ];
-        });
+        package =
+          inputs.steelix.packages.${pkgs.stdenv.hostPlatform.system}.helix.overrideAttrs
+            (previous: {
+              cargoBuildFeatures = (previous.cargoBuildFeatures or [ ]) ++ [ "steel" ];
+            });
 
         settings = {
           editor = {

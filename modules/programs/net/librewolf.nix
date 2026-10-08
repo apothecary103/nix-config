@@ -9,10 +9,11 @@
         hash = "sha256-QUo1Zz6Jp9k+4nriCHHUHC8Imu4BSWTj/i+bf1xon9Y=";
       };
 
-      inherit (pkgs.stdenv) isDarwin;
+      inherit (pkgs.stdenv.hostPlatform) isDarwin;
 
       configPath = if isDarwin then "Library/Application Support/LibreWolf" else ".librewolf";
-      profilePath = if isDarwin then "${configPath}/Profiles/default" else "${configPath}/default";
+      profileDir = if isDarwin then "Profiles/default" else "default";
+      profilePath = "${configPath}/${profileDir}";
 
       package = pkgs.librewolf.override (old: {
         extraPolicies = (old.extraPolicies or { }) // {
@@ -110,7 +111,7 @@
 
           Profile0 = {
             Name = "default";
-            Path = if isDarwin then "Profiles/default" else "default";
+            Path = profileDir;
             IsRelative = 1;
             Default = 1;
           };

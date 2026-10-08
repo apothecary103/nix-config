@@ -26,7 +26,7 @@
         no-symkey-cache = true;
       };
 
-      pinentry = if pkgs.stdenv.isDarwin then pkgs.pinentry_mac else pkgs.pinentry-gnome3;
+      pinentry = if pkgs.stdenv.hostPlatform.isDarwin then pkgs.pinentry_mac else pkgs.pinentry-gnome3;
     in
     {
       packages = [
@@ -73,7 +73,7 @@
   # Native messaging hosts for the Browserpass add-on that LibreWolf and Helium
   # install through enterprise policy.
   flake.modules.hjem.linux =
-    { pkgs, ... }:
+    { lib, pkgs, ... }:
     {
       files.".librewolf/native-messaging-hosts/com.github.browserpass.native.json".source =
         "${pkgs.browserpass}/lib/browserpass/hosts/firefox/com.github.browserpass.native.json";
@@ -87,7 +87,7 @@
         serviceConfig = {
           Type = "dbus";
           BusName = "org.freedesktop.secrets";
-          ExecStart = "${pkgs.pass-secret-service}/bin/pass_secret_service";
+          ExecStart = lib.getExe pkgs.pass-secret-service;
         };
       };
 
