@@ -2,6 +2,19 @@
 {
   flake.modules.hjem.base =
     { config, pkgs, ... }:
+    let
+      output =
+        if pkgs.stdenv.hostPlatform.isDarwin then
+          {
+            type = "osx";
+            name = "CoreAudio";
+          }
+        else
+          {
+            type = "pipewire";
+            name = "PipeWire";
+          };
+    in
     {
       packages = [ pkgs.mpc ];
 
@@ -11,8 +24,8 @@
         restore_paused "yes"
 
         audio_output {
-          type "${if pkgs.stdenv.hostPlatform.isDarwin then "osx" else "pipewire"}"
-          name "${if pkgs.stdenv.hostPlatform.isDarwin then "CoreAudio" else "PipeWire"}"
+          type "${output.type}"
+          name "${output.name}"
         }
       '';
 
@@ -20,13 +33,18 @@
     };
 
   flake.modules.darwin.base =
-    { lib, pkgs, ... }:
+    {
+      config,
+      lib,
+      pkgs,
+      ...
+    }:
     {
       launchd.user.agents.mpd.serviceConfig = {
         ProgramArguments = [
           (lib.getExe pkgs.mpd)
           "--no-daemon"
-          "/Users/${username}/.config/mpd/mpd.conf"
+          "${config.users.users.${username}.home}/.config/mpd/mpd.conf"
         ];
         RunAtLoad = true;
         KeepAlive = true;
