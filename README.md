@@ -48,68 +48,22 @@ nix run .#zmk-flash
 
 ## Fresh Install (NixOS / Asahi)
 
-`frieren` uses an ephemeral root on top of encrypted btrfs. The `@` subvolume wipes on every boot. Only `/nix`, `/persist`, and `/var/log` survive.
-
-Passwords are declarative (`mutableUsers = false`), reading from hashes on `/persist`. Firmware comes from a private flake input (`asahi-firmware`). Fetching it requires the SSH key to be loaded during installation, and agenix needs the same private-key file provisioned under `/persist` before `nixos-install` runs.
+`frieren` runs on LUKS-encrypted btrfs. Firmware comes from a private flake input (`asahi-firmware`), and agenix decrypts with the same `~/.ssh/id_ed25519` that fetches it, so keep that key (the `frieren` entry in `secrets.nix`) on the installer USB.
 
 > [!TIP]
 > ^. .^₎Ⳋ&nbsp;&nbsp;Before you begin: make sure you have a reliable external backup of your macOS data. While resizing APFS containers is generally safe, low-level partitioning always carries minor risks.
 
-1. **Shrink macOS and install Asahi UEFI**
-   Run `curl https://alx.sh | sh` in macOS. Choose **UEFI environment only (m1n1 + U-Boot + ESP)**. Follow the prompts to bless the bootloader and reboot.
-
-   When nixos-apple-silicon release notes request new device firmware, run the installer again and choose **Rebuild vendor firmware package**. Copy the resulting `vendorfw/firmware.cpio` into the private `asahi-firmware` input and update its lock before rebuilding NixOS. This is currently required for ambient-light sensor calibration.
-
-2. **Boot the NixOS installer**
-   Flash the `nixos-apple-silicon` installer to a USB, boot from U-Boot, and connect to Wi-Fi (`iwctl station wlan0 connect <SSID>`).
-
-3. **Partition the drive**
-
-> [!CAUTION]
-> (•˕ •マ.ᐟ&nbsp;&nbsp;**Do not touch any existing partitions.** This includes both Apple's system containers and the EFI/ESP partition created by the Asahi installer. Only use the unallocated free space.
-
-   Use `fdisk` to create a new Linux root partition in the free space. Run `lsblk -f` and note the new partition path (e.g., `/dev/nvme0n1p6`) and the ESP's FAT UUID.
-
-4. **Update the flake paths**
-   Clone this repo to `/tmp/nix-config`. Update `modules/hosts/frieren/disko.nix` with your raw root partition path, and `modules/hosts/frieren/hardware-configuration.nix` with the ESP UUID.
-
-5. **Format and mount (disko)**
-   Run disko to create the LUKS container and btrfs subvolumes:
+1. **From macOS:** run our wrapper around the Asahi installer. It offers a single **NixOS (frieren)** option: the Asahi UEFI environment plus an empty root partition.
    ```bash
-   sudo nix --experimental-features 'nix-command flakes' run github:nix-community/disko/latest -- --mode destroy,format,mount --flake .#frieren
+   curl -L https://raw.githubusercontent.com/apothecary103/nix-config/main/modules/hosts/frieren/asahi.sh | sh
    ```
-   The ESP is untouched by disko. Mount it manually: `sudo mount /dev/disk/by-uuid/<ESP FAT UUID> /mnt/boot`
+   Follow its prompts to resize macOS and bless the bootloader in recoveryOS.
 
-6. **Snapshot the blank root**
-   *Required for the ephemeral rollback.*
+2. **From the `nixos-apple-silicon` installer USB:** connect to Wi-Fi (`iwctl station wlan0 connect <SSID>`), then:
    ```bash
-   sudo mkdir -p /mnt2
-   sudo mount -o subvol=/ /dev/mapper/cryptroot /mnt2
-   sudo btrfs subvolume snapshot -r /mnt2/@ /mnt2/@-blank
-   sudo umount /mnt2
+   sudo nix --extra-experimental-features 'nix-command flakes' \
+     run github:apothecary103/nix-config#frieren-install -- /path/to/frieren-id_ed25519
    ```
+   This finds the new root partition, encrypts it with the LUKS UUID from `disko.nix`, creates the btrfs subvolumes, installs NixOS, places the key and a checkout of this repo in your home, and asks for your password. Then reboot.
 
-7. **Set declarative passwords and provision the agenix identity**
-   *All are written to `/persist`, which is available during early activation.*
-   ```bash
-   sudo mkdir -p /mnt/persist/passwords
-   mkpasswd -m yescrypt | sudo tee /mnt/persist/passwords/apothecary
-   mkpasswd -m yescrypt | sudo tee /mnt/persist/passwords/root
-   sudo chmod 600 /mnt/persist/passwords/apothecary /mnt/persist/passwords/root
-   sudo install -D -m 600 /path/to/frieren-id_ed25519 /mnt/persist/home/apothecary/.ssh/id_ed25519
-   sudo chown -R 1000:100 /mnt/persist/home/apothecary
-   ```
-
-   Use the private key matching `frieren` in `secrets.nix`. Loading it into `ssh-agent` is also necessary for fetching the private firmware input, but the agent alone is not sufficient for agenix.
-
-8. **Install NixOS**
-   Ensure your SSH key is loaded so the flake can fetch the private firmware input, then run:
-   ```bash
-   sudo nixos-install --flake .#frieren --no-root-passwd
-   sudo reboot
-   ```
-
-9. **First boot & restore**
-   Log in. Because the `preservation` module uses bind mounts, `~/.ssh`, `~/.gnupg`, and `~/.password-store` are wired directly to `/persist`. The SSH identity is already present from installation; copy the remaining GPG material into `~/.gnupg` and clone the password store into `~/.password-store`. They will automatically survive the next reboot.
-
-   Update the repo's `disko.nix` with the new LUKS UUID (`sudo cryptsetup luksUUID /dev/nvme0n1pN`) for future rebuilds.
+When nixos-apple-silicon release notes request new device firmware, run the stock `curl https://alx.sh | sh` and choose **Rebuild vendor firmware package**. Copy the resulting `vendorfw/firmware.cpio` into the private `asahi-firmware` input and update its lock before rebuilding NixOS. This is currently required for ambient-light sensor calibration.
