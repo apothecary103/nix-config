@@ -61,14 +61,14 @@ nix run .#zmk-flash
    nix build .#packages.aarch64-linux.frieren-asahi-image -o frieren-image
    ```
 
-2. **From macOS:** run the Asahi wrapper with that build. It installs the image into a new 2.5 GB macOS stub container (which holds the boot policy and the startup disk entry) and new EFI and Root partitions, and leaves the existing partitions alone.
+2. **From macOS:** run the Asahi wrapper with that build. It is the official `alx.sh` bootstrap, reading the image from that directory. First it asks for the frieren password, the path to the `frieren` `id_ed25519`, and a Wi-Fi network, and bundles `~/nix-config`. Then it runs the Asahi Installer, which installs the image into a new 2.5 GB macOS stub container and new EFI and Root partitions, and leaves the existing partitions alone.
    ```bash
    sh modules/hosts/frieren/asahi.sh ./frieren-image
    ```
-   Follow its prompts to choose the size and bless the bootloader in recoveryOS.
+   Choose `f` (free space), **NixOS frieren**, the size, and a name. When the Mac shuts down, wait 25 s, hold the power button, pick the new OS, and finish in recoveryOS.
 
-3. **First boot:** on tty1, set your password, then paste the `frieren` `id_ed25519` key and press Ctrl-D. The key is what agenix uses, so the secrets decrypt after the next reboot.
+3. **First boot:** `frieren-first-boot` applies what `asahi.sh` collected, then deletes it from the ESP: password, key, Wi-Fi, `~/nix-config` (cloned, with the original remotes), and a pass of agenix. The greeter comes up with everything in place. Anything left blank in `asahi.sh` is asked for on tty1 instead.
 
-4. **Rebuilding:** an image install has a plain ext4 root, not the LUKS + btrfs layout in `disko.nix`. Rebuild it with `nh os switch -H frieren-image`. Plain `nh os switch` picks `frieren` by hostname, and that configuration waits for a LUKS root that does not exist, so it does not boot.
+4. **Rebuilding:** the installed machine is `nixosConfigurations.frieren` (ext4 root), so plain `nh os switch` is right. The LUKS + btrfs layout is `frieren-luks`, for `frieren-install` only.
 
 When nixos-apple-silicon release notes request new device firmware, run the stock `curl https://alx.sh | sh` and choose **Rebuild vendor firmware package**. Copy the resulting `vendorfw/firmware.cpio` into the private `asahi-firmware` input and update its lock before rebuilding NixOS. This is currently required for ambient-light sensor calibration.

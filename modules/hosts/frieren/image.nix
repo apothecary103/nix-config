@@ -1,12 +1,17 @@
 # The frieren system as an image the Asahi Installer writes into a new
 # partition, the same way it writes Fedora's images. The installer creates the
-# ESP and the Root partition itself, from the free space it makes by shrinking
-# macOS, and leaves the existing partitions alone.
+# ESP and the Root partition itself, from free space, and leaves the existing
+# partitions alone.
 #
-# This image is unencrypted: an image has to be a finished filesystem that the
-# installer copies, and LUKS needs a passphrase at install time, which an
-# image cannot hold. The LUKS layout in disko.nix stays for the other install
-# path (frieren-install), which runs from a live environment.
+# This is nixosConfigurations.frieren, so `nh os switch` on the installed
+# machine rebuilds this layout. The LUKS layout in disko.nix is
+# nixosConfigurations.frieren-luks, for the live-environment install path
+# (frieren-install); an image cannot hold a LUKS passphrase.
+#
+# Nothing secret is in the image. asahi.sh collects the password, the frieren
+# key, Wi-Fi and the repo on macOS and drops them on the new ESP as
+# frieren-seed/; frieren-first-boot applies them before the greeter starts and
+# deletes them. Anything missing from the seed is asked for on tty1 instead.
 {
   config,
   inputs,
@@ -21,9 +26,13 @@ let
     "13.5"
     "14.8.3"
   ];
+
+  # The ESP is mounted at /boot; asahi.sh writes the seed there.
+  seed = "/boot/frieren-seed";
+  home = "/home/${username}";
 in
 {
-  flake.nixosConfigurations.frieren-image = inputs.nixpkgs.lib.nixosSystem {
+  flake.nixosConfigurations.frieren = inputs.nixpkgs.lib.nixosSystem {
     modules = [
       config.flake.modules.nixos."hosts/frieren"
       (
@@ -39,17 +48,26 @@ in
           };
           boot.growPartition = true;
 
-          # Nothing secret is in the image. On the first boot, on tty1, the
-          # user sets a password and pastes the frieren key; agenix can then
-          # decrypt on the next boot.
           systemd.services.frieren-first-boot = {
-            description = "First-boot setup for frieren: password and key";
+            description = "First-boot setup for frieren: password, key, Wi-Fi, repo";
             wantedBy = [ "multi-user.target" ];
-            before = [ "greetd.service" ];
-            unitConfig.ConditionPathExists = "!/var/lib/frieren-first-boot";
+            before = [
+              "greetd.service"
+              "NetworkManager.service"
+            ];
+            unitConfig = {
+              ConditionPathExists = "!/var/lib/frieren-first-boot";
+              RequiresMountsFor = [
+                "/boot"
+                home
+              ];
+            };
             path = [
               pkgs.coreutils
+              pkgs.git
               pkgs.openssh
+              pkgs.shadow
+              pkgs.util-linux
             ];
             serviceConfig = {
               Type = "oneshot";
@@ -62,22 +80,73 @@ in
             };
             script = ''
               set -eu
-              echo "First boot of frieren. Set the password for ${username}:"
-              until /run/wrappers/bin/passwd ${username}; do
-                echo "Try again."
-              done
+              echo "First boot of frieren."
+              install -d -m 700 -o ${username} -g users ${home} ${home}/.ssh
 
-              echo "Paste the frieren id_ed25519 key, then press Ctrl-D:"
-              install -d -m 700 -o ${username} -g users /home/${username}
-              install -d -m 700 -o ${username} -g users /home/${username}/.ssh
+              if [ -s ${seed}/password.hash ]; then
+                echo "Setting the password for ${username} from the installer."
+                usermod -p "$(cat ${seed}/password.hash)" ${username}
+              else
+                echo "Set the password for ${username}:"
+                until /run/wrappers/bin/passwd ${username}; do
+                  echo "Try again."
+                done
+              fi
+
               key=$(mktemp)
-              cat >"$key"
-              install -m 600 -o ${username} -g users "$key" /home/${username}/.ssh/id_ed25519
-              ssh-keygen -y -f "$key" >/home/${username}/.ssh/id_ed25519.pub
-              chown ${username}:users /home/${username}/.ssh/id_ed25519.pub
-              rm -f "$key"
+              if [ -s ${seed}/id_ed25519 ]; then
+                echo "Installing the frieren key from the installer."
+                cat ${seed}/id_ed25519 >"$key"
+              else
+                until
+                  echo "Paste the frieren id_ed25519 key, press Enter, then Ctrl-D:"
+                  cat >"$key"
+                  ssh-keygen -y -P "" -f "$key" >/dev/null
+                do
+                  echo "That is not an unencrypted OpenSSH private key. Try again."
+                done
+              fi
+              install -m 600 -o ${username} -g users "$key" ${home}/.ssh/id_ed25519
+              ssh-keygen -y -P "" -f "$key" >${home}/.ssh/id_ed25519.pub
+              chown ${username}:users ${home}/.ssh/id_ed25519.pub
+              shred -u "$key"
 
+              if [ -s ${seed}/known_hosts ]; then
+                cat ${seed}/known_hosts >>${home}/.ssh/known_hosts
+                chown ${username}:users ${home}/.ssh/known_hosts
+                chmod 644 ${home}/.ssh/known_hosts
+              fi
+
+              # NetworkManager only loads root-owned 0600 keyfiles.
+              if [ -d ${seed}/system-connections ]; then
+                echo "Adding Wi-Fi networks."
+                install -d -m 700 /etc/NetworkManager/system-connections
+                for c in ${seed}/system-connections/*.nmconnection; do
+                  [ -e "$c" ] || continue
+                  install -m 600 "$c" /etc/NetworkManager/system-connections/
+                done
+              fi
+
+              if [ -s ${seed}/nix-config.bundle ] && [ ! -e ${home}/nix-config ]; then
+                echo "Cloning nix-config into ${home}/nix-config."
+                runuser -u ${username} -- git clone -q ${seed}/nix-config.bundle ${home}/nix-config
+                runuser -u ${username} -- git -C ${home}/nix-config remote remove origin
+                while read -r kind url; do
+                  case "$kind" in
+                    fetch) runuser -u ${username} -- git -C ${home}/nix-config remote add origin "$url" ;;
+                    push) runuser -u ${username} -- git -C ${home}/nix-config remote set-url --add --push origin "$url" ;;
+                  esac
+                done <${seed}/remotes 2>/dev/null || true
+              fi
+
+              # agenix decrypted during activation, before the key existed.
+              echo "Decrypting secrets."
+              /run/current-system/activate || echo "Activation reported errors; see the journal."
+
+              if [ -e ${seed}/id_ed25519 ]; then shred -u ${seed}/id_ed25519; fi
+              rm -rf ${seed}
               touch /var/lib/frieren-first-boot
+              echo "Done."
             '';
           };
         }
@@ -92,7 +161,7 @@ in
       ...
     }:
     let
-      image = inputs.self.nixosConfigurations.frieren-image.config;
+      image = inputs.self.nixosConfigurations.frieren.config;
 
       disk = import (inputs.nixpkgs + "/nixos/lib/make-disk-image.nix") {
         inherit lib pkgs;
@@ -148,6 +217,9 @@ in
                 '{ os_list: [{
                   name: $name,
                   default_os_name: "NixOS",
+                  # Not read by the Asahi Installer. asahi.sh only writes the
+                  # first-boot seed for an image whose first boot deletes it.
+                  frieren_seed: 1,
                   boot_object: "m1n1.bin",
                   next_object: "m1n1/boot.bin",
                   package: $package,
