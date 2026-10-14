@@ -1,11 +1,14 @@
 #!/bin/sh
-# Stage 1 of the frieren install, run from macOS:
-#   curl -L https://raw.githubusercontent.com/apothecary103/nix-config/main/modules/hosts/frieren/asahi.sh | sh
+# Installs frieren from macOS with the Asahi Installer: a finished NixOS system
+# image, the same way the Fedora images are installed. Nothing is downloaded
+# from GitHub; the image comes from this repo's build on your Mac.
 #
-# alx.sh, but the upstream installer is handed an OS list with a single
-# "NixOS (frieren)" entry: the current UEFI-only ESP plus an empty Root
-# partition taking the rest of the space, which `nix run .#frieren-install`
-# then encrypts and installs into.
+#   nix build .#packages.aarch64-linux.frieren-asahi-image -o frieren-image
+#   sh modules/hosts/frieren/asahi.sh ./frieren-image
+#
+# The installer creates a new EFI and Root partition from free space it makes
+# by shrinking macOS. It does not modify the existing partitions, including
+# the EFI - NIXOS and Linux Filesystem partitions already on the disk.
 
 # Truncation guard
 if true; then
@@ -16,21 +19,26 @@ if true; then
         exit 1
     fi
 
+    if [ -z "${1:-}" ] || [ ! -f "$1/frieren-asahi-image.zip" ] || [ ! -f "$1/installer_data.json" ]; then
+        echo "usage: sh asahi.sh <dir>"
+        echo "  <dir> holds frieren-asahi-image.zip and installer_data.json, from:"
+        echo "  nix build .#packages.aarch64-linux.frieren-asahi-image -o frieren-image"
+        exit 1
+    fi
+    IMAGE_DIR=$(cd "$1" && pwd -P)
+
+    # The installer reads data["os_list"]; a bare OS entry crashes it.
+    if ! grep -q '"os_list"' "$IMAGE_DIR/installer_data.json"; then
+        echo "$IMAGE_DIR/installer_data.json has no os_list; rebuild the image."
+        exit 1
+    fi
+
     export LC_ALL=en_US.UTF-8
     export LANG=en_US.UTF-8
     export PATH="/usr/bin:/bin:/usr/sbin:/sbin:$PATH"
 
     export VERSION_FLAG=https://cdn.asahilinux.org/installer/latest
     export INSTALLER_BASE=https://cdn.asahilinux.org/installer
-    export INSTALLER_DATA=https://github.com/AsahiLinux/asahi-installer-data/raw/prod/data/installer_data.json
-    export INSTALLER_DATA_ALT=https://alx.sh/installer_data.json
-    export REPO_BASE=https://cdn.asahilinux.org
-    export DISTRO=NixOS
-    export DISTRO_DOCS=https://github.com/apothecary103/nix-config#fresh-install-nixos--asahi
-
-    # The FAT serial modules/hosts/frieren/hardware-configuration.nix mounts
-    # /boot by (8622-1808), fixed here so a reinstall needs no repo edit.
-    ESP_VOLUME_ID=0x86221808
 
     TMP=/tmp/asahi-install
 
@@ -41,53 +49,27 @@ if true; then
         mv "$TMP" "$TMP-$(date +%Y%m%d-%H%M%S)"
     fi
 
-    mkdir -p "$TMP"
+    mkdir -p "$TMP/repo/os"
     cd "$TMP"
 
-    PKG_VER="$(curl --no-progress-meter -L "$VERSION_FLAG")"
+    PKG_VER="$(curl --no-progress-meter -fL "$VERSION_FLAG")"
+    if [ -z "$PKG_VER" ]; then
+        echo "Could not get the Asahi Installer version from $VERSION_FLAG."
+        exit 1
+    fi
     echo "  Version: $PKG_VER"
     PKG="installer-$PKG_VER.tar.gz"
 
-    echo "  Downloading..."
-    curl --no-progress-meter -L -o "$PKG" "$INSTALLER_BASE/$PKG"
-    if ! curl --no-progress-meter -L -o upstream_data.json "$INSTALLER_DATA"; then
-        curl --no-progress-meter -L -o upstream_data.json "$INSTALLER_DATA_ALT"
-    fi
+    echo "  Downloading the Asahi Installer..."
+    curl --no-progress-meter -fL -o "$PKG" "$INSTALLER_BASE/$PKG"
 
     echo "  Extracting..."
     tar xf "$PKG"
 
-    echo "  Writing the NixOS OS list..."
-    # The installer bundles its own Python; macOS no longer ships one.
-    DYLD_LIBRARY_PATH=$PWD/Frameworks/Python.framework/Versions/Current/lib \
-    DYLD_FRAMEWORK_PATH=$PWD/Frameworks \
-    Frameworks/Python.framework/Versions/Current/bin/python3 -I - "$ESP_VOLUME_ID" <<'EOF'
-import json, sys
-
-with open("upstream_data.json") as f:
-    data = json.load(f)
-
-# Track upstream's current UEFI-only package (m1n1 + U-Boot + ESP contents)
-# rather than pinning a zip name that goes stale with every Asahi release.
-uefi = next(
-    o for o in data["os_list"]
-    if o["name"].startswith("UEFI environment only") and not o.get("expert")
-)
-esp = dict(uefi["partitions"][0], volume_id=sys.argv[1])
-
-data["os_list"] = [dict(
-    uefi,
-    name="NixOS (frieren)",
-    default_os_name="NixOS",
-    partitions=[
-        esp,
-        {"name": "Root", "type": "Linux", "size": "32GB", "expand": True},
-    ],
-)]
-
-with open("installer_data.json", "w") as f:
-    json.dump(data, f)
-EOF
+    # The installer reads a package whose name is not a URL from REPO_BASE/os/.
+    ln -s "$IMAGE_DIR/frieren-asahi-image.zip" repo/os/frieren-asahi-image.zip
+    cp "$IMAGE_DIR/installer_data.json" installer_data.json
+    export REPO_BASE="$TMP/repo"
 
     echo "  Initializing..."
     echo
@@ -95,8 +77,8 @@ EOF
     if [ "$USER" != "root" ]; then
         echo "The installer needs to run as root."
         echo "Please enter your sudo password if prompted."
-        exec caffeinate -dis sudo -E ./install.sh "$@"
+        exec caffeinate -dis sudo -E ./install.sh
     else
-        exec caffeinate -dis ./install.sh "$@"
+        exec caffeinate -dis ./install.sh
     fi
 fi

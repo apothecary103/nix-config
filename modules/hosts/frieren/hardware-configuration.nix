@@ -17,6 +17,7 @@
 
       # The ESP doubles as the Asahi m1n1/U-Boot + vendor firmware carrier, so
       # it is kept out of disko — never reformat it — and mounted here instead.
+      # The Asahi Installer creates it with this FAT ID (image.nix).
       fileSystems."/boot" = {
         device = "/dev/disk/by-uuid/8622-1808";
         fsType = "vfat";

@@ -48,22 +48,27 @@ nix run .#zmk-flash
 
 ## Fresh Install (NixOS / Asahi)
 
-`frieren` runs on LUKS-encrypted btrfs. Firmware comes from a private flake input (`asahi-firmware`), and agenix decrypts with the same `~/.ssh/id_ed25519` that fetches it, so keep that key (the `frieren` entry in `secrets.nix`) on the installer USB.
+`frieren` is installed the way Fedora is on Apple Silicon: the Asahi Installer writes a finished system image into a new partition, so the first boot is already NixOS with this config. Nothing is downloaded from GitHub and no USB stick is needed.
 
 > [!TIP]
-> ^. .^₎Ⳋ&nbsp;&nbsp;Before you begin: make sure you have a reliable external backup of your macOS data. While resizing APFS containers is generally safe, low-level partitioning always carries minor risks.
+> ^. .^₎Ⳋ&nbsp;&nbsp;Before you begin: make sure you have a reliable external backup of your macOS data. The installer shrinks the macOS container to make room for the new partitions.
 
-1. **From macOS:** run our wrapper around the Asahi installer. It offers a single **NixOS (frieren)** option: the Asahi UEFI environment plus an empty root partition.
-   ```bash
-   curl -L https://raw.githubusercontent.com/apothecary103/nix-config/main/modules/hosts/frieren/asahi.sh | sh
-   ```
-   Follow its prompts to resize macOS and bless the bootloader in recoveryOS.
+> [!WARNING]
+> The frieren image is **not encrypted**. Disk encryption (`disko.nix`) needs a passphrase at install time, which an image can't hold. The LUKS layout is still there for the live-environment install path (`frieren-install`).
 
-2. **From the `nixos-apple-silicon` installer USB:** connect to Wi-Fi (`iwctl station wlan0 connect <SSID>`), then:
+1. **Build the image** (needs the aarch64-linux builder in `modules/system/nix.nix`):
    ```bash
-   sudo nix --extra-experimental-features 'nix-command flakes' \
-     run github:apothecary103/nix-config#frieren-install -- /path/to/frieren-id_ed25519
+   nix build .#packages.aarch64-linux.frieren-asahi-image -o frieren-image
    ```
-   This finds the new root partition, encrypts it with the LUKS UUID from `disko.nix`, creates the btrfs subvolumes, installs NixOS, places the key and a checkout of this repo in your home, and asks for your password. Then reboot.
+
+2. **From macOS:** run the Asahi wrapper with that build. It installs the image into a new 2.5 GB macOS stub container (which holds the boot policy and the startup disk entry) and new EFI and Root partitions, and leaves the existing partitions alone.
+   ```bash
+   sh modules/hosts/frieren/asahi.sh ./frieren-image
+   ```
+   Follow its prompts to choose the size and bless the bootloader in recoveryOS.
+
+3. **First boot:** on tty1, set your password, then paste the `frieren` `id_ed25519` key and press Ctrl-D. The key is what agenix uses, so the secrets decrypt after the next reboot.
+
+4. **Rebuilding:** an image install has a plain ext4 root, not the LUKS + btrfs layout in `disko.nix`. Rebuild it with `nh os switch -H frieren-image`. Plain `nh os switch` picks `frieren` by hostname, and that configuration waits for a LUKS root that does not exist, so it does not boot.
 
 When nixos-apple-silicon release notes request new device firmware, run the stock `curl https://alx.sh | sh` and choose **Rebuild vendor firmware package**. Copy the resulting `vendorfw/firmware.cpio` into the private `asahi-firmware` input and update its lock before rebuilding NixOS. This is currently required for ambient-light sensor calibration.

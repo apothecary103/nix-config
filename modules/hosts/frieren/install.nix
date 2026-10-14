@@ -1,7 +1,6 @@
-# Stage 2 of the frieren install, run as root from the nixos-apple-silicon
-# installer after modules/hosts/frieren/asahi.sh:
-#   nix --extra-experimental-features 'nix-command flakes' \
-#     run github:apothecary103/nix-config#frieren-install -- /path/to/id_ed25519
+# The LUKS install of frieren, the alternative to the image (./image.nix). Run
+# as root from any NixOS live environment with the ESP and Root partitions in place:
+#   frieren-install /path/to/id_ed25519
 {
   config,
   lib,
@@ -58,13 +57,18 @@ in
             fi
             esp=$(realpath ${espDevice})
             disk=/dev/$(lsblk -no PKNAME "$esp")
-            root=$(
-              sfdisk -J "$disk" | jq -r --arg esp "$esp" '
-                .partitiontable.partitions
-                | (map(select(.node == $esp))[0] | .start + .size) as $end
-                | map(select(.start >= $end)) | sort_by(.start) | .[0].node // empty
-              '
-            )
+            # install-existing.sh names the partition it creates Frieren;
+            # without it, the Root partition follows the ESP.
+            root=$(realpath -e /dev/disk/by-partlabel/Frieren 2>/dev/null || true)
+            if [ -z "$root" ]; then
+              root=$(
+                sfdisk -J "$disk" | jq -r --arg esp "$esp" '
+                  .partitiontable.partitions
+                  | (map(select(.node == $esp))[0] | .start + .size) as $end
+                  | map(select(.start >= $end)) | sort_by(.start) | .[0].node // empty
+                '
+              )
+            fi
             if [ -z "$root" ]; then
               echo "No partition follows the ESP $esp: run asahi.sh from macOS first." >&2
               exit 1
@@ -108,9 +112,10 @@ in
 
             umount -R /mnt
             cryptsetup close ${frieren.disko.devices.disk.root.content.name}
-            echo "Done. Remove the USB stick and reboot."
+            echo "Done. Reboot."
           '';
         };
+        disko = inputs'.disko.packages.disko;
       };
     };
 }
