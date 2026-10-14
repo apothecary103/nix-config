@@ -7,7 +7,11 @@
         enable = true;
 
         package =
-          inputs.steelix.packages.${pkgs.stdenv.hostPlatform.system}.helix.overrideAttrs
+          (inputs.steelix.packages.${pkgs.stdenv.hostPlatform.system}.helix.override {
+            # The perl grammar's bundled bsearch.c doesn't compile against
+            # glibc 2.44 headers (Linux only), so Linux builds leave it out.
+            includeGrammarIf = grammar: !(pkgs.stdenv.hostPlatform.isLinux && grammar.name == "perl");
+          }).overrideAttrs
             (previous: {
               cargoBuildFeatures = (previous.cargoBuildFeatures or [ ]) ++ [ "steel" ];
             });
