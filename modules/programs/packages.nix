@@ -17,7 +17,7 @@
         tokei
         krabby
         claude-code
-        grok-build
+        pi-coding-agent
         glow
         util-linux
         tree-sitter
