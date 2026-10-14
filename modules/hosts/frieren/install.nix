@@ -8,7 +8,7 @@
   ...
 }:
 let
-  frieren = config.flake.nixosConfigurations.frieren.config;
+  frieren = config.flake.nixosConfigurations.frieren-luks.config;
   luksDevice = frieren.disko.devices.disk.root.device;
   espDevice = frieren.fileSystems."/boot".device;
 in
@@ -94,7 +94,7 @@ in
             cryptsetup luksFormat --type luks2 --uuid ${lib.removePrefix "/dev/disk/by-uuid/" luksDevice} "$root"
             cryptsetup open --allow-discards "$root" ${frieren.disko.devices.disk.root.content.name}
             udevadm settle
-            disko --mode format,mount --flake "$flake#frieren"
+            disko --mode format,mount --flake "$flake#frieren-luks"
             mkdir -p /mnt/boot
             mount -o fmask=0022,dmask=0022 "$esp" /mnt/boot
 
@@ -103,7 +103,7 @@ in
             install -D -m 600 "$key" /mnt/home/${username}/.ssh/id_ed25519
             ssh-keygen -y -f "$key" > /mnt/home/${username}/.ssh/id_ed25519.pub
 
-            nixos-install --flake "$flake#frieren" --no-root-passwd --no-channel-copy
+            nixos-install --flake "$flake#frieren-luks" --no-root-passwd --no-channel-copy
 
             cp -a "$flake" /mnt/home/${username}/nix-config
             nixos-enter --root /mnt -c 'chown -R ${username}:users /home/${username}'

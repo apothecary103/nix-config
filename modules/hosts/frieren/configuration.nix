@@ -30,7 +30,9 @@
     system.stateVersion = "25.11";
   };
 
-  flake.nixosConfigurations.frieren = inputs.nixpkgs.lib.nixosSystem {
+  # The LUKS + btrfs layout (disko.nix), installed from a live environment by
+  # frieren-install. The Asahi image (image.nix) is nixosConfigurations.frieren.
+  flake.nixosConfigurations.frieren-luks = inputs.nixpkgs.lib.nixosSystem {
     modules = [ config.flake.modules.nixos."hosts/frieren" ];
   };
 }

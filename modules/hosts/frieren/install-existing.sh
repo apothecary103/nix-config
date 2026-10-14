@@ -100,7 +100,7 @@ flake_dir=$(realpath "$flake_dir")
 
 # Everything install-time comes from the flake, so the ESP, LUKS UUID, LUKS
 # name and user stay in sync with hardware-configuration.nix and disko.nix.
-cfg="$flake_dir#nixosConfigurations.frieren.config"
+cfg="$flake_dir#nixosConfigurations.frieren-luks.config"
 esp_partuuid=$(nix eval --raw "$cfg.fileSystems.\"/boot\".device" | sed 's#.*/##')
 luks_uuid=$(nix eval --raw "$cfg.disko.devices.disk.root.device" | sed 's#.*/##')
 luks_name=$(nix eval --raw "$cfg.disko.devices.disk.root.content.name")
@@ -230,7 +230,7 @@ luks_open=1
 udevadm settle
 
 log "btrfs layout from disko.nix"
-nix run "$flake_dir#disko" -- --mode format,mount --flake "$flake_dir#frieren"
+nix run "$flake_dir#disko" -- --mode format,mount --flake "$flake_dir#frieren-luks"
 mounted_root=1
 
 mkdir -p /mnt/boot
@@ -240,7 +240,7 @@ install -D -m 600 "$key" "/mnt/home/$user/.ssh/id_ed25519"
 ssh-keygen -y -f "$key" >"/mnt/home/$user/.ssh/id_ed25519.pub"
 
 log "nixos-install"
-nixos-install --flake "$flake_dir#frieren" --no-root-passwd --no-channel-copy
+nixos-install --flake "$flake_dir#frieren-luks" --no-root-passwd --no-channel-copy
 
 cp -a "$flake_dir" "/mnt/home/$user/nix-config"
 nixos-enter --root /mnt -c "chown -R $user:users /home/$user"
