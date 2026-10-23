@@ -19,4 +19,21 @@
 
     services.blueman.enable = true;
   };
+
+  # blueman starts its tray applet through XDG autostart, which sway never
+  # runs, so it comes up with the session instead.
+  flake.modules.hjem.linux =
+    { lib, pkgs, ... }:
+    {
+      systemd.services.blueman-applet = {
+        description = "Bluetooth tray applet";
+        wantedBy = [ "sway-session.target" ];
+        partOf = [ "graphical-session.target" ];
+        after = [ "graphical-session.target" ];
+        serviceConfig = {
+          ExecStart = lib.getExe' pkgs.blueman "blueman-applet";
+          Restart = "on-failure";
+        };
+      };
+    };
 }
