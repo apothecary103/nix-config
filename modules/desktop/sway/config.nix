@@ -100,7 +100,6 @@
         pkgs.fuzzel
         pkgs.brightnessctl
         pkgs.playerctl
-        pkgs.swaylock
         pkgs.wireplumber
         statusCommand
         screenshot
