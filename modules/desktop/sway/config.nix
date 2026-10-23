@@ -117,7 +117,10 @@
           set $term ${terminal}
           set $menu ${menu}
 
-          output eDP-1 scale 2
+          # ProMotion's top fixed rate (VRR is not in the kernel yet), at the
+          # integer 2x macOS uses for its default 1512x982. DCP takes 10-bit
+          # scanout, which keeps P3 gradients from banding.
+          output eDP-1 mode 3024x1964@120Hz scale 2 render_bit_depth 10
           output * bg ${base} solid_color
 
           # Key repeat as on macOS here: HIDInitialKeyRepeat 166 ms, HIDKeyRepeat 33 ms.
