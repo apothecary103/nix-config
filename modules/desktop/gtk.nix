@@ -16,7 +16,9 @@
               cursor-theme = "WhiteSur-cursors";
               # The schema types this `i`, which a bare Nix int is ambiguous for.
               cursor-size = lib.gvariant.mkInt32 24;
-              font-name = "Adwaita Sans 11";
+              # macOS sets UI text at 13 pt, and a macOS point is a logical pixel;
+              # at 96 dpi, 9.75 pt is that same 13 px (11 pt would be 14.7).
+              font-name = "Adwaita Sans 9.75";
               monospace-font-name = "Maple Mono NF CN 11";
             };
           }
@@ -48,7 +50,7 @@
         ];
 
         settings = {
-          font-name = "Adwaita Sans 11";
+          font-name = "Adwaita Sans 9.75";
 
           icon-theme-name = "Adwaita";
           cursor-theme-name = "WhiteSur-cursors";
