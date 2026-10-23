@@ -1,0 +1,18 @@
+drm/apple: blend XRGB2101010 as premultiplied
+
+XRGB2101010 maps to l10r, which has alpha, so its two X bits are read as
+alpha. The premultiplied-over-black workaround for formats without alpha
+lists XBGR2101010 instead, which appledrm neither advertises nor maps; a
+client buffer scanned out directly with garbage X bits would turn partly
+transparent. Treat XRGB2101010 like the other X formats.
+
+--- a/drivers/gpu/drm/apple/plane.c
++++ b/drivers/gpu/drm/apple/plane.c
+@@ -232,6 +232,7 @@
+ 	 */
+ 	if (fmt->format == DRM_FORMAT_XRGB8888 ||
+ 	    fmt->format == DRM_FORMAT_XBGR8888 ||
++	    fmt->format == DRM_FORMAT_XRGB2101010 ||
+ 	    fmt->format == DRM_FORMAT_XBGR2101010)
+ 		is_premultiplied = true;
+ 
