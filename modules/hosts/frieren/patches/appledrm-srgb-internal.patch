@@ -1,11 +1,14 @@
-drm/apple: send RGB planes on the internal panel as sRGB
+drm/apple: tag RGB planes on the internal panel as sRGB
 
-5067ac875081 ("drm/apple: Only assume RGB planes on internal displays are
-sRGB") inverted both halves of 1167fdfa0a42: get_colorspace() went back to
-NATIVE for every RGB plane, and the eDP check turns sRGB into NATIVE instead
-of the other way round. The internal P3 panel then shows sRGB content without
-gamut mapping, oversaturated. This restores what that commit describes: RGB
-planes are sRGB, and only external displays get NATIVE.
+667ca85b1804 made get_colorspace() return BG_SRGB for RGB planes, so DCP
+maps them from sRGB into the panel's native gamut; NATIVE on the P3 MacBook
+panels gives oversaturated colours. e49109f8b7b2 ("drm/apple: Only assume RGB
+planes on internal displays are sRGB", 5067ac875081 on the asahi tags)
+reverted that line and added an eDP check that turns BG_SRGB into NATIVE on
+the internal panel, the opposite of its subject and comment. Every RGB plane
+on every connector has been NATIVE since asahi-6.18.7-1 and the eDP branch is
+dead code. Return BG_SRGB for RGB planes again and send NATIVE to external
+displays only, as that commit describes.
 
 --- a/drivers/gpu/drm/apple/iomfb_template.c
 +++ b/drivers/gpu/drm/apple/iomfb_template.c
