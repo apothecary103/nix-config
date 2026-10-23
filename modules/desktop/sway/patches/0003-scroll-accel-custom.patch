@@ -1,0 +1,187 @@
+Adds scroll_accel_custom, the scroll half of the custom profile, so touchpad
+scrolling can follow its own curve alongside pointer_accel_custom.
+
+diff --git a/include/sway/commands.h b/include/sway/commands.h
+index b153338..cd76d3d 100644
+--- a/include/sway/commands.h
++++ b/include/sway/commands.h
+@@ -265,6 +265,7 @@ sway_cmd input_cmd_middle_emulation;
+ sway_cmd input_cmd_natural_scroll;
+ sway_cmd input_cmd_pointer_accel;
+ sway_cmd input_cmd_pointer_accel_custom;
++sway_cmd input_cmd_scroll_accel_custom;
+ sway_cmd input_cmd_rotation_angle;
+ sway_cmd input_cmd_scroll_factor;
+ sway_cmd input_cmd_repeat_delay;
+diff --git a/include/sway/config.h b/include/sway/config.h
+index b79a9c2..1b6e2b3 100644
+--- a/include/sway/config.h
++++ b/include/sway/config.h
+@@ -166,6 +166,7 @@ struct input_config {
+ 	int natural_scroll;
+ 	float pointer_accel;
+ 	struct accel_custom pointer_accel_custom;
++	struct accel_custom scroll_accel_custom;
+ 	float rotation_angle;
+ 	float scroll_factor;
+ 	int repeat_delay;
+diff --git a/sway/commands/input.c b/sway/commands/input.c
+index 48da71a..8ba0b77 100644
+--- a/sway/commands/input.c
++++ b/sway/commands/input.c
+@@ -28,6 +28,7 @@ static const struct cmd_handler input_handlers[] = {
+ 	{ "repeat_delay", input_cmd_repeat_delay },
+ 	{ "repeat_rate", input_cmd_repeat_rate },
+ 	{ "rotation_angle", input_cmd_rotation_angle },
++	{ "scroll_accel_custom", input_cmd_scroll_accel_custom },
+ 	{ "scroll_button", input_cmd_scroll_button },
+ 	{ "scroll_button_lock", input_cmd_scroll_button_lock },
+ 	{ "scroll_factor", input_cmd_scroll_factor },
+diff --git a/sway/commands/input/pointer_accel.c b/sway/commands/input/pointer_accel.c
+index e64342c..a4fe596 100644
+--- a/sway/commands/input/pointer_accel.c
++++ b/sway/commands/input/pointer_accel.c
+@@ -31,32 +31,47 @@ struct cmd_results *input_cmd_pointer_accel(int argc, char **argv) {
+ #if HAVE_LIBINPUT_CONFIG_ACCEL_PROFILE_CUSTOM
+ #define ARRAY_SIZE(a) (sizeof(a)/sizeof(a[0]))
+ #define ACCEL_CUSTOM_MAX (1 + ARRAY_SIZE(((struct input_config *)0)->pointer_accel_custom.points))
+-struct cmd_results *input_cmd_pointer_accel_custom(int argc, char **argv) {
++static struct cmd_results *parse_accel_custom(const char *name,
++		struct accel_custom *custom, int argc, char **argv) {
+ 	struct cmd_results *error = NULL;
+-	if ((error = checkarg(argc, "pointer_accel_custom", EXPECTED_AT_LEAST, 3))) {
++	if ((error = checkarg(argc, name, EXPECTED_AT_LEAST, 3))) {
+ 		return error;
+ 	}
+-	if ((error = checkarg(argc, "pointer_accel_custom", EXPECTED_AT_MOST, ACCEL_CUSTOM_MAX))) {
++	if ((error = checkarg(argc, name, EXPECTED_AT_MOST, ACCEL_CUSTOM_MAX))) {
+ 		return error;
+ 	}
+-	struct input_config *ic = config->handler_context.input_config;
+-	if (!ic) {
+-		return cmd_results_new(CMD_FAILURE, "No input device defined.");
+-	}
+ 
+ 	for(int i=0; i<argc; ++i) {
+ 		double dbl = parse_float(argv[i]);
+ 		if (isnan(dbl) || dbl < 0.0) {
+ 			return cmd_results_new(CMD_INVALID,
+-				"Invalid pointer_accel_custom value; expected non-negative double.");
++				"Invalid %s value; expected non-negative double.", name);
+ 		}
+ 		if (i == 0) {
+-			ic->pointer_accel_custom.step = dbl;
++			custom->step = dbl;
+ 		} else {
+-			ic->pointer_accel_custom.points[i-1] = dbl;
++			custom->points[i-1] = dbl;
+ 		}
+ 	}
+-	ic->pointer_accel_custom.npoints = argc - 1;
++	custom->npoints = argc - 1;
+ 	return cmd_results_new(CMD_SUCCESS, NULL);
+ }
++
++struct cmd_results *input_cmd_pointer_accel_custom(int argc, char **argv) {
++	struct input_config *ic = config->handler_context.input_config;
++	if (!ic) {
++		return cmd_results_new(CMD_FAILURE, "No input device defined.");
++	}
++	return parse_accel_custom("pointer_accel_custom",
++		&ic->pointer_accel_custom, argc, argv);
++}
++
++struct cmd_results *input_cmd_scroll_accel_custom(int argc, char **argv) {
++	struct input_config *ic = config->handler_context.input_config;
++	if (!ic) {
++		return cmd_results_new(CMD_FAILURE, "No input device defined.");
++	}
++	return parse_accel_custom("scroll_accel_custom",
++		&ic->scroll_accel_custom, argc, argv);
++}
+ #endif
+diff --git a/sway/config/input.c b/sway/config/input.c
+index e408d92..3daf7e9 100644
+--- a/sway/config/input.c
++++ b/sway/config/input.c
+@@ -177,6 +177,9 @@ void merge_input_config(struct input_config *dst, struct input_config *src) {
+ 	if (src->pointer_accel_custom.npoints) {
+ 		memcpy(&dst->pointer_accel_custom, &src->pointer_accel_custom, sizeof(src->pointer_accel_custom));
+ 	}
++	if (src->scroll_accel_custom.npoints) {
++		memcpy(&dst->scroll_accel_custom, &src->scroll_accel_custom, sizeof(src->scroll_accel_custom));
++	}
+ 	for (int i = 0; i < src->tools->length; i++) {
+ 		struct input_config_tool *src_tool = src->tools->items[i];
+ 		for (int j = 0; j < dst->tools->length; j++) {
+diff --git a/sway/input/libinput.c b/sway/input/libinput.c
+index a08c2dd..5187ae7 100644
+--- a/sway/input/libinput.c
++++ b/sway/input/libinput.c
+@@ -240,19 +240,27 @@ static bool set_calibration_matrix(struct libinput_device *dev, float mat[6]) {
+ }
+ 
+ #if HAVE_LIBINPUT_CONFIG_ACCEL_PROFILE_CUSTOM
+-static bool set_pointer_accel_custom(struct libinput_device *dev, struct accel_custom *custom) {
+-		sway_log(SWAY_DEBUG, "pointer_accel_config(npoints %lu, step %f)", custom->npoints, custom->step);
+-		if (custom->npoints == 0) {
+-			return false;
+-		}
+-		struct libinput_config_accel *accel_config =
+-			libinput_config_accel_create(LIBINPUT_CONFIG_ACCEL_PROFILE_CUSTOM);
+-		log_status(libinput_config_accel_set_points(accel_config, LIBINPUT_ACCEL_TYPE_MOTION,
+-			custom->step, custom->npoints, custom->points));
+-		log_status(libinput_device_config_accel_apply(dev, accel_config));
+-		libinput_config_accel_destroy(accel_config);
+-		/* there is no way to read back the custom points/step from libinput */
++static bool set_accel_custom(struct libinput_device *dev,
++		struct accel_custom *motion, struct accel_custom *scroll) {
++	sway_log(SWAY_DEBUG, "accel_custom(motion npoints %zu step %f, scroll npoints %zu step %f)",
++		motion->npoints, motion->step, scroll->npoints, scroll->step);
++	if (motion->npoints == 0 && scroll->npoints == 0) {
+ 		return false;
++	}
++	struct libinput_config_accel *accel_config =
++		libinput_config_accel_create(LIBINPUT_CONFIG_ACCEL_PROFILE_CUSTOM);
++	if (motion->npoints) {
++		log_status(libinput_config_accel_set_points(accel_config, LIBINPUT_ACCEL_TYPE_MOTION,
++			motion->step, motion->npoints, motion->points));
++	}
++	if (scroll->npoints) {
++		log_status(libinput_config_accel_set_points(accel_config, LIBINPUT_ACCEL_TYPE_SCROLL,
++			scroll->step, scroll->npoints, scroll->points));
++	}
++	log_status(libinput_device_config_accel_apply(dev, accel_config));
++	libinput_config_accel_destroy(accel_config);
++	/* there is no way to read back the custom points/step from libinput */
++	return false;
+ }
+ #endif
+ 
+@@ -313,7 +321,8 @@ bool sway_input_configure_libinput_device(struct sway_input_device *input_device
+ 		changed |= set_accel_profile(device, ic->accel_profile);
+ #if HAVE_LIBINPUT_CONFIG_ACCEL_PROFILE_CUSTOM
+ 		if (ic->accel_profile == LIBINPUT_CONFIG_ACCEL_PROFILE_CUSTOM) {
+-			set_pointer_accel_custom(device, &ic->pointer_accel_custom);
++			set_accel_custom(device, &ic->pointer_accel_custom,
++				&ic->scroll_accel_custom);
+ 		}
+ #endif
+ 	}
+diff --git a/sway/sway-input.5.scd b/sway/sway-input.5.scd
+index 7d15d85..0b173fb 100644
+--- a/sway/sway-input.5.scd
++++ b/sway/sway-input.5.scd
+@@ -203,6 +203,12 @@ The following commands may only be used in the configuration file.
+ 	Sets the rotation angle of the device to the given clockwise angle in
+ 	degrees. The angle must be between 0.0 (inclusive) and 360.0 (exclusive).
+ 
++*input* <identifier> scroll_accel_custom <step> <point0 point1 ... pointN>
++	Like *pointer_accel_custom*, but for scrolling: the curve maps scroll
++	speed in device units per millisecond to output scroll speed. Only used
++	when accel_profile is set to _custom_. Without it, scrolling falls back to
++	libinput's unaccelerated 1:1 curve. Requires libinput >= 1.23.0.
++
+ *input* <identifier> scroll_button disable|button[1-3,8,9]|<event-code-or-name>
+ 	Sets the button used for scroll_method on_button_down. The button can
+ 	be given as an event name or code, which can be obtained from *libinput
