@@ -9,9 +9,10 @@
         config = {
           profile = "high-quality";
           vo = "gpu-next";
-          # videotoolbox is darwin-only; Apple Silicon under Asahi has no
-          # usable hardware decode, so frieren decodes in software anyway.
-          hwdec = if pkgs.stdenv.hostPlatform.isDarwin then "videotoolbox" else "no";
+          # VideoToolbox on darwin; on Asahi the AVD decoder through VA-API
+          # (hardware.asahi.avd), which mpv drops back from to software when a
+          # codec is unsupported.
+          hwdec = if pkgs.stdenv.hostPlatform.isDarwin then "videotoolbox" else "vaapi";
 
           icc-profile-auto = true;
           target-colorspace-hint = true;
