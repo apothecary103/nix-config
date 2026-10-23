@@ -14,6 +14,14 @@
       swaylock = "${lib.getExe pkgs.swaylock} -f -c ${lib.removePrefix "#" palette.surface.background}";
       brightnessctl = lib.getExe pkgs.brightnessctl;
       swaymsg = lib.getExe' pkgs.sway-unwrapped "swaymsg";
+
+      # apple-panel-bl counts in nits, so an absolute target would brighten a
+      # screen already below it. Halve instead, but stay clear of the 2 nits
+      # where the backlight switches off. -s saves the level for -r either way.
+      dim = pkgs.writeShellScript "dim" ''
+        cur=$(${brightnessctl} get)
+        ${brightnessctl} -s set $((cur > 6 ? cur / 2 : cur))
+      '';
     in
     {
       packages = [ pkgs.swaylock ];
@@ -32,7 +40,7 @@
             "-w"
             "timeout"
             "590"
-            "${brightnessctl} -s set 20%"
+            "${dim}"
             "resume"
             "${brightnessctl} -r"
             "timeout"
