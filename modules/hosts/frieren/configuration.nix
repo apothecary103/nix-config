@@ -23,6 +23,9 @@
     hardware.asahi = {
       enable = true;
       peripheralFirmwareDirectory = inputs.asahi-firmware;
+      # Hardware video decode on the AVD block, as VideoToolbox does on macOS.
+      # Experimental upstream; players fall back to software when it fails.
+      avd.vaapi-support = true;
     };
 
     # This records the on-disk schema from the original installation. Do not
