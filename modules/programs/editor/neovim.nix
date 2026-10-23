@@ -510,13 +510,17 @@ let
   };
 in
 {
-  flake.modules.nixos.base.imports = [
-    inputs.nvf.nixosModules.nvf
-    neovim
-  ];
+  flake.modules.nixos.base = {
+    imports = [
+      inputs.nvf.nixosModules.nvf
+      neovim
+    ];
+  };
 
-  flake.modules.darwin.base.imports = [
-    inputs.nvf.darwinModules.nvf
-    neovim
-  ];
+  flake.modules.darwin.base = {
+    imports = [
+      inputs.nvf.darwinModules.nvf
+      neovim
+    ];
+  };
 }
