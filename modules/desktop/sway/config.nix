@@ -231,8 +231,8 @@
           bindsym --locked XF86AudioLowerVolume exec swayosd-client --output-volume lower
           bindsym --locked XF86AudioMute exec swayosd-client --output-volume mute-toggle
           bindsym --locked XF86AudioMicMute exec swayosd-client --input-volume mute-toggle
-          bindsym --locked XF86MonBrightnessUp exec swayosd-client --brightness raise
-          bindsym --locked XF86MonBrightnessDown exec swayosd-client --brightness lower
+          bindsym --locked XF86MonBrightnessUp exec swayosd-client --device apple-panel-bl --brightness raise
+          bindsym --locked XF86MonBrightnessDown exec swayosd-client --device apple-panel-bl --brightness lower
           bindsym XF86Sleep exec makoctl mode -t do-not-disturb
           bindsym --locked XF86AudioPlay exec playerctl play-pause
           bindsym --locked XF86AudioPause exec playerctl play-pause
