@@ -16,10 +16,12 @@
 # normalisation, so the curves are built for the device's resolution. At scale 2
 # a logical pixel is a macOS point (both lay this panel out as 1512x982).
 {
-  # Device units per mm. Check on Linux with `libinput list-devices` (Size) or
-  # `evemu-describe` (ABS_MT_POSITION_X resolution); hid-magicmouse derives it
-  # from the trackpad's own sensor-dimensions report.
-  resolution ? 100,
+  # Device units per mm along x (libinput scales y to match). hid-magicmouse
+  # takes the span and size from the trackpad's sensor-dimensions report, which
+  # is the IORegistry's "Sensor Surface Descriptor": x runs -5896..6416 over
+  # 124.80 mm. The kernel advertises this truncated to 98; the deltas libinput
+  # sees are in the real units.
+  resolution ? (6416 + 5896) / 124.80,
   # Content speed for slow two-finger scrolling, in logical px per mm of finger
   # travel. 5 is 1:1 on this 254 ppi panel at scale 2 (1512 px across 302 mm).
   scrollBaseline ? 5.0,
