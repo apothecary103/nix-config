@@ -11,8 +11,8 @@ in
 
     disko.devices.disk.root = {
       type = "disk";
-      # frieren-install (./install.nix) luksFormats the Root partition with
-      # this UUID, so the same value serves both a fresh install and boot.
+      # luksFormat the Root partition with `--uuid` set to this by hand on a
+      # fresh install, so the config boots unchanged.
       device = "/dev/disk/by-uuid/a0c92d69-f406-4dc1-89af-000fc1ac204e";
       content = {
         type = "luks";
