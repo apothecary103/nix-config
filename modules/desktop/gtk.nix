@@ -59,8 +59,8 @@
           # don't render text differently from everything else.
           application-prefer-dark-theme = 1;
           xft-antialias = 1;
-          xft-hinting = 0;
-          xft-hintstyle = "hintnone";
+          xft-hinting = 1;
+          xft-hintstyle = "hintslight";
           xft-rgba = "none";
         };
       };
