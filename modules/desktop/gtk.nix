@@ -20,6 +20,12 @@
               # at 96 dpi, 9.75 pt is that same 13 px (11 pt would be 14.7).
               font-name = "Adwaita Sans 9.75";
               monospace-font-name = "Maple Mono NF CN 11";
+              # What GTK3 on Wayland actually reads for rendering (its own
+              # fallback without the schema is medium hinting, which skips the
+              # autofitter's stem darkening). GTK4's automatic font rendering
+              # already uses slight, grayscale and unhinted metrics.
+              font-hinting = "slight";
+              font-antialiasing = "grayscale";
             };
           }
         ];
@@ -53,8 +59,8 @@
           cursor-theme-name = "WhiteSur-cursors";
           cursor-theme-size = 24;
 
-          # Keep GTK's own XSETTINGS in step with fontconfig.nix, so GTK apps
-          # don't render text differently from everything else.
+          # In step with fontconfig.nix for GTK3 under X11. On Wayland GTK3
+          # takes these from the dconf keys above and GTK4 ignores them.
           application-prefer-dark-theme = 1;
           xft-antialias = 1;
           xft-hinting = 1;
