@@ -105,6 +105,11 @@
 
       xdg.config.files = {
         "sway/config".text = ''
+          # NixOS's own snippets: exporting the session environment to D-Bus and
+          # systemd, and starting sway-session.target. Portals and every user
+          # unit bound to graphical-session.target depend on them.
+          include /etc/sway/config.d/*
+
           set $mod Mod4
           set $term ${terminal}
           set $menu ${menu}
