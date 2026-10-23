@@ -226,12 +226,12 @@
           bindsym $mod+Shift+3 exec sway-screenshot screen
           bindsym $mod+Shift+4 exec sway-screenshot area
 
-          bindsym --locked XF86AudioRaiseVolume exec wpctl set-volume -l 1.0 @DEFAULT_AUDIO_SINK@ 5%+
-          bindsym --locked XF86AudioLowerVolume exec wpctl set-volume @DEFAULT_AUDIO_SINK@ 5%-
-          bindsym --locked XF86AudioMute exec wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle
-          bindsym --locked XF86AudioMicMute exec wpctl set-mute @DEFAULT_AUDIO_SOURCE@ toggle
-          bindsym --locked XF86MonBrightnessUp exec brightnessctl set +5%
-          bindsym --locked XF86MonBrightnessDown exec brightnessctl set 5%-
+          bindsym --locked XF86AudioRaiseVolume exec swayosd-client --output-volume raise --max-volume 100
+          bindsym --locked XF86AudioLowerVolume exec swayosd-client --output-volume lower
+          bindsym --locked XF86AudioMute exec swayosd-client --output-volume mute-toggle
+          bindsym --locked XF86AudioMicMute exec swayosd-client --input-volume mute-toggle
+          bindsym --locked XF86MonBrightnessUp exec swayosd-client --brightness raise
+          bindsym --locked XF86MonBrightnessDown exec swayosd-client --brightness lower
           bindsym XF86Sleep exec makoctl mode -t do-not-disturb
           bindsym --locked XF86AudioPlay exec playerctl play-pause
           bindsym --locked XF86AudioPause exec playerctl play-pause
