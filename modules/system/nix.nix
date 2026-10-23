@@ -1,3 +1,4 @@
+{ username, ... }:
 let
   nix = {
     nixpkgs.config.allowUnfree = true;
@@ -34,16 +35,15 @@ in
 
   flake.modules.darwin.base = {
     imports = [ nix ];
-    # A NixOS VM on this Mac, so frieren's aarch64-linux install image can be
-    # built here without another machine.
+    # A NixOS VM on this Mac, so frieren's aarch64-linux system can be built
+    # here without another machine.
     nix.linux-builder = {
       enable = true;
       systems = [ "aarch64-linux" ];
-      # Keeps the VM disk on the external drive; the image build needs far more
+      # Keeps the VM disk on the external drive; a full system build needs more
       # room than the internal disk has.
-      workingDirectory = "/Users/apothecary/linux-builder";
-      # The image build needs more than the VM default of 20 GiB, both for the
-      # store and for the packaged root image.
+      workingDirectory = "/Users/${username}/linux-builder";
+      # A full system closure needs more than the VM default of 20 GiB.
       config.virtualisation.darwin-builder = {
         diskSize = 100 * 1024;
         memorySize = 8 * 1024;
