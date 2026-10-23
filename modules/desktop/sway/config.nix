@@ -232,6 +232,7 @@
           bindsym --locked XF86AudioMicMute exec wpctl set-mute @DEFAULT_AUDIO_SOURCE@ toggle
           bindsym --locked XF86MonBrightnessUp exec brightnessctl set +5%
           bindsym --locked XF86MonBrightnessDown exec brightnessctl set 5%-
+          bindsym XF86Sleep exec makoctl mode -t do-not-disturb
           bindsym --locked XF86AudioPlay exec playerctl play-pause
           bindsym --locked XF86AudioPause exec playerctl play-pause
           bindsym --locked XF86AudioStop exec playerctl stop
