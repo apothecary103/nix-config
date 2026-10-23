@@ -146,6 +146,12 @@
             pointer_accel_custom ${macosAccel.pointer}
             scroll_accel_custom ${macosAccel.scroll}
           }
+
+          # With three-finger drag on, macOS moves Spaces to four fingers, and a
+          # thumb-and-three-finger pinch opens Launchpad.
+          bindgesture swipe:4:left workspace next
+          bindgesture swipe:4:right workspace prev
+          bindgesture pinch:4:inward exec $menu
           seat * xcursor_theme WhiteSur-cursors 24
 
           default_border pixel 2
