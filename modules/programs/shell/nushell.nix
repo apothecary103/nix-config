@@ -13,7 +13,7 @@
           ''
             source ${
               pkgs.runCommand "carapace-init-nu" { } ''
-                ${lib.getExe pkgs.carapace} _carapace nushell >> "$out"
+                ${lib.getExe pkgs.carapace} _carapace nushell > "$out"
               ''
             }
             def git-info []: nothing -> record {
