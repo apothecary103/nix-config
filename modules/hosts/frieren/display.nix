@@ -11,6 +11,10 @@
         name = "appledrm-srgb-internal";
         patch = ./patches/appledrm-srgb-internal.patch;
       }
+      {
+        name = "appledrm-xrgb2101010-premultiplied";
+        patch = ./patches/appledrm-xrgb2101010-premultiplied.patch;
+      }
     ];
   };
 }
