@@ -117,9 +117,11 @@
           output eDP-1 scale 2
           output * bg ${base} solid_color
 
+          # Key repeat as on macOS here: HIDInitialKeyRepeat 166 ms, HIDKeyRepeat 33 ms.
           input type:keyboard {
             xkb_options compose:ralt
-            xkb_numlock enabled
+            repeat_delay 167
+            repeat_rate 30
           }
           input type:touchpad {
             tap enabled
