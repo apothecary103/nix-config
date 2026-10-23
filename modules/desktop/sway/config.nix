@@ -91,6 +91,9 @@
       terminal = "ghostty";
       menu = "fuzzel";
       workspaces = map toString (lib.range 1 9);
+
+      # The trackpad's macOS acceleration, rebuilt from its IORegistry curves.
+      macosAccel = import ./_macos-accel.nix { };
     in
     {
       packages = [
@@ -123,10 +126,25 @@
             repeat_delay 167
             repeat_rate 30
           }
+
+          # macOS trackpad behaviour, from this machine's preferences: tap to
+          # click, two-finger click/tap for secondary, no tap-and-drag, three-
+          # finger drag, natural scrolling, and the IORegistry's acceleration
+          # curves for pointer and scroll at their default speeds.
           input type:touchpad {
             tap enabled
-            dwt enabled
+            tap_button_map lrm
+            click_method clickfinger
+            clickfinger_button_map lrm
+            drag disabled
+            three_finger_drag three_finger
             natural_scroll enabled
+            middle_emulation disabled
+            dwt enabled
+            dwtp enabled
+            accel_profile custom
+            pointer_accel_custom ${macosAccel.pointer}
+            scroll_accel_custom ${macosAccel.scroll}
           }
           seat * xcursor_theme WhiteSur-cursors 24
 
