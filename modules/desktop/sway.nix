@@ -5,8 +5,8 @@
       wrapperFeatures.gtk = true;
     };
 
-    # Same reason as gtk.nix: libadwaita apps read light/dark from the portal
-    # Settings backend, and sway has no gnome-settings-daemon to answer it.
+    # libadwaita apps read light/dark from the portal Settings backend, and
+    # sway has no gnome-settings-daemon to answer it (see gtk.nix).
     xdg.portal.config.sway."org.freedesktop.impl.portal.Settings" = "gtk";
   };
 
@@ -60,7 +60,7 @@
         '';
       };
 
-      # Mirrors niri's Mod+Shift+3/4 (whole screen / selected area), saving to
+      # Mirrors macOS's Cmd+Shift+3/4 (whole screen / selected area), saving to
       # ~/Pictures/Screenshots and copying to the clipboard.
       screenshot = pkgs.writeShellApplication {
         name = "sway-screenshot";

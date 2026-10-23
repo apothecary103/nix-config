@@ -108,13 +108,4 @@
           "${pkgs.browserpass}/lib/browserpass/hosts/chromium/com.github.browserpass.native.json";
       };
     };
-
-  # niri-flake turns gnome-keyring on unconditionally, leaving two daemons
-  # racing to claim org.freedesktop.secrets. The keyring loses nothing by going:
-  # its PAM auto-unlock hooks security.pam.services.login, which greetd bypasses.
-  flake.modules.nixos.base =
-    { lib, ... }:
-    {
-      services.gnome.gnome-keyring.enable = lib.mkForce false;
-    };
 }

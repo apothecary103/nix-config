@@ -3,7 +3,6 @@
     { pkgs, ... }:
     {
       packages = with pkgs; [
-        awww
         wf-recorder
         grim
         slurp

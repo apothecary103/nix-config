@@ -39,10 +39,6 @@
       url = "github:nix-community/disko";
       inputs.nixpkgs.follows = "nixpkgs";
     };
-    niri = {
-      url = "github:epireyn/niri-flake";
-      inputs.nixpkgs.follows = "nixpkgs";
-    };
     yabai-src = {
       url = "github:agg23/yabai/macos-27";
       flake = false;

@@ -24,13 +24,9 @@
       };
 
       # libadwaita apps decide light/dark from the xdg-desktop-portal Settings
-      # backend, not from GTK settings. niri defaults that to gnome, whose impl
-      # needs gnome-settings-daemon (absent in a bare niri session), so the query
-      # returns nothing and the apps fall back to light. The gtk backend reads
-      # `color-scheme` (set above) straight from GSettings.
+      # backend, not from GTK settings. The gtk backend reads `color-scheme` (set
+      # above) straight from GSettings; sway.nix points the portal at it.
       xdg.portal = {
-        config.niri."org.freedesktop.impl.portal.Settings" = "gtk";
-
         extraPortals = [
           pkgs.xdg-desktop-portal-gtk
           pkgs.xdg-desktop-portal-gnome
