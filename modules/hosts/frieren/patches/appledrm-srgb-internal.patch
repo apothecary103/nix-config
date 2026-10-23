@@ -1,0 +1,31 @@
+drm/apple: send RGB planes on the internal panel as sRGB
+
+5067ac875081 ("drm/apple: Only assume RGB planes on internal displays are
+sRGB") inverted both halves of 1167fdfa0a42: get_colorspace() went back to
+NATIVE for every RGB plane, and the eDP check turns sRGB into NATIVE instead
+of the other way round. The internal P3 panel then shows sRGB content without
+gamut mapping, oversaturated. This restores what that commit describes: RGB
+planes are sRGB, and only external displays get NATIVE.
+
+--- a/drivers/gpu/drm/apple/iomfb_template.c
++++ b/drivers/gpu/drm/apple/iomfb_template.c
+@@ -1361,7 +1361,7 @@
+ 		 * the contained colorimetry information to provide native
+ 		 * colors.
+ 		 */
+-		if (dcp->connector_type == DRM_MODE_CONNECTOR_eDP &&
++		if (dcp->connector_type != DRM_MODE_CONNECTOR_eDP &&
+ 		    req->surf[l].base.colorspace == DCP_COLORSPACE_BG_SRGB)
+ 			req->surf[l].base.colorspace = DCP_COLORSPACE_NATIVE;
+ 	}
+--- a/drivers/gpu/drm/apple/plane.c
++++ b/drivers/gpu/drm/apple/plane.c
+@@ -191,7 +191,7 @@
+ 					  enum drm_color_encoding enc)
+ {
+ 	if (!is_yuv)
+-		return DCP_COLORSPACE_NATIVE;
++		return DCP_COLORSPACE_BG_SRGB;
+ 
+ 	switch (enc) {
+ 	case DRM_COLOR_YCBCR_BT601:
