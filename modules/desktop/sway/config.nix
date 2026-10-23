@@ -233,8 +233,11 @@
           bindsym --locked XF86AudioPrev exec playerctl previous
           bindsym --locked XF86AudioNext exec playerctl next
 
+          # 37 px is the notch's height at scale 2 (appledrm.show_notch adds 74
+          # rows), the same as the macOS menu bar, so nothing sits under it.
           bar {
             position top
+            height 37
             font Maple Mono NF CN 11
             status_command ${lib.getExe statusCommand}
             colors {
