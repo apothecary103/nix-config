@@ -8,7 +8,9 @@
 
         settings = {
           font-family = "Maple Mono NF CN";
-          font-size = if pkgs.stdenv.hostPlatform.isDarwin then 18 else 12;
+          # Ghostty turns points into pixels at 72 dpi on macOS and 96 on Linux,
+          # so 13.5 there is the same 18 logical px as 18 here.
+          font-size = if pkgs.stdenv.hostPlatform.isDarwin then 18 else 13.5;
 
           font-thicken = true;
           macos-titlebar-style = "hidden";
