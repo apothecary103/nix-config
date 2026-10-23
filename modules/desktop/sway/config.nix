@@ -145,7 +145,7 @@
           bindsym $mod+Shift+r reload
           bindsym $mod+Ctrl+q exec swaylock -f -c ${bgHex}
           bindsym $mod+Shift+e exec swaynag -t warning -m 'Exit sway?' -B 'Exit' 'swaymsg exit'
-          bindsym $mod+Shift+p exec swaymsg "output * dpms off"
+          bindsym $mod+Shift+p exec swaymsg "output * power toggle"
 
           bindsym $mod+Left focus left
           bindsym $mod+Down focus down
