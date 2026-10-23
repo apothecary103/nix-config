@@ -48,7 +48,6 @@
         ];
 
         settings = {
-          # Comes out Medium: fontconfig.nix promotes Adwaita Sans globally.
           font-name = "Adwaita Sans 11";
 
           icon-theme-name = "Adwaita";

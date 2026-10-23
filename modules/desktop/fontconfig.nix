@@ -18,24 +18,6 @@ let
       <edit name="family" mode="assign" binding="same"><string>${to}</string></edit>
     </match>'';
 
-  # Stem-darkening only fattens OTF/CFF (see freetypeProperties below), so on a
-  # hinting-off Retina panel the Regular cut of Adwaita Sans (TrueType) renders
-  # thinner than San Francisco. It is variable Thin..Black, so rather than
-  # synthetic emboldening this promotes Regular -> Medium wherever the family is
-  # asked for. Single source of truth for chrome weight: app font strings can
-  # stay plain "Adwaita Sans" and still come out Medium.
-  #
-  # It is emitted after the substitutions so patterns rewritten to Adwaita Sans
-  # hit it too. In the other order they would keep their original pattern name,
-  # the promotion would never fire, and web body text would render lighter than
-  # the desktop chrome.
-  promoteAdwaitaSansToMedium = ''
-    <match target="pattern">
-      <test name="family"><string>Adwaita Sans</string></test>
-      <test name="weight" compare="eq"><const>regular</const></test>
-      <edit name="weight" mode="assign"><const>medium</const></edit>
-    </match>'';
-
   # Retina-panel rendering, matching macOS: grayscale AA, no subpixel/LCD
   # filtering (wrong at 2x, it only helps low-DPI panels).
   #
@@ -63,8 +45,6 @@ let
     # Without this, apps asking for a generic family get whatever fontconfig
     # guesses, often a thin fallback. Adwaita Sans is GNOME 48's UI face, an
     # Inter tuned for HiDPI and the closest free stand-in for San Francisco.
-    # serif stays on the Source (OTF) families, which stem-darkening can fatten
-    # (see below).
     defaultFonts = {
       monospace = [ "Maple Mono NF CN" ];
       sansSerif = [
@@ -83,9 +63,7 @@ let
       <?xml version="1.0"?>
       <!DOCTYPE fontconfig SYSTEM "urn:fontconfig:fonts.dtd">
       <fontconfig>
-      ${lib.concatStringsSep "\n" (
-        lib.mapAttrsToList substituteFamily substitutions ++ [ promoteAdwaitaSansToMedium ]
-      )}
+      ${lib.concatStringsSep "\n" (lib.mapAttrsToList substituteFamily substitutions)}
       </fontconfig>
     '';
   };
