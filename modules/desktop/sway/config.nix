@@ -167,12 +167,15 @@
           client.urgent           ${red} ${red} ${base} ${red}
 
           for_window [title="^Picture-in-Picture$"] floating enable
+          # Fullscreen video keeps the display awake, as macOS does.
+          for_window [all] inhibit_idle fullscreen
 
           bindsym $mod+t exec $term
           bindsym $mod+d exec $menu
           bindsym $mod+q kill
           bindsym $mod+Shift+r reload
-          bindsym $mod+Ctrl+q exec swaylock -f -c ${bgHex}
+          # Ctrl+Cmd+Q, as on macOS; swayidle answers the lock request.
+          bindsym $mod+Ctrl+q exec loginctl lock-session
           bindsym $mod+Shift+e exec swaynag -t warning -m 'Exit sway?' -B 'Exit' 'swaymsg exit'
           bindsym $mod+Shift+p exec swaymsg "output * power toggle"
 
