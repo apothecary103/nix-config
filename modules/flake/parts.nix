@@ -11,5 +11,12 @@
   perSystem = { pkgs, ... }: {
     # nixfmt-tree = treefmt wrapping nixfmt, so `nix fmt` recurses the repo.
     formatter = pkgs.nixfmt-tree;
+
+    devShells.default = pkgs.mkShellNoCC {
+      packages = [
+        pkgs.nixfmt-tree
+        pkgs.nh
+      ];
+    };
   };
 }
