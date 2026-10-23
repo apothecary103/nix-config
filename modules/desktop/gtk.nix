@@ -29,10 +29,7 @@
       # backend, not from GTK settings. The gtk backend reads `color-scheme` (set
       # above) straight from GSettings; sway.nix points the portal at it.
       xdg.portal = {
-        extraPortals = [
-          pkgs.xdg-desktop-portal-gtk
-          pkgs.xdg-desktop-portal-gnome
-        ];
+        extraPortals = [ pkgs.xdg-desktop-portal-gtk ];
       };
     };
 
