@@ -11,7 +11,7 @@
         let
           zmk = inputs'.zmk-nix.legacyPackages.buildSplitKeyboard {
             name = "zmk-cradio";
-            src = lib.sourceFilesBySuffices ../../zmk [
+            src = lib.sources.sourceFilesBySuffices ../../zmk [
               ".conf"
               ".keymap"
               ".yml"
