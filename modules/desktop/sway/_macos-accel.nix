@@ -24,7 +24,12 @@
   resolution ? (6416 + 5896) / 124.80,
   # Content speed for slow two-finger scrolling, in logical px per mm of finger
   # travel. 5 is 1:1 on this 254 ppi panel at scale 2 (1512 px across 302 mm).
+  # Apple's own numbers suggest nearer 3.5 (0.925 * 96 pt per inch, if a
+  # scroll count is 1/400 in and a point is ten of them), but how the closed
+  # gesture engine and CGEvent scale it is unknown; measure before changing.
   scrollBaseline ? 5.0,
+  # Reports per second: the IORegistry's ReportInterval is 8000 us.
+  reportRate ? 125.0,
 }:
 let
   sqrt =
@@ -47,9 +52,7 @@ let
       pow2 = v: v * v;
       pow3 = v: v * v * v;
       pow4 = v: pow2 (pow2 v);
-      f1 =
-        x:
-        gainLinear * x + pow2 (gainParabolic * x) + pow3 (gainCubic * x) + pow4 (gainQuartic * x);
+      f1 = x: gainLinear * x + pow2 (gainParabolic * x) + pow3 (gainCubic * x) + pow4 (gainQuartic * x);
       t1 = tangentLinear;
       m0 =
         gainLinear
@@ -69,59 +72,56 @@ let
     else
       sqrt (m1 * x + b1);
 
-  # HIDAccelCurves entry at HIDAccelIndex 0.6875.
+  # HIDAccelCurves entry at HIDAccelIndex 0.6875 (45056), used as is.
   pointerCurve = parametric {
-    gainLinear = 0.9600067138671875;
-    gainParabolic = 0.8300018310546875;
-    gainCubic = 0.1199951171875;
-    tangentLinear = 7.100006103515625;
-    tangentRoot = 18.0;
+    gainLinear = 62915 / 65536.0;
+    gainParabolic = 54395 / 65536.0;
+    gainCubic = 7864 / 65536.0;
+    tangentLinear = 465306 / 65536.0;
+    tangentRoot = 1179648 / 65536.0;
   };
 
-  # HIDScrollAccelCurves at 0.3125: halfway between the 0.125 and 0.5 entries,
-  # interpolated the way IOHIDParametricAcceleration does.
+  # HIDScrollAccelCurves at 0.3125: ratio (0.3125 - 0.125) / (0.5 - 0.125) = 0.5
+  # between the 8192 and 32768 entries, every field interpolated.
   scrollCurve = parametric {
-    gainLinear = (0.9499969482421875 + 0.899993896484375) / 2;
-    gainParabolic = (0.600006103515625 + 0.899993896484375) / 2;
-    tangentLinear = (6.1999969482421875 + 6.399993896484375) / 2;
-    tangentRoot = 12.0;
+    gainLinear = (62259 + 58982) / 2 / 65536.0;
+    gainParabolic = (39322 + 58982) / 2 / 65536.0;
+    tangentLinear = (406323 + 419430) / 2 / 65536.0;
+    tangentRoot = 786432 / 65536.0;
   };
-  scrollGainLinear = (0.9499969482421875 + 0.899993896484375) / 2;
+  scrollGainLinear = (62259 + 58982) / 2 / 65536.0;
 
-  # The trackpad reports 400 counts per inch at 120 Hz; IOHIDFamily divides
-  # speed by resolution / FRAME_RATE (67) and scales output by 96 / 67.
-  # Pointer: x = (in/s) * 67 / 120, out = f(x) * 96/67 points per report.
-  pointer = inchesPerSecond: pointerCurve (inchesPerSecond * 67 / 120) * (96.0 / 67) * 120 / 1000;
+  # v is finger speed in in/s throughout.
+  #
+  # IOHIDPointerAccelerator: x = (counts per report) / (400 / FRAME_RATE), and the
+  # report's delta is scaled to f(x) * 96/67. The trackpad reports every
+  # ReportInterval = 8000 us (125 Hz); HIDPointerReportRate 120 only clamps dt.
+  pointer = v: pointerCurve (v * 67 / reportRate) * (96.0 / 67) * reportRate / 1000;
 
-  # Scroll: IOHIDScrollAccelerator weights the per-event delta by its
-  # 1.501 - 0.01457 t + 3.05e-5 t^2 timing polynomial (t = 8.33 ms at 120 Hz)
-  # before the same normalisation, giving x = 0.7714 * (in/s). Only the curve's
-  # shape is kept; scrollBaseline sets the slow-speed rate.
-  scrollX = inchesPerSecond: inchesPerSecond * 0.7714;
+  # IOHIDScrollAccelerator: velocity = P(t) * counts per report, P(t) =
+  # 3.05e-5 t^2 - 0.01457 t + 1.501 with t the mean report interval in ms
+  # (HIDScrollReportRate is unset, so its rate multiplier is 67/67 = 1).
+  t = 1000.0 / reportRate;
+  timing = 2 / 65536.0 * t * t - 955 / 65536.0 * t + 98369 / 65536.0;
   scroll =
-    inchesPerSecond:
+    v:
     let
-      x = scrollX inchesPerSecond;
+      x = v * timing * 67 / reportRate;
       gain = if x == 0 then 1.0 else scrollCurve x / (scrollGainLinear * x);
     in
-    scrollBaseline * inchesPerSecond * 25.4 / 1000 * gain;
+    scrollBaseline * v * 25.4 / 1000 * gain;
 
-  # 40 samples, 0.5 in/s apart, up to 19.5 in/s. libinput extrapolates past
-  # that along the last segment, which for the pointer is still Apple's own
-  # tangent line (its sqrt knee is at 32 in/s).
-  samples = 40;
-  stepInches = 0.5;
+  # 64 samples (libinput's maximum). The pointer's last two samples sit on
+  # Apple's tangent line (13.2..33.6 in/s), so libinput's extrapolation follows it.
   unitsPerInch = resolution * 25.4;
-  sample =
-    fn:
-    {
-      step = stepInches * unitsPerInch / 1000;
-      points = builtins.genList (i: fn (i * stepInches)) samples;
-    };
+  sample = stepInches: fn: {
+    step = stepInches * unitsPerInch / 1000;
+    points = builtins.genList (i: fn (i * stepInches)) 64;
+  };
 
   render = c: builtins.concatStringsSep " " (map toString ([ c.step ] ++ c.points));
 in
 {
-  pointer = render (sample pointer);
-  scroll = render (sample scroll);
+  pointer = render (sample 0.22 pointer);
+  scroll = render (sample 0.4 scroll);
 }
