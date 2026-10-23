@@ -117,8 +117,9 @@
           set $menu ${menu}
 
           # ProMotion's top fixed rate (VRR is not in the kernel yet), at the
-          # integer 2x macOS uses for its default 1512x982. DCP takes 10-bit
-          # scanout, which keeps P3 gradients from banding.
+          # integer 2x macOS uses for its default 1512x982. The panel link is
+          # 8 bpc as on macOS; DCP dithers 10-bit scanout down after its gamut
+          # mapping, which keeps gradients from banding.
           output eDP-1 mode 3024x1964@120Hz scale 2 render_bit_depth 10
           output * bg ${base} solid_color
 
