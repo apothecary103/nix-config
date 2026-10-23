@@ -12,6 +12,21 @@ let
     "Times New Roman" = "Source Serif 4";
   };
 
+  # The autofitter's darkening distorts icon glyphs (FreeType #1334), so the
+  # TrueType icon fonts skip hinting and with it the autofitter. Font Awesome
+  # is CFF, which the Adobe engine darkens like any other outline.
+  iconFamilies = [
+    "Material Design Icons"
+    "Symbols Nerd Font"
+    "Symbols Nerd Font Mono"
+  ];
+
+  unhinted = family: ''
+    <match target="font">
+      <test name="family"><string>${family}</string></test>
+      <edit name="hinting" mode="assign"><bool>false</bool></edit>
+    </match>'';
+
   substituteFamily = from: to: ''
     <match target="pattern">
       <test name="family"><string>${from}</string></test>
@@ -21,12 +36,12 @@ let
   # Retina-panel rendering, matching macOS: grayscale AA, no subpixel/LCD
   # filtering (wrong at 2x, it only helps low-DPI panels).
   #
-  # hintslight is not here for hinting: FreeType only darkens stems in its
-  # light render mode, and that mode sends TrueType fonts (Adwaita Sans, Maple
-  # Mono, Noto, the Nerd Fonts) through the autofitter, the one TrueType path
-  # with stem darkening. The cost is snapping heights to the pixel grid, under
-  # half a device pixel at 2x. autohint stays off so CFF fonts keep the Adobe
-  # engine, which darkens on its own.
+  # hintslight is not here for hinting: the autofitter, the one TrueType path
+  # with stem darkening, only darkens in FreeType's light mode, and that mode
+  # sends every TrueType font (Adwaita Sans, Maple Mono, Noto, the Nerd Fonts)
+  # through it. The cost is snapping heights to the pixel grid, under half a
+  # device pixel at 2x. autohint stays off so CFF fonts keep the Adobe engine,
+  # which darkens in any mode.
   fontconfig = {
     enable = true;
     antialias = true;
@@ -64,30 +79,47 @@ let
       <!DOCTYPE fontconfig SYSTEM "urn:fontconfig:fonts.dtd">
       <fontconfig>
       ${lib.concatStringsSep "\n" (lib.mapAttrsToList substituteFamily substitutions)}
+      ${lib.concatMapStringsSep "\n" unhinted iconFamilies}
       </fontconfig>
     '';
   };
 
-  # CoreText's "font smoothing" dilates every outline by min(0.3 px, 0.0121 *
-  # ppem) per side (Pathfinder's measurements), so at 2x every stem from 12.4 px
-  # text up gains a flat 0.6 device px while advances stay put. FreeType's
-  # darkening also leaves advances alone; 500 (0.5 px across the stem) is the
-  # most it accepts, held flat over every stem width as CoreText does. The
-  # default curves fall to nothing at a Retina 13 px stem, which is why text
-  # looked thin. One curve serves all engines: cff, type1 and t1cid share it.
-  darkening = "500,500,1000,500,1500,500,2000,500";
-  freetypeProperties = lib.concatStringsSep " " [
-    "autofitter:no-stem-darkening=0"
-    "autofitter:darkening-parameters=${darkening}"
-    "cff:no-stem-darkening=0"
-    "cff:darkening-parameters=${darkening}"
-    "type1:no-stem-darkening=0"
-    "t1cid:no-stem-darkening=0"
-  ];
+  # CoreText's font smoothing, measured on this Mac (macOS 27, smoothing on vs
+  # off; SF, Helvetica and Menlo alike): every stem gains min(0.6, 0.0116 *
+  # ppem) device px while advances stay put, so 13 pt UI text at 2x (26 ppem)
+  # gains 0.3 px. FreeType's darkening also leaves advances alone.
+  #
+  # The Adobe engine (CFF, Type 1, CID) adds y/1000 px at every size; 300 is
+  # CoreText at UI sizes. Each of those drivers keeps its own curve.
+  psDarkening = "500,300,1000,300,1500,300,2000,300";
+
+  # The autofitter, which darkens every TrueType font, turns its amount into
+  # pixels and then applies that number to the outline in font units, so the
+  # gain is round(0.064 * y) * ppem / upem px: proportional to size like
+  # CoreText's, but scaled by the font's upem. Since the variable is global
+  # only one upem can be exact; this curve is for 2048 (Adwaita Sans and most
+  # web fonts), where 371 gives 0.0116 * ppem and the taper over stem width
+  # (x, in 1/1000 px) holds CoreText's 0.6 px cap. 1000-upem fonts such as
+  # Noto come out twice as dark; Ghostty sets its own curve for Maple Mono.
+  freetypeProperties =
+    autofitDarkening:
+    lib.concatStringsSep " " (
+      [
+        "autofitter:no-stem-darkening=0"
+        "autofitter:darkening-parameters=${autofitDarkening}"
+      ]
+      ++ lib.concatMap (driver: [
+        "${driver}:no-stem-darkening=0"
+        "${driver}:darkening-parameters=${psDarkening}"
+      ]) [ "cff" "type1" "t1cid" ]
+    );
 in
 {
+  _module.args.freetypeProperties = freetypeProperties;
+
   flake.modules.nixos.base = {
     fonts.fontconfig = fontconfig;
-    environment.sessionVariables.FREETYPE_PROPERTIES = freetypeProperties;
+    environment.sessionVariables.FREETYPE_PROPERTIES =
+      freetypeProperties "500,371,4850,371,5970,300,9330,192";
   };
 }
