@@ -78,7 +78,7 @@
       };
 
       # Preferences nix-darwin has no dedicated options for
-      CustomSystemPreferences = {
+      CustomUserPreferences = {
         NSGlobalDomain = {
           AppleAccentColor = 6;
           AppleScrollerPagingBehavior = true;
