@@ -15,6 +15,14 @@
         "sdhci_pci"
       ];
 
+      # Until the LUKS + btrfs reinstall disko.nix describes, root stays the
+      # ext4 partition the Asahi installer created.
+      fileSystems."/" = {
+        device = "/dev/disk/by-label/nixos";
+        fsType = "ext4";
+        autoResize = true;
+      };
+
       # The ESP doubles as the Asahi m1n1/U-Boot + vendor firmware carrier, so
       # it is kept out of disko — never reformat it — and mounted here instead.
       fileSystems."/boot" = {

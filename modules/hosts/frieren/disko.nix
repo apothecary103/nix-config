@@ -9,6 +9,11 @@ in
   flake.modules.nixos."hosts/frieren" = {
     imports = [ inputs.disko.nixosModules.disko ];
 
+    # The machine still runs from the unencrypted ext4 install, so this layout
+    # only describes the next reinstall; hardware-configuration.nix mounts what
+    # is actually there. Flip it back once the disk has been reformatted.
+    disko.enableConfig = false;
+
     disko.devices.disk.root = {
       type = "disk";
       # luksFormat the Root partition with `--uuid` set to this by hand on a
