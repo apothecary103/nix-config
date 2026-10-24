@@ -15,20 +15,16 @@
       lib,
       pkgs,
       palette,
+      theme,
       ...
     }:
     let
-      # Roles from the grouped palette (orchard's surface/hue attrsets).
       base = palette.surface.background;
-      mantle = palette.surface.panel;
-      fg = palette.surface.text;
-      subtext = palette.surface.textDim;
-      overlay = palette.surface.neutral3;
-      surface0 = palette.surface.neutral0;
-      surface1 = palette.surface.neutral1;
-      blue = palette.hue.blue;
-      red = palette.hue.red;
-      bgHex = lib.removePrefix "#" base;
+
+      # orchard-wallpaper keeps these filled from whatever swaybg shows; their
+      # fallbacks are the same files filled from the configured theme.
+      swayColours = theme.wallpaper.targets."sway.conf";
+      fuzzelColours = theme.wallpaper.targets."fuzzel.ini";
 
       # Plain text on purpose: swaybar renders whatever this prints, so the
       # bar needs no companion program such as i3status or waybar.
@@ -96,6 +92,22 @@
       macosAccel = import ./_macos-accel.nix { };
     in
     {
+      # Colours follow the wallpaper: orchard-wallpaper watches swaybg and
+      # rewrites the files included below (and swaynag's config) to match.
+      orchard.wallpaper = {
+        enable = true;
+        target = "sway-session.target";
+        swaynag.enable = true;
+        fuzzel = {
+          enable = true;
+          # Opaque, with the lighter selection this launcher has always had.
+          colours = {
+            background = "{{surface.background|bare}}ff";
+            selection = "{{surface.neutral1|bare}}ff";
+          };
+        };
+      };
+
       packages = [
         pkgs.fuzzel
         pkgs.brightnessctl
@@ -160,11 +172,6 @@
           default_border pixel 2
           default_floating_border pixel 2
           hide_edge_borders none
-
-          client.focused          ${blue} ${blue} ${base} ${blue}
-          client.focused_inactive ${surface0} ${surface0} ${subtext} ${surface0}
-          client.unfocused        ${surface0} ${surface0} ${subtext} ${surface0}
-          client.urgent           ${red} ${red} ${base} ${red}
 
           for_window [title="^Picture-in-Picture$"] floating enable
           # Fullscreen video keeps the display awake, as macOS does.
@@ -247,16 +254,11 @@
             height 33
             font Maple Mono NF CN 11
             status_command ${lib.getExe statusCommand}
-            colors {
-              background ${mantle}
-              statusline ${fg}
-              separator ${overlay}
-              focused_workspace ${blue} ${blue} ${base}
-              active_workspace ${surface1} ${surface1} ${fg}
-              inactive_workspace ${mantle} ${mantle} ${subtext}
-              urgent_workspace ${red} ${red} ${base}
-            }
           }
+
+          # Colours last: they name the bar above, and the live file wins.
+          ${swayColours.fallback}
+          include ${swayColours.path}
         '';
 
         "fuzzel/fuzzel.ini".text = ''
@@ -265,18 +267,14 @@
           width=40
           lines=10
 
-          [colors]
-          background=${bgHex}ff
-          text=${lib.removePrefix "#" fg}ff
-          match=${lib.removePrefix "#" blue}ff
-          selection=${lib.removePrefix "#" surface1}ff
-          selection-text=${lib.removePrefix "#" fg}ff
-          selection-match=${lib.removePrefix "#" blue}ff
-          border=${lib.removePrefix "#" blue}ff
-
+          ${fuzzelColours.fallback}
           [border]
           width=2
           radius=8
+
+          # Last, so the wallpaper's colours override the ones above.
+          [main]
+          include=${fuzzelColours.path}
         '';
       };
     };
