@@ -416,11 +416,11 @@
         ]
       },
       "locked": {
-        "lastModified": 1788096589,
-        "narHash": "sha256-E1dY2VFtTzzl81+iqPF8Rg1mAvlf7PuJUuoy/Ny9Dj0=",
+        "lastModified": 1792832323,
+        "narHash": "sha256-aymMr6n3mUO9yZzz/DPPdUOv4KZIYQSX9bR3P+7aagM=",
         "owner": "apothecary103",
         "repo": "nix-orchard",
-        "rev": "02f3a20838e3832942f28df1ddcbe2d9c58c67e5",
+        "rev": "50ff7cb1b1f1f3138e889412f790f5af5d876f35",
         "type": "github"
       },
       "original": {
