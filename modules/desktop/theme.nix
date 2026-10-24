@@ -7,8 +7,10 @@
 
       orchard = {
         enable = true;
-        theme = "catppuccin";
-        flavour = "macchiato";
+        # Under sway the wallpaper sets the colours (see sway/config.nix); this
+        # is what everything starts from and what programs it misses keep.
+        theme = "onedark";
+        flavour = "dark";
         accent = "blue";
 
         transparent = true;

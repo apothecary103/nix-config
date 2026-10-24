@@ -98,6 +98,30 @@
         enable = true;
         target = "sway-session.target";
         swaynag.enable = true;
+        # Read after ghostty's own settings (below), so it wins over the
+        # theme; SIGUSR2 makes open windows reread it. nixpkgs' wrapper names
+        # the process .ghostty-wrapped, so match the command line, anchored
+        # to ghostty's own binary so nothing else gets a signal that kills.
+        targets.ghostty = {
+          template = lib.concatLines (
+            map (i: "palette = ${toString i}={{terminal.ansi.${toString i}}}") (lib.range 0 15)
+            ++ [
+              "background = {{surface.background}}"
+              "foreground = {{surface.text}}"
+              "cursor-color = {{ui.cursor}}"
+              "cursor-text = {{surface.shadow}}"
+              "selection-background = {{ui.selection}}"
+              "selection-foreground = {{surface.text}}"
+              "split-divider-color = {{surface.neutral0}}"
+            ]
+          );
+          reload = [
+            "${pkgs.procps}/bin/pkill"
+            "-USR2"
+            "-f"
+            "^${lib.getExe pkgs.ghostty}( |$)"
+          ];
+        };
         fuzzel = {
           enable = true;
           # Opaque, with the lighter selection this launcher has always had.
@@ -107,6 +131,9 @@
           };
         };
       };
+
+      # Optional (?), so ghostty starts fine before the service first writes it.
+      rum.programs.ghostty.settings.config-file = "?${theme.wallpaper.targets.ghostty.path}";
 
       packages = [
         pkgs.fuzzel
@@ -133,7 +160,7 @@
           # 8 bpc as on macOS; DCP dithers 10-bit scanout down after its gamut
           # mapping, which keeps gradients from banding.
           output eDP-1 mode 3024x1964@120Hz scale 2 render_bit_depth 10
-          output * bg ${base} solid_color
+          output * bg ${../../../assets/teashop.png} fill ${base}
 
           # Key repeat as on macOS here: HIDInitialKeyRepeat 166 ms, HIDKeyRepeat 33 ms.
           input type:keyboard {

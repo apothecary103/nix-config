@@ -63,8 +63,8 @@ let
 
         theme = {
           enable = true;
-          name = "catppuccin";
-          style = "macchiato";
+          name = "onedark";
+          style = "dark";
           transparent = true;
         };
 
