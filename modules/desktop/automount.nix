@@ -12,7 +12,7 @@
     {
       systemd.services.udiskie = {
         description = "Automount removable media";
-        wantedBy = [ "sway-session.target" ];
+        wantedBy = [ "river-session.target" ];
         partOf = [ "graphical-session.target" ];
         after = [ "graphical-session.target" ];
         serviceConfig = {

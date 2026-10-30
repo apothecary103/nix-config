@@ -6,7 +6,7 @@
       services.udev.packages = [ pkgs.swayosd ];
     };
 
-  # The volume and brightness overlay macOS shows for the media keys. The sway
+  # The volume and brightness overlay macOS shows for the media keys. The river
   # config binds the keys to swayosd-client.
   flake.modules.hjem.linux =
     { lib, pkgs, ... }:
@@ -15,7 +15,7 @@
 
       systemd.services.swayosd = {
         description = "Volume and brightness overlay";
-        wantedBy = [ "sway-session.target" ];
+        wantedBy = [ "river-session.target" ];
         partOf = [ "graphical-session.target" ];
         after = [ "graphical-session.target" ];
         serviceConfig = {

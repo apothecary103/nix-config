@@ -44,7 +44,7 @@
 
       systemd.services.mako = {
         description = "Notification daemon";
-        wantedBy = [ "sway-session.target" ];
+        wantedBy = [ "river-session.target" ];
         partOf = [ "graphical-session.target" ];
         after = [ "graphical-session.target" ];
         serviceConfig = {

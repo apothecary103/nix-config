@@ -1,6 +1,6 @@
 {
   # F6 (the moon key) reaches Linux as KEY_SLEEP, which logind would treat as
-  # "suspend now"; on macOS it is Do Not Disturb, which sway binds instead.
+  # "suspend now"; on macOS it is Do Not Disturb, which river binds instead.
   flake.modules.nixos.base.services.logind.settings.Login.HandleSuspendKey = "ignore";
 
   flake.modules.hjem.linux =
@@ -13,7 +13,7 @@
     let
       swaylock = "${lib.getExe pkgs.swaylock} -f -c ${lib.removePrefix "#" palette.surface.background}";
       brightnessctl = lib.getExe pkgs.brightnessctl;
-      swaymsg = lib.getExe' pkgs.sway-unwrapped "swaymsg";
+      wlopm = lib.getExe pkgs.wlopm;
 
       # apple-panel-bl counts in nits, so an absolute target would brighten a
       # screen already below it. Halve instead, but stay clear of the 2 nits
@@ -31,7 +31,7 @@
       # Lid close and suspend lock first too (before-sleep).
       systemd.services.swayidle = {
         description = "Idle dim, lock and display sleep";
-        wantedBy = [ "sway-session.target" ];
+        wantedBy = [ "river-session.target" ];
         partOf = [ "graphical-session.target" ];
         after = [ "graphical-session.target" ];
         serviceConfig = {
@@ -45,9 +45,9 @@
             "${brightnessctl} -r"
             "timeout"
             "600"
-            "${swaylock} && ${swaymsg} 'output * power off'"
+            "${swaylock} && ${wlopm} --off '*'"
             "resume"
-            "${swaymsg} 'output * power on'; ${brightnessctl} -r"
+            "${wlopm} --on '*'; ${brightnessctl} -r"
             "before-sleep"
             swaylock
             "lock"
