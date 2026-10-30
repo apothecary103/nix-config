@@ -1,4 +1,6 @@
 {
+  # The river rice's fish, in nushell: its greeting, vi bindings and
+  # `user dir change` prompt, coloured by orchard's nushell port.
   flake.modules.hjem.base =
     { lib, pkgs, ... }:
     {
@@ -16,12 +18,16 @@
                 ${lib.getExe pkgs.carapace} _carapace nushell > "$out"
               ''
             }
+
+            $env.config.show_banner = false
+            $env.config.edit_mode = "vi"
+            $env.config.cursor_shape = { vi_insert: line, vi_normal: block, emacs: line }
+
             def git-info []: nothing -> record {
               let root = (^git rev-parse --show-toplevel | complete)
               if $root.exit_code != 0 { return {} }
               let head = (^git branch --show-current | complete | get stdout | str trim)
               {
-                root: ($root.stdout | str trim)
                 branch: (if ($head | is-empty) {
                   ^git rev-parse --short HEAD | complete | get stdout | str trim
                 } else { $head })
@@ -29,49 +35,45 @@
               }
             }
 
-            # Truncate every path component to its first character (a leading dot doesn't
-            # count), except the current directory and the repo root, which stay whole.
-            def shorten-path [repo: string]: string -> string {
-              let parts = ($in | split row (char path_sep))
-              let last = (($parts | length) - 1)
-              let keep = ($parts | enumerate | where item == $repo | get index.0? | default (-1))
-              $parts
-              | enumerate
-              | each {|it|
-                  if $it.index in [$last $keep] or ($it.item | is-empty) {
-                    $it.item
-                  } else if ($it.item | str starts-with ".") {
-                    $it.item | str substring 0..<2
-                  } else {
-                    $it.item | str substring 0..<1
-                  }
+            # The working copy's change as the rice's fish_jj_prompt shows it, or
+            # failing jj, the git branch.
+            def vcs-info []: nothing -> string {
+              if (which jj | is-not-empty) {
+                let jj = (^jj log --no-graph --ignore-working-copy --color=always --revisions @ --template r#'
+                  separate(commit_summary_separator,
+                    format_short_change_id_with_hidden_and_divergent_info(self),
+                    separate(" ",
+                      if(self.conflict(), label("conflict", "(conflict)")),
+                      if(self.empty(), label("empty", "(empty)")),
+                    )
+                  )
+                '# | complete)
+                if $jj.exit_code == 0 and ($jj.stdout | is-not-empty) {
+                  return $" ($jj.stdout | str trim)"
                 }
-              | str join (char path_sep)
+              }
+              let git = (git-info)
+              if ($git | is-empty) { return "" }
+              $" (ansi blue)($git.branch)(ansi yellow)(if $git.dirty { '*' })"
             }
 
             $env.PROMPT_COMMAND = {||
-              let dir = match (do -i { $env.PWD | path relative-to $nu.home-dir }) {
-                null => $env.PWD
-                "" => "~"
-                $relative_pwd => ([~ $relative_pwd] | path join)
+              let user_colour = if $env.LAST_EXIT_CODE == 0 { ansi cyan } else { ansi red }
+              let dir = if $env.PWD == $nu.home-dir { "~" } else {
+                $env.PWD | path basename | default -e "/"
               }
-
-              let git = (git-info)
-              let short = ($dir | shorten-path ($git.root? | default "" | path basename))
-
-              let path_color = (if (is-admin) { ansi red_bold } else { ansi green_bold })
-              let separator_color = (if (is-admin) { ansi light_red_bold } else { ansi light_green_bold })
-              let path_segment = ($"($path_color)($short)(ansi reset)"
-                | str replace --all (char path_sep) $"($separator_color)(char path_sep)($path_color)")
-
-              let git_segment = if ($git | is-empty) { "" } else {
-                $" (ansi blue)($git.branch)(ansi yellow)(if $git.dirty { '*' })(ansi reset)"
-              }
-
-              $"($path_segment)($git_segment)"
+              $"($user_colour)($env.USER) (ansi cyan)($dir)(vcs-info)(ansi reset)"
             }
-
             $env.PROMPT_COMMAND_RIGHT = ""
+            $env.PROMPT_INDICATOR = " "
+            $env.PROMPT_INDICATOR_VI_INSERT = " "
+            $env.PROMPT_INDICATOR_VI_NORMAL = " "
+            $env.PROMPT_MULTILINE_INDICATOR = "::: "
+
+            if $nu.is-interactive {
+              print $"(' ' | fill --width 5)welcome back! (ansi cyan)<3(ansi reset)"
+              print ("" | fill --character '─' --width 26)
+            }
           '';
       };
 
