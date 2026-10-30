@@ -1,0 +1,135 @@
+Adds two settings read from the environment at startup:
+
+RIVER_RENDER_BIT_DEPTH=10 renders into XRGB2101010, as sway's
+render_bit_depth 10 does, falling back to 8 bits if the output refuses it.
+
+RIVER_DISPLAY_P3_OUTPUTS names outputs whose panel is Display P3. Their
+scene output gets sway's --device-primaries transform: the linear sRGB the
+scene composites in, mapped to P3 primaries and encoded with the sRGB curve.
+That needs the Vulkan renderer; with GLES2 it is logged and skipped.
+
+diff --git a/river/Output.zig b/river/Output.zig
+index 106f243..576cf3a 100644
+--- a/river/Output.zig
++++ b/river/Output.zig
+@@ -175,6 +175,9 @@ rendering_requested: RenderingState = .init,
+ /// State applied to the wlr_output and rendered.
+ current: State,
+ rendering_current: RenderingState = .init,
++/// Maps the scene's linear sRGB into the panel's own primaries.
++/// Null for outputs not listed in RIVER_DISPLAY_P3_OUTPUTS.
++color_transform: ?*wlr.ColorTransform = null,
+ 
+ destroy: wl.Listener(*wlr.Output) = .init(handleDestroy),
+ request_state: wl.Listener(*wlr.Output.event.RequestState) = .init(handleRequestState),
+@@ -233,6 +236,13 @@ pub fn create(wlr_output: *wlr.Output) !void {
+     output.scene_output = try server.scene.wlr_scene.createSceneOutput(wlr_output);
+     errdefer comptime unreachable;
+ 
++    if (listed(std.c.getenv("RIVER_DISPLAY_P3_OUTPUTS"), mem.span(wlr_output.name))) {
++        output.color_transform = displayP3Transform();
++        if (output.color_transform == null) {
++            log.err("no display p3 transform for {s}: needs WLR_RENDERER=vulkan", .{wlr_output.name});
++        }
++    }
++
+     server.om.outputs.append(output);
+     output.link_sent.init();
+ 
+@@ -298,6 +308,9 @@ fn handleDestroy(listener: *wl.Listener(*wlr.Output), wlr_output: *wlr.Output) v
+         }
+     }
+ 
++    if (output.color_transform) |transform| wlr_color_transform_unref(transform);
++    output.color_transform = null;
++
+     output.destroy.link.remove();
+     output.request_state.link.remove();
+     output.frame.link.remove();
+@@ -500,7 +513,8 @@ fn renderAndCommit(output: *Output) !void {
+ 
+     output.current.applyNoModeset(&state);
+ 
+-    if (!output.scene_output.?.buildState(&state, null)) return error.CommitFailed;
++    const options: wlr.SceneOutput.StateOptions = .{ .color_transform = output.color_transform };
++    if (!output.scene_output.?.buildState(&state, &options)) return error.CommitFailed;
+ 
+     if (output.rendering_current.tearing) {
+         state.tearing_page_flip = true;
+@@ -583,3 +597,64 @@ fn handlePresent(
+         .blanked, .lock_surface => {},
+     }
+ }
++
++const drm_format_xrgb8888 = 0x34325258; // 'XR24'
++const drm_format_xrgb2101010 = 0x30335258; // 'XR30'
++
++/// Render at 10 bits per channel if RIVER_RENDER_BIT_DEPTH is 10, falling back
++/// to 8 if the output refuses it. The format sticks until the next modeset.
++pub fn applyRenderFormat(wlr_output: *wlr.Output, state: *wlr.Output.State) void {
++    const depth = std.c.getenv("RIVER_RENDER_BIT_DEPTH") orelse return;
++    if (!mem.eql(u8, mem.span(depth), "10")) return;
++
++    state.setRenderFormat(drm_format_xrgb2101010);
++    if (!wlr_output.testState(state)) {
++        log.info("10 bit rendering refused by {s}, using 8 bit", .{wlr_output.name});
++        state.setRenderFormat(drm_format_xrgb8888);
++    }
++}
++
++/// True if name is one of the comma or space separated names in list.
++fn listed(list: ?[*:0]const u8, name: []const u8) bool {
++    var it = mem.tokenizeAny(u8, mem.span(list orelse return false), ", ");
++    while (it.next()) |item| {
++        if (mem.eql(u8, item, name)) return true;
++    }
++    return false;
++}
++
++/// Display P3 as macOS profiles these panels: P3 primaries, D65 white and the
++/// sRGB curve. Only the Vulkan renderer can apply an output transform.
++fn displayP3Transform() ?*wlr.ColorTransform {
++    if (!server.renderer.features.output_color_transform) return null;
++
++    var srgb: wlr.color.Primaries = undefined;
++    wlr_color_primaries_from_named(&srgb, .srgb);
++    const p3: wlr.color.Primaries = .{
++        .red = .{ .x = 0.680, .y = 0.320 },
++        .green = .{ .x = 0.265, .y = 0.690 },
++        .blue = .{ .x = 0.150, .y = 0.060 },
++        .white = .{ .x = 0.3127, .y = 0.3290 },
++    };
++    var matrix: [9]f32 = undefined;
++    wlr_color_primaries_transform_absolute_colorimetric(&srgb, &p3, &matrix);
++
++    const to_p3 = wlr_color_transform_init_matrix(&matrix) orelse return null;
++    defer wlr_color_transform_unref(to_p3);
++    const encode = wlr_color_transform_init_linear_to_inverse_eotf(.srgb) orelse return null;
++    defer wlr_color_transform_unref(encode);
++    const transforms = [_]*wlr.ColorTransform{ to_p3, encode };
++    return wlr_color_transform_init_pipeline(&transforms, transforms.len);
++}
++
++// zig-wlroots binds none of these yet.
++extern fn wlr_color_primaries_from_named(out: *wlr.color.Primaries, named: wlr.color.NamedPrimaries) void;
++extern fn wlr_color_primaries_transform_absolute_colorimetric(
++    source: *const wlr.color.Primaries,
++    destination: *const wlr.color.Primaries,
++    matrix: *[9]f32,
++) void;
++extern fn wlr_color_transform_init_matrix(matrix: *const [9]f32) ?*wlr.ColorTransform;
++extern fn wlr_color_transform_init_linear_to_inverse_eotf(tf: wlr.color.TransferFunction) ?*wlr.ColorTransform;
++extern fn wlr_color_transform_init_pipeline(transforms: [*]const *wlr.ColorTransform, len: usize) ?*wlr.ColorTransform;
++extern fn wlr_color_transform_unref(transform: *wlr.ColorTransform) void;
+diff --git a/river/OutputManager.zig b/river/OutputManager.zig
+index 630600c..60f929f 100644
+--- a/river/OutputManager.zig
++++ b/river/OutputManager.zig
+@@ -331,6 +331,7 @@ pub fn commitOutputState(om: *OutputManager) void {
+                 state.base = wlr.Output.State.init();
+ 
+                 output.sent.applyModeset(&state.base);
++                if (output.sent.state == .enabled) Output.applyRenderFormat(wlr_output, &state.base);
+             }
+         }
+ 
