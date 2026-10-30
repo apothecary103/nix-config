@@ -12,27 +12,36 @@
         pkgs.libnotify
       ];
 
-      # Banners as macOS draws them: top right below the menu bar, rounded,
+      # Banners as the river rice's fnott draws them: square, Overlay with a 2 px
+      # border and a coloured title, 13 px apart and in from the corner,
       # gone after five seconds unless they are critical.
       xdg.config.files."mako/config".text = ''
-        font=Adwaita Sans 9.75
+        font=azuki_font 14
         anchor=top-right
-        margin=12
-        padding=12,14
+        margin=13
+        padding=18
         width=356
         height=160
-        border-size=1
-        border-radius=16
+        border-size=2
+        border-radius=0
         icon-location=left
         max-icon-size=40
         default-timeout=5000
-        background-color=${palette.surface.panel}f2
+        max-history=10
+        background-color=${palette.surface.panel}
         text-color=${palette.surface.text}
-        border-color=${palette.surface.neutral1}
+        border-color=${palette.hue.aqua}
+        progress-color=over ${palette.surface.textDim}
+        format=<span foreground="${palette.hue.aqua}">%s</span>\n%b
+
+        [urgency=low]
+        border-color=${palette.surface.neutral2}
+        format=<span foreground="${palette.surface.textDim}">%s</span>\n%b
 
         [urgency=critical]
         default-timeout=0
-        border-color=${palette.hue.red}
+        border-color=${palette.status.error}
+        format=<span foreground="${palette.status.error}">%s</span>\n%b
 
         # F6, the Do Not Disturb key: hide everything but critical alerts.
         [mode=do-not-disturb]
