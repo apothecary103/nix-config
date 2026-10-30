@@ -15,14 +15,14 @@
 
 ## The Setup
 
-- **frieren** (NixOS): sway, greetd + tuigreet
+- **frieren** (NixOS): river + kwm, greetd + tuigreet
 - **fern** (nix-darwin): yabai + skhd
 
 **Shared Stack:**
 - **Terminal & Shell:** Ghostty, Fish, Nushell
 - **Editor:** Helix, Neovim
 - **Apps:** LibreWolf, Yazi (files), MPD + rmpc (music), pass (secrets)
-- **Aesthetics:** Catppuccin, Maple Mono NF CN, Adwaita Sans
+- **Aesthetics:** Rosé Pine Dawn and azuki, after [CelestialCrafter's river rice](https://github.com/CelestialCrafter/dotfiles); Maple Mono NF CN, Adwaita Sans
 
 ## Structure
 
