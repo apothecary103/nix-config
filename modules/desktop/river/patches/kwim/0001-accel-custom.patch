@@ -1,0 +1,101 @@
+Adds accel_custom to libinput device rules: custom motion and scroll curves
+sent through river_libinput_accel_config_v1.set_points and applied once per
+device, as sway's pointer_accel_custom and scroll_accel_custom did.
+
+diff --git a/src/config/rule/libinput_device.zig b/src/config/rule/libinput_device.zig
+index 59e6263..de090cc 100644
+--- a/src/config/rule/libinput_device.zig
++++ b/src/config/rule/libinput_device.zig
+@@ -11,6 +11,15 @@ const kwim = @import("kwim");
+ const Pattern = @import("pattern.zig");
+ 
+ 
++pub const AccelCurve = struct {
++    step: f64,
++    points: []const f64,
++};
++pub const AccelCustom = struct {
++    motion: ?AccelCurve = null,
++    scroll: ?AccelCurve = null,
++};
++
+ name: ?Pattern = null,
+ 
+ send_events_modes: ?river.LibinputDeviceV1.SendEventsModes.Enum = null,
+@@ -22,6 +31,8 @@ three_finger_drag: ?river.LibinputDeviceV1.ThreeFingerDragState = null,
+ calibration_matrix: ?[6]f32 = null,
+ accel_profile: ?river.LibinputDeviceV1.AccelProfile = null,
+ accel_speed: ?f64 = null,
++/// libinput custom acceleration curves, applied with accel_profile .custom
++accel_custom: ?AccelCustom = null,
+ natural_scroll: ?river.LibinputDeviceV1.NaturalScrollState = null,
+ left_handed: ?river.LibinputDeviceV1.LeftHandedState = null,
+ click_method: ?river.LibinputDeviceV1.ClickMethod = null,
+diff --git a/src/kwim/libinput_device.zig b/src/kwim/libinput_device.zig
+index e1774e3..47fcc3d 100644
+--- a/src/kwim/libinput_device.zig
++++ b/src/kwim/libinput_device.zig
+@@ -41,6 +41,7 @@ calibration_matrix_current: [6]f32 = undefined,
+ accel_profiles_support: river.LibinputDeviceV1.AccelProfiles = mem.zeroes(river.LibinputDeviceV1.AccelProfiles),
+ accel_profile_current: river.LibinputDeviceV1.AccelProfile = undefined,
+ accel_speed_current: f64 = undefined,
++accel_custom_applied: bool = false,
+ 
+ natural_scroll_support: bool = false,
+ natural_scroll_current: river.LibinputDeviceV1.NaturalScrollState = undefined,
+@@ -185,6 +186,10 @@ fn apply_rule(self: *Self, rule: *const config.LibinputDeviceRule) void {
+                 if (@abs(self.accel_speed_current-speed) > 1e-6) self.set_accel_speed(speed);
+             }
+         }
++
++        if (rule.accel_custom) |custom| {
++            if (self.accel_profiles_support.custom and !self.accel_custom_applied) self.apply_accel_custom(custom);
++        }
+     }
+ 
+ 
+@@ -481,6 +486,44 @@ fn set_accel_speed(self: *Self, speed: f64) void {
+ }
+ 
+ 
++fn apply_accel_custom(self: *Self, custom: config.LibinputDeviceRule.AccelCustom) void {
++    log.info("<{*}> apply custom accel curves", .{ self });
++
++    const accel_config = ctx.rwm_libinput_config.createAccelConfig(.custom) catch |err| {
++        log.err("{*} create accel config failed: {}", .{ self, err });
++        return;
++    };
++    defer accel_config.destroy();
++
++    const curves = [_]struct { river.LibinputAccelConfigV1.AccelType, ?config.LibinputDeviceRule.AccelCurve }{
++        .{ .motion, custom.motion },
++        .{ .scroll, custom.scroll },
++    };
++    for (curves) |entry| {
++        const accel_type, const maybe_curve = entry;
++        const curve = maybe_curve orelse continue;
++
++        var step = [1]f64{ curve.step };
++        var step_arr: wl.Array = .{ .size = @sizeOf(f64), .alloc = @sizeOf(f64), .data = &step };
++        const points_size = curve.points.len * @sizeOf(f64);
++        var points_arr: wl.Array = .{ .size = points_size, .alloc = points_size, .data = @constCast(curve.points.ptr) };
++
++        const result = accel_config.setPoints(accel_type, &step_arr, &points_arr) catch |err| {
++            log.err("{*} set {s} accel points failed: {}", .{ self, @tagName(accel_type), err });
++            return;
++        };
++        result.setListener(*Self, rwm_libinput_result_listener, self);
++    }
++
++    const result = self.rwm_libinput_device.applyAccelConfig(accel_config) catch |err| {
++        log.err("{*} apply accel config failed: {}", .{ self, err });
++        return;
++    };
++    result.setListener(*Self, rwm_libinput_result_listener, self);
++    self.accel_custom_applied = true;
++}
++
++
+ fn set_calibration_matrix(self: *Self, matrix: *const [6]f32) void {
+     log.info("<{*}> set calibration matrix to {any}", .{ self, matrix.* });
+ 

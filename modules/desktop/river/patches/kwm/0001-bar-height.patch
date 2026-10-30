@@ -1,0 +1,90 @@
+Adds bar.height, a minimum bar height in logical pixels with the text
+centred in it, so the bar can clear the MacBook's notch whatever the font.
+
+diff --git a/config.def.zon b/config.def.zon
+index 0c7c353..31a7224 100644
+--- a/config.def.zon
++++ b/config.def.zon
+@@ -30,6 +30,9 @@
+ 
+         .font = "monospace:size=10",
+ 
++        // minimum height in logical pixels, 0 to fit the font
++        .height = 0,
++
+         .scheme = .{
+             .normal = .{
+                 .fg = 0x828bb8ff,
+diff --git a/src/config/bar.zig b/src/config/bar.zig
+index c9bf99d..7bf0da7 100644
+--- a/src/config/bar.zig
++++ b/src/config/bar.zig
+@@ -33,6 +33,9 @@ position: enum {
+ 
+ font: []const u8,
+ 
++// minimum bar height in logical pixels, text centred within it
++height: u16,
++
+ scheme: Scheme,
+ 
+ tags: ?struct {
+diff --git a/src/kwm/bar.zig b/src/kwm/bar.zig
+index f692148..7e95bcd 100644
+--- a/src/kwm/bar.zig
++++ b/src/kwm/bar.zig
+@@ -232,7 +232,7 @@ inline fn static_component_width(self: *Self) i32 {
+ 
+ 
+ inline fn get_pad(self: *const Self) u16 {
+-    return @intCast(self.font.height());
++    return @intCast(self.font.font.height);
+ }
+ 
+ 
+diff --git a/src/kwm/render/font.zig b/src/kwm/render/font.zig
+index 2102bf8..e48a780 100644
+--- a/src/kwm/render/font.zig
++++ b/src/kwm/render/font.zig
+@@ -16,6 +16,10 @@ const ctx = Context.get();
+ 
+ 
+ font: *fcft.Font,
++/// Line height: the font's, or the configured bar height if taller.
++line_height: c_int,
++/// Space above the text, centring it within line_height.
++pad: c_int,
+ 
+ 
+ pub fn init(self: *Self, font_name: []const u8, scale: u32) !void {
+@@ -24,8 +28,12 @@ pub fn init(self: *Self, font_name: []const u8, scale: u32) !void {
+     const fcft_font = try load_font(font_name, scale);
+     errdefer fcft_font.destroy();
+ 
++    const min_height: c_int = @intCast(@divFloor(@as(u32, ctx.cfg.bar.height) * scale + 119, 120));
++    const line_height = @max(min_height, fcft_font.height);
+     self.* = .{
+         .font = fcft_font,
++        .line_height = line_height,
++        .pad = @divFloor(line_height - fcft_font.height, 2),
+     };
+ }
+ 
+@@ -38,7 +46,7 @@ pub fn deinit(self: *Self) void {
+ 
+ 
+ pub inline fn height(self: *const Self) c_int {
+-    return self.font.height;
++    return self.line_height;
+ }
+ 
+ 
+@@ -92,7 +100,7 @@ pub fn render_text(
+             0,
+             0,
+             x + offset,
+-            y + self.font.ascent - glyph.y,
++            y + self.pad + self.font.ascent - glyph.y,
+             glyph.width,
+             glyph.height,
+         );
