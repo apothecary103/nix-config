@@ -11,7 +11,7 @@
         profiles.user.databases = [
           {
             settings."org/gnome/desktop/interface" = {
-              color-scheme = "prefer-dark";
+              color-scheme = "prefer-light";
               icon-theme = "Adwaita";
               cursor-theme = "WhiteSur-cursors";
               # The schema types this `i`, which a bare Nix int is ambiguous for.
@@ -33,7 +33,7 @@
 
       # libadwaita apps decide light/dark from the xdg-desktop-portal Settings
       # backend, not from GTK settings. The gtk backend reads `color-scheme` (set
-      # above) straight from GSettings; sway.nix points the portal at it.
+      # above) straight from GSettings; river/package.nix points the portal at it.
       xdg.portal = {
         extraPortals = [ pkgs.xdg-desktop-portal-gtk ];
       };
@@ -61,7 +61,7 @@
 
           # In step with fontconfig.nix for GTK3 under X11. On Wayland GTK3
           # takes these from the dconf keys above and GTK4 ignores them.
-          application-prefer-dark-theme = 1;
+          application-prefer-dark-theme = 0;
           xft-antialias = 1;
           xft-hinting = 1;
           xft-hintstyle = "hintslight";

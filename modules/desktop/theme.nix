@@ -5,15 +5,12 @@
     {
       imports = [ inputs.orchard.hjemModules.default ];
 
+      # CelestialCrafter's river rice: Rosé Pine Dawn, opaque, rose for focus.
       orchard = {
         enable = true;
-        # Under sway the wallpaper sets the colours (see sway/config.nix); this
-        # is what everything starts from and what programs it misses keep.
-        theme = "onedark";
-        flavour = "dark";
-        accent = "blue";
-
-        transparent = true;
+        theme = "rose-pine";
+        flavour = "dawn";
+        accent = "rose";
       };
 
       # Shorter names for the hand-styled configs orchard covers no port for.
