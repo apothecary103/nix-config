@@ -1,7 +1,7 @@
 {
   # The launcher as the river rice has it, in Maple Mono: a ＃ prompt, roomy
   # padding. Orchard colours it; the background drops to 72 % so river's blur
-  # shows through, with a hairline edge and corners like the shell's panels.
+  # shows through, with a hairline edge and square corners like the shell.
   flake.modules.hjem.linux =
     { lib, palette, ... }:
     let
@@ -30,7 +30,7 @@
           };
 
           border = {
-            radius = 18;
+            radius = 0;
             width = 1;
           };
         };
