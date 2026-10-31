@@ -1,72 +1,63 @@
 { lib, username, ... }:
 let
+  # Lucide, the open icon set closest to SF Symbols: even 2 px strokes on a 24
+  # grid with rounded ends. Its glyphs are named after the icons, so the
+  # codepoints are read from the font rather than copied in.
+  lucideMap =
+    pkgs:
+    let
+      python = pkgs.python3.withPackages (p: [ p.fonttools ]);
+      json = pkgs.runCommandLocal "lucide-codepoints.json" { } ''
+        ${python}/bin/python3 -I - ${pkgs.lucide}/share/fonts/truetype/Lucide.ttf > $out <<'PY'
+        import json, sys
+        from fontTools.ttLib import TTFont
+        cmap = TTFont(sys.argv[1]).getBestCmap()
+        print(json.dumps({name: code for code, name in cmap.items()}))
+        PY
+      '';
+    in
+    lib.mapAttrs (_: code: builtins.fromJSON ''"\u${lib.toLower (lib.toHexString code)}"'') (
+      builtins.fromJSON (builtins.readFile json)
+    );
+
   # The panel's notch, in logical pixels at the default 1512 x 982: about 185
-  # wide and 32 deep. Asahi gives back the 37 rows beside it (show_notch=1).
-  notch = {
-    width = 185;
-    height = 32;
-  };
+  # wide. Asahi gives back the 37 rows beside it (show_notch=1).
+  notch.width = 185;
   screen = 1512;
 in
 {
-  # The desktop shell, in eww, after Tail-R's xmonad rice (xmonad-eww-dotfiles,
-  # "how I spent my summer vacation"): dark modules edged in the accent on a
-  # light, translucent strip, Nerd Font glyphs (pac-man, cherries, ghosts,
-  # hearts), and a dashboard, a player and a power column that drop from it.
-  # The notch is one more module, hung from the top edge. Colours come from
-  # the matugen theme: its accent, and its surfaces with the hue taken out,
-  # since the rice is grey and pink.
+  flake.modules.nixos.base =
+    { pkgs, ... }:
+    {
+      fonts.packages = [ pkgs.lucide ];
+    };
+
+  # The desktop shell, in eww. The 37 rows beside the notch are a black band,
+  # so the notch vanishes into it as macOS has it, with soft grey pills
+  # floating in the band: the avatar, kanji workspaces from 〇 and the focused
+  # window on the left, the track, status and time on the right. The avatar
+  # opens a panel after Tail-R's xmonad rice (a big clock, a profile card,
+  # the power keys); the status and time open the controls, the track the
+  # player. Maple Mono with Lucide icons, in the sakura theme.
   flake.modules.hjem.linux =
     { pkgs, palette, ... }:
     let
-      m = palette.native;
+      icon = lucideMap pkgs;
       eww = lib.getExe pkgs.eww;
 
-      # Nerd Font glyphs by name, as Maple Mono NF carries them.
-      nf =
-        let
-          names = builtins.fromJSON (
-            builtins.readFile "${pkgs.nerd-font-patcher}/share/glyphnames.json"
-          );
-          hex = n: lib.toLower (lib.fixedWidthString 4 "0" (lib.toHexString n));
-          char =
-            code:
-            builtins.fromJSON (
-              ''"''
-              + (
-                if code < 65536 then
-                  "\\u${hex code}"
-                else
-                  let
-                    c = code - 65536;
-                  in
-                  "\\u${hex (55296 + c / 1024)}\\u${hex (56320 + lib.mod c 1024)}"
-              )
-              + ''"''
-            );
-        in
-        lib.mapAttrs (_: g: char (lib.fromHexString g.code)) (
-          lib.filterAttrs (_: g: lib.isAttrs g && g ? code) names
-        );
-
-      # Until river blurs what is behind them, the modules stay nearly opaque.
-      material = "0.96";
-
-      # The strip runs past the notch's 37 rows, so the notch module can hang
-      # below the notch like the rest of the row.
-      strip = 46;
-      tile = 34;
-      margin = (strip - tile) / 2;
-      gap = 8;
-      notchModule = notch.width + 20;
-      half = (screen - notchModule) / 2 - 2 * gap;
+      band = 37;
+      pill = 27;
+      edge = 10;
+      gap = 6;
       widths = {
-        launcher = tile;
-        workspaces = 170;
-        music = 230;
-        clock = 100;
-        hearts = 196;
-        power = tile;
+        music = 210;
+        status = 176;
+        clock = 148;
+      };
+      # The player hangs centred under the track, the rightmost pill but two.
+      music = {
+        right = screen - edge - widths.clock - gap - widths.status - gap;
+        centre = music.right - widths.music / 2;
       };
 
       script =
@@ -200,7 +191,7 @@ in
       '';
 
       clock = script "shell-clock" [ pkgs.coreutils ] ''
-        date '+{"hour":"%H","minute":"%M","weekday":"%A","date":"%-d, %B"}'
+        date '+{"hour":"%H","minute":"%M","weekday":"%A","date":"%-d, %B","short":"%a %-d %b"}'
       '';
 
       brightness = script "shell-brightness" [ pkgs.brightnessctl pkgs.coreutils ] ''
@@ -212,8 +203,8 @@ in
       # the window closes, so the exit animates too.
       popovers = [
         "dashboard"
+        "control"
         "player"
-        "power"
       ];
       popover = script "shell-popover" [ pkgs.coreutils pkgs.eww pkgs.gnugrep ] ''
         want=''${1:-}
@@ -249,7 +240,7 @@ in
             esac >/dev/null
           '';
 
-      # Sleep acts at once; the rest ask for a second click within three
+      # Lock and sleep act at once; the rest ask for a second click within three
       # seconds, as the button turns to say.
       power =
         script "shell-power"
@@ -262,6 +253,7 @@ in
             act() {
               ${popover}
               case "$1" in
+                lock) loginctl lock-session ;;
                 sleep) systemctl suspend ;;
                 logout) loginctl terminate-session "$(loginctl show-user "$USER" -p Display --value)" ;;
                 restart) systemctl reboot ;;
@@ -269,7 +261,7 @@ in
               esac
             }
             case "$1" in
-              sleep) act "$1" ;;
+              lock | sleep) act "$1" ;;
               *)
                 if [ "$(eww get power_armed)" = "$1" ]; then
                   act "$1"
@@ -286,18 +278,30 @@ in
         eww open bar
       '';
 
-      # The rice's battery: ten hearts by tens, the last partial one half
-      # filled, or pulsing while charging.
-      heart =
-        i:
-        lib.concatStrings [
-          "{${bat}.capacity >= ${toString (i * 10)} ? \"${nf.md-cards_heart}\""
-          " : ${bat}.capacity > ${toString (i * 10 - 10)}"
-          " ? (${bat}.status == \"Charging\" ? \"${nf.md-heart_pulse}\" : \"${nf.md-heart_half_full}\")"
-          " : \"${nf.md-cards_heart_outline}\"}"
-        ];
-
       art = ''{media.art != "" ? "background-image: url('" + media.art + "');" : ""}'';
+
+      # Workspaces in kanji, counting from nought.
+      numerals = builtins.toJSON [
+        "〇"
+        "一"
+        "二"
+        "三"
+        "四"
+        "五"
+        "六"
+        "七"
+        "八"
+        "九"
+      ];
+
+      batteryIcon = ''
+        {${bat}.status == "Charging" ? "${icon.battery-charging}"
+          : ${bat}.capacity > 80 ? "${icon.battery-full}"
+          : ${bat}.capacity > 45 ? "${icon.battery-medium}"
+          : ${bat}.capacity > 15 ? "${icon.battery-low}"
+          : "${icon.battery-warning}"}'';
+      volumeIcon = ''
+        {volume.muted ? "${icon.volume-x}" : volume.level > 66 ? "${icon.volume-2}" : volume.level > 0 ? "${icon.volume-1}" : "${icon.volume}"}'';
     in
     {
       packages = [ pkgs.eww ];
@@ -308,7 +312,7 @@ in
         (deflisten network :initial '{"kind":"none","ssid":"","enabled":true}' "${network}")
         (deflisten media :initial '{"status":"","title":"","artist":"","art":"","tint":"","length":0,"player":""}' "${media}")
         (defpoll bluetooth :interval "5s" :initial '{"powered":false,"device":""}' "${bluetooth}")
-        (defpoll clock :interval "5s" :initial '{"hour":"","minute":"","weekday":"","date":""}' "${clock}")
+        (defpoll clock :interval "5s" :initial '{"hour":"","minute":"","weekday":"","date":"","short":""}' "${clock}")
         (defpoll brightness :interval "5s" :initial "0" "${brightness}")
 
         ${lib.concatMapStringsSep "\n" (p: "(defvar ${p}_open false)") popovers}
@@ -316,107 +320,89 @@ in
         (defpoll position :interval "1s" :initial "0" :run-while player_open "${position}")
         (defpoll looping :interval "2s" :initial "None" :run-while player_open "playerctl loop 2>/dev/null || echo None")
 
+        (defvar numerals '${numerals}')
+
         (include "./widgets.yuck")
         (include "./bar.yuck")
         (include "./dashboard.yuck")
+        (include "./control.yuck")
         (include "./player.yuck")
-        (include "./power.yuck")
         (include "./osd.yuck")
       '';
 
       xdg.config.files."eww/widgets.yuck".text = ''
-        ; GTK 3 eventboxes take no size or padding, so in both of these the
-        ; eventbox only catches the pointer and the box inside carries the look.
+        ; GTK 3 eventboxes take no size or padding, so in these the eventbox
+        ; only catches the pointer and the box inside carries the look.
 
-        ; A bar module: dark, rounded, edged in the accent.
-        (defwidget module [?class ?width ?onclick ?onscroll ?tooltip ?hexpand]
+        ; A pill in the band.
+        (defwidget pill [?class ?width ?onclick ?onscroll ?tooltip ?hexpand]
           (eventbox :class "hit" :onclick onclick :onscroll onscroll :tooltip tooltip
-                    :cursor {onclick != "" ? "pointer" : "default"} :hexpand {hexpand == true}
-            (box :class "module ''${class}" :width {width == "" ? 0 : width} :height ${toString tile}
-                 :hexpand {hexpand == true} :space-evenly false
+                    :cursor {onclick != "" ? "pointer" : "default"}
+            (box :class "pill ''${class}" :width {width == "" ? 0 : width} :height ${toString pill}
+                 :space-evenly false
               (children))))
 
-        ; A rounded grey key, as the rice's dashboard and player have.
+        ; A key in a panel.
         (defwidget key [?class ?width height onclick ?tooltip]
           (eventbox :class "hit" :onclick onclick :cursor "pointer" :tooltip tooltip
             (box :class "key ''${class}" :width {width == "" ? 0 : width} :height height
               (children))))
+
+        ; A panel, square to the band's edge but rounded below it.
+        (defwidget panel [?class]
+          (box :class "panel ''${class}" :orientation "v" :space-evenly false
+            (children)))
       '';
 
       xdg.config.files."eww/bar.yuck".text = ''
-        ; A ${toString strip}-tall strip: the rows beside the notch and a few
-        ; below, with ${toString tile}-tall modules in two halves either side of
-        ; it, and the notch dressed as a module of its own.
+        ; The band: the ${toString band} rows beside the notch, black like the
+        ; notch, with ${toString pill}-tall pills floating in it.
         (defwindow bar
           :monitor 0
           :stacking "fg"
           :exclusive true
           :focusable "none"
           :namespace "bar"
-          :geometry (geometry :x "0" :y "0" :width "100%" :height "${toString strip}px" :anchor "top center")
-          (centerbox :class "strip"
-            (box :class "half" :width ${toString half} :valign "start" :space-evenly false :spacing ${toString gap}
-              (module :class "launcher" :width ${toString widths.launcher} :onclick "${popover} dashboard"
-                (label :class "glyph accent launcher-glyph" :hexpand true :text "${nf.md-pac_man}"))
-              (module :width ${toString widths.workspaces}
-                (box :hexpand true :halign "center" :space-evenly false :spacing 16
+          :geometry (geometry :x "0" :y "0" :width "100%" :height "${toString band}px" :anchor "top center")
+          (centerbox :class "band"
+            (box :class "side" :halign "start" :valign "center" :space-evenly false :spacing ${toString gap}
+              (eventbox :class "hit" :onclick "${popover} dashboard" :cursor "pointer" :tooltip "${username}"
+                (box :class "avatar ''${dashboard_open ? 'open' : '''}" :width ${toString pill} :height ${toString pill}))
+              (pill :class "workspaces"
+                (box :space-evenly false :spacing 2
                   (for tag in {kwm.tags}
-                    (eventbox :class "tag" :cursor "pointer"
-                              :visible {tag.focused || tag.occupied || tag.id <= 5}
-                              :tooltip "''${tag.id}"
+                    (eventbox :cursor "pointer" :visible {tag.focused || tag.occupied || tag.id <= 5}
                               :onclick "echo set_output_tag ''${tag.id} > $XDG_RUNTIME_DIR/kwm/control"
                               :onrightclick "echo toggle_output_tag ''${tag.id} > $XDG_RUNTIME_DIR/kwm/control"
-                      (label :class {tag.focused ? "glyph ws active" : tag.occupied ? "glyph ws occupied" : "glyph ws empty"}
-                             :text {tag.focused ? "${nf.md-fruit_cherries}" : tag.occupied ? "${nf.md-ghost}" : "${nf.md-circle_small}"})))))
-              (module :hexpand true
-                (box :hexpand true :halign "center" :space-evenly false :spacing 8
-                  (label :class "glyph" :text "${nf.md-window_restore}")
-                  (label :class "value" :limit-width 18
-                         :text {kwm.title != "" ? kwm.title : kwm.app_id != "" ? kwm.app_id : "desktop"})))
-              (module :class {media.title == "" ? "music idle" : "music"} :width ${toString widths.music}
-                      :onclick "${popover} player"
-                (overlay :hexpand true
-                  (box :class "music-wash" :style ${art})
-                  (box :space-evenly false :spacing 10
-                    (box :class "thumb" :width ${toString (tile - 8)} :height ${toString (tile - 8)} :valign "center"
-                         :visible {media.art != ""} :style ${art})
-                    (box :orientation "v" :valign "center" :space-evenly false :visible {media.title != ""}
-                      (label :class "line" :halign "start" :limit-width 22 :text {media.title})
-                      (label :class "line" :halign "start" :limit-width 22 :text {media.artist}))
-                    (box :hexpand true :halign "center" :space-evenly false :spacing 8 :visible {media.title == ""}
-                      (label :class "glyph dim" :text "${nf.md-music}")
-                      (label :class "value dim" :text "silence"))))))
-            (box :class "notch" :width ${toString notchModule} :height ${toString (strip - margin)} :valign "start")
-            (box :class "half" :width ${toString half} :valign "start" :space-evenly false :spacing ${toString gap}
-              (module :hexpand true :onclick "${popover} dashboard" :onscroll "osd volume-{}"
+                      (box :class {tag.focused ? "ws focused" : tag.occupied ? "ws occupied" : "ws"}
+                           :width 23 :height 21
+                        (label :hexpand true :text {numerals[tag.id - 1]}))))))
+              (pill :class "title" :visible {kwm.title != "" || kwm.app_id != ""}
+                (label :class "strong" :limit-width 40 :text {kwm.title != "" ? kwm.title : kwm.app_id})))
+            (box :class "notch" :width ${toString (notch.width + 2 * 8)})
+            (box :class "side" :halign "end" :valign "center" :space-evenly false :spacing ${toString gap}
+              (pill :class {player_open ? "music open" : "music"} :width ${toString widths.music}
+                    :visible {media.title != ""} :onclick "${popover} player"
+                (box :space-evenly false :spacing 8
+                  (box :class "thumb" :width 19 :height 19 :valign "center" :visible {media.art != ""} :style ${art})
+                  (label :class "icon dim" :visible {media.art == ""} :text "${icon.music}")
+                  (label :class "strong" :limit-width 22 :text {media.title})))
+              (pill :class {control_open ? "open" : ""} :width ${toString widths.status}
+                    :onclick "${popover} control" :onscroll "osd volume-{}"
                 (box :hexpand true :halign "center" :space-evenly false :spacing 14
-                  (box :space-evenly false :spacing 8
-                    (label :class {bluetooth.powered ? "glyph" : "glyph dim"} :text {bluetooth.powered ? "${nf.md-bluetooth}" : "${nf.md-bluetooth_off}"})
-                    (label :class "value" :limit-width 10 :visible {bluetooth.device != ""} :text {bluetooth.device}))
-                  (box :space-evenly false :spacing 8
-                    (label :class "glyph accent" :text {network.kind == "none" ? "${nf.md-wifi_strength_off}" : "${nf.md-wifi_strength_4}"})
-                    (label :class "value" :text {network.kind == "none" ? "offline" : "online"}))
-                  (box :space-evenly false :spacing 8
-                    (label :class "glyph" :text {volume.muted ? "${nf.md-volume_off}" : "${nf.seti-audio}"})
-                    (label :class "value" :text "''${volume.level}%"))
-                  (box :space-evenly false :spacing 8
-                    (label :class "glyph" :text "${nf.oct-sun}")
-                    (label :class "value" :text "''${brightness}%"))))
-              (module :width ${toString widths.hearts} :onclick "${popover} dashboard"
-                      :tooltip "''${${bat}.capacity}%, ''${${bat}.status}"
-                (box :hexpand true :halign "center" :space-evenly false :spacing 1
-                     :class {${bat}.capacity <= 20 && ${bat}.status != "Charging" ? "hearts low" : "hearts"}
-                  ${
-                    lib.concatMapStringsSep "\n                  " (
-                      i: ''(label :class "glyph heart" :text ${heart i})''
-                    ) (lib.range 1 10)
-                  }))
-              (module :width ${toString widths.clock} :onclick "${popover} dashboard"
-                (box :hexpand true :halign "center" :space-evenly false :spacing 10
-                  (label :class "glyph accent" :text "${nf.fa-clock_o}")
-                  (label :class "value" :text "''${clock.hour} : ''${clock.minute}")))
-              (module :class {power_open ? "open" : ""} :width ${toString widths.power} :onclick "${popover} power"
-                (label :class "glyph accent" :hexpand true :text "${nf.md-power}")))))
+                  (label :class {network.kind == "none" ? "icon dim" : "icon"}
+                         :text {network.kind == "wired" ? "${icon.ethernet-port}" : network.kind == "wifi" ? "${icon.wifi}" : "${icon.wifi-off}"})
+                  (label :class {bluetooth.powered ? "icon" : "icon dim"}
+                         :text {bluetooth.device != "" ? "${icon.bluetooth-connected}" : bluetooth.powered ? "${icon.bluetooth}" : "${icon.bluetooth-off}"})
+                  (label :class "icon" :text ${volumeIcon})
+                  (box :space-evenly false :spacing 6
+                    :class {${bat}.capacity <= 15 && ${bat}.status != "Charging" ? "low" : ""}
+                    (label :class "icon" :text ${batteryIcon})
+                    (label :class "strong" :text "''${${bat}.capacity}%"))))
+              (pill :class {control_open ? "open" : ""} :width ${toString widths.clock} :onclick "${popover} control"
+                (box :hexpand true :halign "center" :space-evenly false :spacing 8
+                  (label :class "dim" :text {clock.short})
+                  (label :class "strong" :text "''${clock.hour}:''${clock.minute}"))))))
 
         ; A clear surface under any open popover: a click outside closes it.
         (defwindow scrim
@@ -430,101 +416,116 @@ in
       '';
 
       xdg.config.files."eww/dashboard.yuck".text = ''
-        (defwidget meter [label glyph value ?onchange]
-          (box :class "meter" :orientation "v" :space-evenly false :spacing 4
-            (box :space-evenly false
-              (label :class "caption" :hexpand true :halign "start" :text label)
-              (label :class "caption" :text "''${round(value, 0)}%"))
-            (box :space-evenly false :spacing 10
-              (label :class "glyph meter-glyph" :text glyph)
-              (scale :class {onchange == "" ? "bar fixed" : "bar"} :hexpand true :min 0 :max 101
-                     :value value :active {onchange != ""} :onchange onchange))))
+        (defwidget leave [glyph action label]
+          (key :class {power_armed == action ? "armed" : ""} :height 40
+               :onclick "${power} ''${action}"
+               :tooltip {power_armed == action ? "click again to ''${label}" : label}
+            (label :class "icon" :hexpand true :text {power_armed == action ? "${icon.check}" : glyph})))
 
-        (defwidget connection [label value onclick on]
-          (box :class "connection" :orientation "v" :space-evenly false :spacing 6
-            (label :class "caption" :halign "start" :text label)
-            (key :class {on ? "pill" : "pill off"} :height 38 :onclick onclick
-              (label :class "value" :hexpand true :limit-width 24 :text value))))
-
+        ; From the avatar: the time, who and what this is, and the way out.
         (defwindow dashboard
           :monitor 0
           :stacking "overlay"
           :exclusive false
           :focusable "none"
           :namespace "popover"
-          :geometry (geometry :x "${toString gap}px" :y "${toString gap}px" :width "280px" :anchor "top left")
+          :geometry (geometry :x "${toString edge}px" :y "${toString gap}px" :width "280px" :anchor "top left")
           (revealer :reveal dashboard_open :transition "slidedown" :duration "250ms"
-            (box :class "panel" :orientation "v" :space-evenly false
+            (panel
               (label :class "big-clock" :text "''${clock.hour} : ''${clock.minute}")
               (box :class "dateline" :space-evenly false
                 (label :class "caption" :hexpand true :halign "start" :text {clock.weekday})
                 (label :class "caption" :text {clock.date}))
-              (box :class "profile" :orientation "v" :space-evenly false :spacing 10
-                (box :class "portrait" :halign "center" :width 96 :height 96)
-                (label :class "name" :text "${username}"))
-              (meter :label "battery" :value {${bat}.capacity}
-                     :glyph {${bat}.status == "Charging" ? "${nf.md-battery_charging}" : "${nf.fa-battery_full}"})
-              (meter :label "brightness" :glyph "${nf.oct-sun}" :value brightness
-                     :onchange "brightnessctl -q -d apple-panel-bl --min-value=6 set {}%; eww update brightness={}")
-              (meter :label "volume" :glyph {volume.muted ? "${nf.md-volume_off}" : "${nf.seti-audio}"} :value {volume.level}
-                     :onchange "wpctl set-volume @DEFAULT_AUDIO_SINK@ {}%")
-              (connection :label "Network" :on {network.kind != "none"} :onclick "${toggle} wifi"
-                          :value {network.kind == "wifi" ? network.ssid : network.kind == "wired" ? "wired" : network.enabled ? "not connected" : "wi-fi off"})
-              (connection :label "Bluetooth" :on {bluetooth.powered} :onclick "${toggle} bluetooth"
-                          :value {bluetooth.device != "" ? bluetooth.device : bluetooth.powered ? "on" : "off"}))))
+              (box :class "card profile" :orientation "v" :space-evenly false :spacing 6
+                (box :class "portrait" :halign "center" :width 84 :height 84)
+                (label :class "name" :text "${username}")
+                (label :class "caption" :text "frieren · asahi linux"))
+              (box :class "keys" :spacing 8 :homogeneous true
+                (leave :glyph "${icon.lock}" :action "lock" :label "lock")
+                (leave :glyph "${icon.moon}" :action "sleep" :label "sleep")
+                (leave :glyph "${icon.rotate-ccw}" :action "restart" :label "restart")
+                (leave :glyph "${icon.power}" :action "shutdown" :label "shut down")))))
+      '';
+
+      xdg.config.files."eww/control.yuck".text = ''
+        (defwidget tile [glyph title detail on onclick]
+          (key :class {on ? "tile on" : "tile"} :height 56 :onclick onclick
+            (box :class "tile-body" :space-evenly false :spacing 10
+              (box :class "badge" :width 32 :height 32 :valign "center"
+                (label :class "icon" :hexpand true :text glyph))
+              (box :orientation "v" :valign "center" :space-evenly false
+                (label :class "strong" :halign "start" :text title)
+                (label :class "caption" :halign "start" :limit-width 14 :text detail)))))
+
+        (defwidget meter [label glyph value ?onchange]
+          (box :class "meter" :orientation "v" :space-evenly false :spacing 6
+            (box :space-evenly false
+              (label :class "caption" :hexpand true :halign "start" :text label)
+              (label :class "caption" :text "''${round(value, 0)}%"))
+            (box :space-evenly false :spacing 10
+              (label :class "icon" :text glyph)
+              (scale :class {onchange == "" ? "bar fixed" : "bar"} :hexpand true :min 0 :max 101
+                     :value value :active {onchange != ""} :onchange onchange))))
+
+        ; From the status and the time.
+        (defwindow control
+          :monitor 0
+          :stacking "overlay"
+          :exclusive false
+          :focusable "none"
+          :namespace "popover"
+          :geometry (geometry :x "${toString edge}px" :y "${toString gap}px" :width "320px" :anchor "top right")
+          (revealer :reveal control_open :transition "slidedown" :duration "250ms"
+            (panel
+              (box :class "tiles" :spacing 8 :homogeneous true
+                (tile :glyph {network.enabled ? "${icon.wifi}" : "${icon.wifi-off}"} :title "Wi-Fi"
+                      :detail {network.kind == "wifi" ? network.ssid : network.kind == "wired" ? "Wired" : network.enabled ? "Not connected" : "Off"}
+                      :on {network.enabled} :onclick "${toggle} wifi")
+                (tile :glyph {bluetooth.powered ? "${icon.bluetooth}" : "${icon.bluetooth-off}"} :title "Bluetooth"
+                      :detail {bluetooth.device != "" ? bluetooth.device : bluetooth.powered ? "On" : "Off"}
+                      :on {bluetooth.powered} :onclick "${toggle} bluetooth"))
+              (box :class "card meters" :orientation "v" :space-evenly false
+                (meter :label "Brightness" :glyph "${icon.sun}" :value brightness
+                       :onchange "brightnessctl -q -d apple-panel-bl --min-value=6 set {}%; eww update brightness={}")
+                (meter :label "Volume" :glyph ${volumeIcon} :value {volume.level}
+                       :onchange "wpctl set-volume @DEFAULT_AUDIO_SINK@ {}%")
+                (meter :label {${bat}.status == "Charging" ? "Battery, charging" : "Battery"} :glyph ${batteryIcon}
+                       :value {${bat}.capacity}))
+              (box :class "dateline foot" :space-evenly false
+                (label :class "caption" :hexpand true :halign "start" :text "''${clock.weekday}, ''${clock.date}")
+                (label :class "caption" :text "''${clock.hour}:''${clock.minute}")))))
       '';
 
       xdg.config.files."eww/player.yuck".text = ''
-        ; Centred under the music module.
+        ; Centred under the track.
         (defwindow player
           :monitor 0
           :stacking "overlay"
           :exclusive false
           :focusable "none"
           :namespace "popover"
-          :geometry (geometry :x "${toString (gap + half - widths.music / 2 - 150)}px" :y "${toString gap}px" :width "300px" :anchor "top left")
+          :geometry (geometry :x "${toString (music.centre - 150)}px" :y "${toString gap}px" :width "300px" :anchor "top left")
           (revealer :reveal player_open :transition "slidedown" :duration "250ms"
-            (box :class "panel" :orientation "v" :space-evenly false
+            (panel
               (overlay :class "stage"
-                (box :class "stage-ground" :height 196
+                (box :class "stage-ground" :height 200
                      :style {media.tint != "" ? "background-color: ''${media.tint};" : ""})
-                (box :class "cover" :halign "center" :valign "center" :width 156 :height 156 :style ${art}
-                  (label :class "glyph dim cover-glyph" :hexpand true :visible {media.art == ""} :text "${nf.md-music}")))
-              (box :class "controls" :halign "center" :space-evenly false :spacing 10
-                (key :width 38 :height 36 :onclick "playerctl previous"
-                  (label :class "glyph" :hexpand true :text "${nf.md-skip_previous}"))
-                (key :width 38 :height 36 :onclick "playerctl play-pause"
-                  (label :class "glyph" :hexpand true :text {media.status == "Playing" ? "${nf.md-pause}" : "${nf.md-play}"}))
-                (key :width 38 :height 36 :onclick "playerctl next"
-                  (label :class "glyph" :hexpand true :text "${nf.md-skip_next}"))
-                (key :class {looping != "None" ? "lit" : ""} :width 38 :height 36 :onclick "${repeat}"
-                  (label :class "glyph" :hexpand true :text {looping == "Track" ? "${nf.md-repeat_once}" : "${nf.md-repeat}"})))
-              (label :class "track" :limit-width 30 :text {media.title != "" ? media.title : "nothing playing"})
-              (label :class "track" :limit-width 30 :visible {media.artist != ""} :text {media.artist})
-              (progress :class "elapsed" :value {media.length > 0 ? position * 100000000 / media.length : 0}))))
-      '';
-
-      xdg.config.files."eww/power.yuck".text = ''
-        (defwidget leave [glyph action label]
-          (key :class {power_armed == action ? "armed" : ""} :width 40 :height 40
-               :onclick "${power} ''${action}"
-               :tooltip {power_armed == action ? "again to ''${label}" : label}
-            (label :class "glyph" :hexpand true :text {power_armed == action ? "${nf.md-check}" : glyph})))
-
-        ; Halfway down the right edge, as in the rice.
-        (defwindow power
-          :monitor 0
-          :stacking "overlay"
-          :exclusive false
-          :focusable "none"
-          :namespace "popover"
-          :geometry (geometry :x "${toString gap}px" :y "0" :anchor "center right")
-          (revealer :reveal power_open :transition "slideleft" :duration "250ms"
-            (box :class "panel column" :orientation "v" :space-evenly false :spacing 10
-              (leave :glyph "${nf.md-power}" :action "shutdown" :label "shut down")
-              (leave :glyph "${nf.md-power_sleep}" :action "sleep" :label "sleep")
-              (leave :glyph "${nf.md-logout_variant_2}" :action "logout" :label "log out")
-              (leave :glyph "${nf.md-replay}" :action "restart" :label "restart"))))
+                (box :class "cover" :halign "center" :valign "center" :width 160 :height 160 :style ${art}
+                  (label :class "icon dim cover-icon" :hexpand true :visible {media.art == ""} :text "${icon.music}")))
+              (label :class "track" :limit-width 30 :text {media.title != "" ? media.title : "Nothing playing"})
+              (label :class "caption artist" :limit-width 36 :visible {media.artist != ""} :text {media.artist})
+              (progress :class "elapsed" :value {media.length > 0 ? position * 100000000 / media.length : 0})
+              (box :class "controls" :halign "center" :space-evenly false :spacing 14
+                (key :class "round" :width 36 :height 36 :onclick "${repeat}"
+                  (label :class {looping != "None" ? "icon accent" : "icon dim"} :hexpand true
+                         :text {looping == "Track" ? "${icon.repeat-1}" : "${icon.repeat}"}))
+                (key :class "round" :width 40 :height 40 :onclick "playerctl previous"
+                  (label :class "icon" :hexpand true :text "${icon.skip-back}"))
+                (key :class "round primary" :width 48 :height 48 :onclick "playerctl play-pause"
+                  (label :class "icon big-icon" :hexpand true :text {media.status == "Playing" ? "${icon.pause}" : "${icon.play}"}))
+                (key :class "round" :width 40 :height 40 :onclick "playerctl next"
+                  (label :class "icon" :hexpand true :text "${icon.skip-forward}"))
+                (box :width 36)))))
       '';
 
       xdg.config.files."eww/osd.yuck".text = ''
@@ -540,236 +541,253 @@ in
           :exclusive false
           :focusable "none"
           :namespace "osd"
-          :geometry (geometry :x "0" :y "96px" :width "280px" :anchor "bottom center")
+          :geometry (geometry :x "0" :y "96px" :width "260px" :anchor "bottom center")
           (revealer :reveal osd_open :transition "crossfade" :duration "150ms"
-            (box :class {osd_label == "muted" || osd_label == "microphone muted" ? "module osd muted" : "module osd"}
+            (box :class {osd_label == "muted" || osd_label == "microphone muted" ? "osd muted" : "osd"}
                  :height 44 :space-evenly false :spacing 12
-              (label :class "glyph"
-                     :text {osd_kind == "brightness" ? "${nf.oct-sun}" : osd_kind == "microphone" ? (osd_label == "microphone muted" ? "${nf.md-microphone_off}" : "${nf.md-microphone}") : osd_label == "muted" ? "${nf.md-volume_off}" : "${nf.seti-audio}"})
+              (label :class "icon"
+                     :text {osd_kind == "brightness" ? "${icon.sun}" : osd_kind == "microphone" ? (osd_label == "microphone muted" ? "${icon.mic-off}" : "${icon.mic}") : osd_label == "muted" ? "${icon.volume-x}" : "${icon.volume-2}"})
               (progress :class "elapsed" :hexpand true :valign "center" :value osd_value)
-              (label :class "value" :width 30 :halign "end" :text "''${osd_value}"))))
+              (label :class "strong" :width 28 :halign "end" :text "''${osd_value}"))))
       '';
 
       xdg.config.files."eww/eww.scss".text = ''
-        // The rice's palette (calm_pink): white text on dark grey modules,
-        // mid grey keys and labels, a pastel accent. Here the greys are the
-        // matugen surfaces without their hue, and the accent is matugen's.
-        $fg: ${m.on_surface};
-        $bg: grayscale(${m.surface_container_high});
-        $bg-alt: lighten(grayscale(${m.outline_variant}), 4%);
-        $muted: mix($fg, $bg, 34%);
-        $primary: ${m.primary};
-        $on-primary: ${m.on_primary};
-        $error: ${m.error};
-        $material: ${material};
+        // Sakura (see theme.nix): soft greys a breath off neutral, a calm pink.
+        $text: ${palette.surface.text};
+        $dim: ${palette.surface.textDim};
+        $faint: ${palette.surface.neutral4};
+        $base: ${palette.surface.background};
+        $raised: ${palette.surface.neutral0};
+        $key: ${palette.surface.neutral1};
+        $well: ${palette.surface.neutral2};
+        $accent: ${palette.ui.accent};
+        $error: ${palette.status.error};
 
         $standard: cubic-bezier(0.2, 0, 0, 1);
         $fast: 120ms;
-        $radius: 10px;
-        $edge: 1.5px solid rgba($primary, 0.9);
+        $hairline: 1px solid rgba($text, 0.07);
 
         * {
           all: unset;
           font-family: "Maple Mono NF CN";
           font-size: 12px;
-          color: $fg;
+          color: $text;
         }
 
         tooltip {
-          background-color: $bg;
-          border: $edge;
+          background-color: $raised;
+          border: $hairline;
           border-radius: 8px;
           padding: 4px 10px;
         }
-        tooltip label {
-          font-weight: bold;
-        }
 
-        // Nerd glyphs are wider than the monospace cell they sit in, so each
-        // gets a box its own size.
-        .glyph {
-          font-size: 14px;
-          min-width: 18px;
+        // Lucide: each icon in a box its own size, centred on the text.
+        .icon {
+          font-family: "lucide";
+          font-size: 15px;
+          min-width: 16px;
         }
-        .accent {
-          color: $primary;
-        }
-        .value {
-          font-weight: bold;
+        .strong {
+          font-weight: 600;
         }
         .dim {
-          color: $muted;
+          color: $dim;
+        }
+        .accent {
+          color: $accent;
         }
         .caption {
-          color: $muted;
+          color: $dim;
           font-size: 11px;
         }
+        .low .icon,
+        .low .strong {
+          color: $error;
+        }
 
-        // The strip: light and translucent, framing the dark modules.
-        .strip {
-          background-color: rgba($fg, 0.5);
+        // The band, black like the notch.
+        .band {
+          background-color: #000000;
         }
-        .half {
-          margin: ${toString margin}px ${toString gap}px 0;
+        .side {
+          margin: 0 ${toString edge}px;
         }
-        .module {
-          background-color: rgba($bg, $material);
-          border: $edge;
-          border-radius: $radius;
-          padding: 0 14px;
+        .pill {
+          background-color: $raised;
+          border: $hairline;
+          border-radius: 9px;
+          padding: 0 12px;
           transition: background-color $fast $standard;
         }
-        .hit:hover > .module {
-          background-color: mix($fg, $bg, 6%);
+        .hit:hover > .pill {
+          background-color: mix($text, $raised, 6%);
         }
-        .module.open {
-          background-color: mix($fg, $bg, 10%);
-        }
-        .launcher {
-          padding: 0;
-        }
-        .launcher-glyph {
-          font-size: 16px;
+        .pill.open {
+          background-color: mix($text, $raised, 10%);
         }
 
-        // The notch, dressed as a module: flush with the top edge, a chin of
-        // dark below the hardware, and the accent edge down both sides.
-        .notch {
-          background-color: $bg;
-          border: $edge;
-          border-top: none;
-          border-radius: 0 0 14px 14px;
+        .avatar {
+          background-image: url("${../../../assets/avatar.jpg}");
+          background-size: cover;
+          background-position: center;
+          border-radius: 50%;
+          box-shadow: inset 0 0 0 1px rgba($text, 0.12);
+          transition: box-shadow $fast $standard;
+        }
+        .hit:hover > .avatar,
+        .avatar.open {
+          box-shadow: inset 0 0 0 2px $accent;
         }
 
+        .workspaces {
+          padding: 0 3px;
+        }
         .ws {
-          font-size: 16px;
-          transition: color $fast $standard;
+          border-radius: 6px;
+          color: $faint;
+          transition: background-color $fast $standard, color $fast $standard;
         }
-        .ws.active,
-        .ws.occupied {
-          color: $primary;
-        }
-        .ws.empty {
-          color: $fg;
+        .ws label {
+          color: inherit;
           font-size: 12px;
         }
-        .tag:hover .ws {
-          color: mix($primary, $fg, 50%);
+        .ws.occupied {
+          color: $text;
         }
-
-        .music {
-          padding: 0;
+        .ws.focused {
+          background-color: rgba($accent, 0.16);
+          color: $accent;
         }
-        .music-wash {
-          background-size: cover;
-          background-position: center;
-          border-radius: $radius;
-          opacity: 0.3;
-        }
-        .thumb {
-          margin-left: 4px;
-          background-size: cover;
-          background-position: center;
-          border-radius: 7px;
-        }
-        .line {
-          font-size: 10px;
+        .ws.focused label {
           font-weight: bold;
         }
-
-        .heart {
-          color: $primary;
-          font-size: 14px;
-          min-width: 14px;
+        eventbox:hover > .ws:not(.focused) {
+          background-color: rgba($text, 0.07);
         }
-        .hearts.low .heart {
-          color: $error;
+
+        .thumb {
+          background-size: cover;
+          background-position: center;
+          border-radius: 5px;
         }
 
         .scrim {
           background-color: transparent;
         }
 
-        // Panels and their keys.
+        // Panels: lifted greys, a hairline, generous corners.
         .panel {
-          background-color: rgba($bg, $material);
-          border: $edge;
-          border-radius: 16px;
-          padding: 18px;
+          background-color: rgba($raised, 0.97);
+          border: $hairline;
+          border-radius: 18px;
+          padding: 16px;
+        }
+        .card {
+          background-color: rgba($text, 0.035);
+          border: $hairline;
+          border-radius: 14px;
         }
         .key {
-          background-color: $bg-alt;
-          border-radius: $radius;
+          background-color: $key;
+          border-radius: 12px;
           transition: background-color $fast $standard;
         }
         .hit:hover > .key {
-          background-color: mix($fg, $bg-alt, 10%);
-        }
-        .key.lit {
-          background-color: mix($primary, $bg, 45%);
+          background-color: mix($text, $key, 8%);
         }
         .key.armed {
-          background-color: $primary;
+          background-color: $accent;
         }
-        .key.armed .glyph {
-          color: $on-primary;
+        .key.armed .icon {
+          color: $base;
+        }
+        .key.round {
+          border-radius: 50%;
+          background-color: transparent;
+        }
+        .hit:hover > .key.round {
+          background-color: rgba($text, 0.08);
+        }
+        .key.round.primary {
+          background-color: $accent;
+        }
+        .key.round.primary .icon {
+          color: $base;
+        }
+        .hit:hover > .key.round.primary {
+          background-color: mix($text, $accent, 12%);
         }
 
         .big-clock {
-          font-size: 36px;
+          font-size: 38px;
           font-weight: bold;
-          color: mix($primary, $fg, 22%);
-          margin: 6px 0 4px;
+          color: mix($accent, $text, 25%);
+          margin: 4px 0 2px;
         }
         .dateline {
-          margin-bottom: 16px;
+          margin: 0 2px 14px;
+        }
+        .dateline.foot {
+          margin: 12px 4px 0;
         }
         .profile {
-          border: 1.5px solid $bg-alt;
-          border-radius: 16px;
-          padding: 16px 0 14px;
-          margin-bottom: 16px;
+          padding: 18px 0 14px;
+          margin-bottom: 12px;
         }
         .portrait {
           background-image: url("${../../../assets/avatar.jpg}");
           background-size: cover;
           background-position: center;
           border-radius: 50%;
+          box-shadow: inset 0 0 0 1px rgba($text, 0.12);
+          margin-bottom: 6px;
         }
         .name {
-          font-size: 17px;
+          font-size: 16px;
           font-weight: bold;
         }
 
-        .meter {
+        .tiles {
           margin-bottom: 12px;
         }
-        .meter-glyph {
-          font-size: 13px;
-          min-width: 14px;
+        .tile-body {
+          padding: 0 12px;
         }
-        scale.bar {
-          margin: 2px 0;
+        .badge {
+          background-color: $well;
+          border-radius: 50%;
+        }
+        .tile.on .badge {
+          background-color: $accent;
+        }
+        .tile.on .badge .icon {
+          color: $base;
+        }
+
+        .meters {
+          padding: 14px 14px 2px;
+        }
+        .meter {
+          margin-bottom: 12px;
         }
         scale.bar trough,
         progressbar trough {
           min-height: 6px;
           border-radius: 99px;
-          background-color: mix(#000000, $bg, 25%);
-          border: 1px solid $bg-alt;
+          background-color: $well;
         }
         scale.bar highlight,
         progressbar progress {
           min-height: 6px;
           border-radius: 99px;
-          background-color: $primary;
+          background-color: $accent;
         }
         scale.bar slider {
-          min-width: 12px;
-          min-height: 12px;
+          min-width: 14px;
+          min-height: 14px;
           margin: -4px 0;
           border-radius: 50%;
-          background-color: $fg;
+          background-color: $text;
           opacity: 0;
           transition: opacity $fast $standard;
         }
@@ -781,51 +799,51 @@ in
           min-height: 0;
         }
 
-        .connection {
-          margin-top: 6px;
-        }
-        .connection + .connection {
-          margin-top: 14px;
-        }
-        .pill.off .value {
-          color: $muted;
-        }
-
         .stage {
-          border-radius: 16px;
-          border: 1.5px solid $bg-alt;
-          margin-bottom: 16px;
+          margin-bottom: 14px;
         }
         .stage-ground {
-          border-radius: 15px;
-          background-color: mix(#000000, $bg, 30%);
+          border-radius: 12px;
+          background-color: $well;
         }
         .cover {
           background-size: cover;
           background-position: center;
-          background-color: $bg-alt;
-          border-radius: 4px;
-          box-shadow: 0 0 18px 2px rgba(#ffffff, 0.35);
+          background-color: $key;
+          border-radius: 8px;
+          box-shadow: 0 0 22px 2px rgba(#ffffff, 0.22);
         }
-        .cover-glyph {
+        .cover-icon {
           font-size: 40px;
         }
-        .controls {
-          margin-bottom: 14px;
-        }
         .track {
-          font-size: 12px;
+          font-size: 13px;
+          font-weight: bold;
+        }
+        .artist {
+          margin-top: 2px;
         }
         .elapsed {
-          margin-top: 12px;
+          margin: 14px 4px 12px;
+        }
+        progressbar trough {
+          min-height: 4px;
+        }
+        progressbar progress {
+          min-height: 4px;
+        }
+        .big-icon {
+          font-size: 19px;
         }
 
-        .column {
-          padding: 12px;
+        .osd {
+          background-color: rgba($raised, 0.97);
+          border: $hairline;
+          border-radius: 14px;
+          padding: 0 16px;
         }
-
         .osd.muted progressbar progress {
-          background-color: $bg-alt;
+          background-color: $faint;
         }
       '';
 
