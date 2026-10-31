@@ -16,7 +16,9 @@
         resize-delay-ms = 0;
       };
 
-      colors.alpha = 0.93;
+      # foot 1.28 reads colours from colors-dark and colors-light (see orchard).
+      colors-dark.alpha = 0.93;
+      colors-light.alpha = 0.93;
       cursor.style = "beam";
       bell.urgent = "yes";
       csd.preferred = "server";
