@@ -6,9 +6,6 @@
       palette,
       ...
     }:
-    let
-      m = palette.native;
-    in
     {
       packages = [
         pkgs.mako
@@ -31,19 +28,19 @@
         max-icon-size=32
         default-timeout=5000
         max-history=10
-        background-color=${m.surface_container}e0
-        text-color=${m.on_surface_variant}
-        border-color=${m.primary}
-        progress-color=over ${m.surface_container_highest}
-        format=<b><span foreground="${m.on_surface}">%s</span></b>\n%b
+        background-color=${palette.surface.neutral0}f2
+        text-color=${palette.surface.textMuted}
+        border-color=${palette.ui.accent}
+        progress-color=over ${palette.surface.neutral2}
+        format=<b><span foreground="${palette.surface.text}">%s</span></b>\n%b
 
         [urgency=low]
-        format=<span foreground="${m.on_surface_variant}">%s</span>\n%b
+        format=<span foreground="${palette.surface.textDim}">%s</span>\n%b
 
         [urgency=critical]
         default-timeout=0
-        border-color=${m.error}
-        format=<b><span foreground="${m.error}">%s</span></b>\n%b
+        border-color=${palette.status.error}
+        format=<b><span foreground="${palette.status.error}">%s</span></b>\n%b
 
         # F6, the Do Not Disturb key: hide everything but critical alerts.
         [mode=do-not-disturb]
