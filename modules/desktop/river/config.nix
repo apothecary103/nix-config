@@ -18,9 +18,20 @@
 
       colour = hex: zon.colour hex "ff";
 
-      wallpaper = pkgs.fetchurl {
-        url = "https://raw.githubusercontent.com/CelestialCrafter/dotfiles/9091d63a0dd389fc5aa74eb08d833f93027e3199/assets/wallpapers/normal.png";
-        hash = "sha256-wLgnmJd67tB6bNUJmQ3NhJaI8JXdoGfwXIjSSj8MunA=";
+      setWallpaper = pkgs.writeShellApplication {
+        name = "set-wallpaper";
+        runtimeInputs = [
+          pkgs.awww
+          pkgs.coreutils
+        ];
+        text = ''
+          for _ in $(seq 50); do
+            awww query >/dev/null 2>&1 && break
+            sleep 0.1
+          done
+          awww img ${../../../assets/botanical-shop.png} \
+            --resize crop --crop-gravity center --filter Lanczos3 --transition-type none
+        '';
       };
 
       # Volume, battery and the clock, the way the rice's yambar showed them;
@@ -375,13 +386,17 @@
         after = [ "graphical-session-pre.target" ];
       };
 
-      systemd.services.swaybg = {
+      # The wallpaper as awww had it: filling the screen, cropped about the
+      # centre and scaled with Lanczos3. The image is set once the daemon
+      # answers, and again whenever the daemon restarts.
+      systemd.services.awww = {
         description = "Wallpaper";
         wantedBy = [ "river-session.target" ];
         partOf = [ "graphical-session.target" ];
         after = [ "graphical-session.target" ];
         serviceConfig = {
-          ExecStart = "${lib.getExe pkgs.swaybg} -m fill -c ${palette.surface.background} -i ${wallpaper}";
+          ExecStart = lib.getExe' pkgs.awww "awww-daemon";
+          ExecStartPost = lib.getExe setWallpaper;
           Restart = "on-failure";
         };
       };
