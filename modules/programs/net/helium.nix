@@ -50,11 +50,26 @@ in
   # session and not the next would otherwise lock them out.
   flake.modules.hjem.linux =
     { pkgs, ... }:
+    let
+      helium = inputs.helium.packages.${pkgs.stdenv.hostPlatform.system}.helium.override {
+        commandLineArgs = "--password-store=basic --enable-features=WaylandWindowDecorations,WaylandWpColorManagerV1";
+      };
+
+      # The package ships its icon only in share/pixmaps, where launchers and
+      # panels looking up `Icon=helium` in the icon theme never find it; this
+      # puts it in hicolor at the usual sizes.
+      icon = pkgs.runCommand "helium-icon" { nativeBuildInputs = [ pkgs.imagemagick ]; } ''
+        for size in 16 24 32 48 64 128 256; do
+          dir=$out/share/icons/hicolor/''${size}x''${size}/apps
+          mkdir -p $dir
+          magick ${helium}/share/pixmaps/helium.png -resize ''${size}x''${size} $dir/helium.png
+        done
+      '';
+    in
     {
       packages = [
-        (inputs.helium.packages.${pkgs.stdenv.hostPlatform.system}.helium.override {
-          commandLineArgs = "--password-store=basic --enable-features=WaylandWindowDecorations,WaylandWpColorManagerV1";
-        })
+        helium
+        icon
       ];
     };
 
