@@ -5,14 +5,13 @@
     {
       imports = [ inputs.orchard.hjemModules.default ];
 
-      # Material You from the wallpaper (matugen): every program orchard
-      # themes, the shell included, takes its roles from the same image.
+      # Sakura: hand-tuned soft greys and a calm pink, for every program
+      # orchard themes and the shell.
       orchard = {
         enable = true;
-        theme = "matugen";
-        flavour = "dark";
-        accent = "primary";
-        matugen.image = ../../assets/botanical-shop.png;
+        theme = "sakura";
+        flavour = "night";
+        accent = "pink";
       };
 
       # Shorter names for the hand-styled configs orchard covers no port for.
