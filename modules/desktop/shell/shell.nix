@@ -20,6 +20,28 @@ let
       builtins.fromJSON (builtins.readFile json)
     );
 
+  # Nerd Font glyphs by name, as Maple Mono NF carries them.
+  nerdMap =
+    pkgs:
+    let
+      names = builtins.fromJSON (builtins.readFile "${pkgs.nerd-font-patcher}/share/glyphnames.json");
+      hex = n: lib.toLower (lib.fixedWidthString 4 "0" (lib.toHexString n));
+      char =
+        code:
+        builtins.fromJSON (
+          if code < 65536 then
+            ''"\u${hex code}"''
+          else
+            let
+              c = code - 65536;
+            in
+            ''"\u${hex (55296 + c / 1024)}\u${hex (56320 + lib.mod c 1024)}"''
+        );
+    in
+    lib.mapAttrs (_: g: char (lib.fromHexString g.code)) (
+      lib.filterAttrs (_: g: lib.isAttrs g && g ? code) names
+    );
+
   # The shell's accent, from the wallpaper river shows (see river/config.nix):
   # matugen's source colour lends only its hue, and the lightness and chroma
   # are sakura's own accent's (OKLCH 0.80, 0.09), pulled into sRGB by chroma
@@ -92,6 +114,7 @@ in
     { pkgs, palette, ... }:
     let
       icon = lucideMap pkgs;
+      nf = nerdMap pkgs;
       eww = lib.getExe pkgs.eww;
 
       band = 37;
@@ -228,8 +251,12 @@ in
         if [ "$(playerctl loop 2>/dev/null)" = None ]; then playerctl loop Playlist; else playerctl loop None; fi
       '';
 
+      # The time on every second, on the second.
       clock = script "shell-clock" [ pkgs.coreutils ] ''
-        date '+{"hour":"%H","minute":"%M","weekday":"%A","date":"%-d, %B","us":"%m/%d/%Y %I:%M %p"}'
+        while :; do
+          date '+{"hour":"%H","minute":"%M","weekday":"%A","date":"%-d, %B","stamp":"%d/%m/%y %H:%M:%S"}'
+          sleep "$(printf '%d.%09d' 0 $(( 999999999 - 10#$(date +%N) )))"
+        done
       '';
 
       brightness = script "shell-brightness" [ pkgs.brightnessctl pkgs.coreutils ] ''
@@ -350,7 +377,7 @@ in
         (deflisten network :initial '{"kind":"none","ssid":"","enabled":true}' "${network}")
         (deflisten media :initial '{"status":"","title":"","artist":"","art":"","tint":"","length":0,"player":""}' "${media}")
         (defpoll bluetooth :interval "5s" :initial '{"powered":false,"device":""}' "${bluetooth}")
-        (defpoll clock :interval "5s" :initial '{"hour":"","minute":"","weekday":"","date":"","us":""}' "${clock}")
+        (deflisten clock :initial '{"hour":"","minute":"","weekday":"","date":"","stamp":""}' "${clock}")
         (defpoll brightness :interval "5s" :initial "0" "${brightness}")
 
         ${lib.concatMapStringsSep "\n" (p: "(defvar ${p}_open false)") popovers}
@@ -385,15 +412,15 @@ in
       '';
 
       xdg.config.files."eww/bar.yuck".text = ''
-        ; After the yambar the river rice had: flat text on one plain strip, no
-        ; boxes; tags 14 apart, the focused app, then the volume and the clock
-        ; at the far end. The strip is the ${toString band} rows beside the
-        ; notch, and black like it, so the notch disappears.
-        (defwidget item [?class ?onclick ?onscroll ?tooltip ?visible]
-          (eventbox :class "item" :onclick onclick :onscroll onscroll :tooltip tooltip
-                    :visible {visible == "" ? true : visible}
-                    :cursor {onclick != "" ? "pointer" : "default"}
-            (box :class "item-body ''${class}" :space-evenly false :spacing 7
+        ; After the sway bar this MacBook had: one flat, dark, slightly clear
+        ; strip over river's blur, as tall as the notch (the ${toString band}
+        ; rows Asahi gives back beside it). Kanji tags in grey with a witch's
+        ; hat on the focused one, then the app; brightness, volume, battery
+        ; and the date and time with seconds at the far end.
+        (defwidget item [?class ?onclick ?onrightclick ?onscroll ?tooltip]
+          (eventbox :class "item" :onclick onclick :onrightclick onrightclick :onscroll onscroll
+                    :tooltip tooltip :cursor {onclick != "" ? "pointer" : "default"}
+            (box :class "item-body ''${class}" :space-evenly false :spacing 8
               (children))))
 
         (defwindow bar
@@ -405,34 +432,32 @@ in
           :geometry (geometry :x "0" :y "0" :width "100%" :height "${toString band}px" :anchor "top center")
           (centerbox :class "strip"
             (box :class "left" :halign "start" :space-evenly false
-              (eventbox :class "item" :onclick "${popover} dashboard" :cursor "pointer" :tooltip "${username}"
-                (box :class "avatar ''${dashboard_open ? 'open' : '''}" :valign "center"))
               ; Its own box: eww appends a for's children after their siblings.
-              (box :class "tags" :space-evenly false
+              (box :class "tags" :space-evenly false :spacing 14
                 (for tag in {kwm.tags}
-                  (eventbox :class "item" :cursor "pointer" :visible {tag.focused || tag.occupied || tag.id <= 5}
+                  (eventbox :class "item" :cursor "pointer"
+                            :visible {tag.focused || tag.occupied || tag.id <= 3}
                             :onclick "echo set_output_tag ''${tag.id} > $XDG_RUNTIME_DIR/kwm/control"
                             :onrightclick "echo toggle_output_tag ''${tag.id} > $XDG_RUNTIME_DIR/kwm/control"
                     (label :class {tag.focused ? "tag focused" : tag.occupied ? "tag occupied" : "tag"}
-                           :text {numerals[tag.id - 1]}))))
-              (label :class "app" :visible {kwm.app_id != ""} :limit-width 40 :text {kwm.app_id}))
+                           :text {tag.focused ? "${nf.fa-hat_wizard}" : numerals[tag.id - 1]}))))
+              (item :class "app" :onclick "${popover} dashboard" :tooltip "${username}"
+                (label :limit-width 40 :visible {kwm.app_id != ""}
+                       :text {replace(kwm.app_id, ".*\\.", "")})))
             (box)
-            (box :halign "end" :space-evenly false
-              (item :class "dim" :onclick "${popover} player" :visible {media.title != ""}
-                (label :class "icon" :text {media.status == "Playing" ? "${icon.music}" : "${icon.pause}"})
-                (label :limit-width 28 :text {media.title}))
+            (box :class "right" :halign "end" :space-evenly false :spacing 22
               (item :onclick "${popover} control"
-                (label :class {network.kind == "none" ? "icon faint" : "icon"}
-                       :text {network.kind == "wired" ? "${icon.ethernet-port}" : network.kind == "wifi" ? "${icon.wifi}" : "${icon.wifi-off}"}))
-              (item :onclick "${popover} control" :onscroll "osd volume-{}"
-                (label :class {volume.muted ? "icon faint" : "icon"} :text ${volumeIcon})
-                (label :text "''${volume.level}%"))
+                (label :class "glyph" :text "${nf.fa-hurricane}")
+                (label :text "''${brightness}%"))
+              (item :class {volume.muted ? "faint" : ""} :onclick "${popover} control"
+                    :onrightclick "${popover} player" :onscroll "osd volume-{}"
+                (label :class "glyph" :text "${nf.fa-music}")
+                (label :text "ℒ:''${volume.level}%"))
               (item :class {${bat}.capacity <= 15 && ${bat}.status != "Charging" ? "low" : ""}
-                    :onclick "${popover} control"
-                (label :class "icon" :text ${batteryIcon})
-                (label :text "''${${bat}.capacity}%"))
-              (item :class "clock" :onclick "${popover} control"
-                (label :text {clock.us})))))
+                    :onclick "${popover} control" :tooltip "''${${bat}.status}"
+                (label :text "ℭ''${${bat}.capacity}%"))
+              (item :onclick "${popover} control"
+                (label :text {clock.stamp})))))
 
         ; A clear surface under any open popover: a click outside closes it.
         (defwindow scrim
@@ -637,79 +662,49 @@ in
           color: $error;
         }
 
-        // The strip: dark like the notch but a little clear, for a slight blur
-        // of what is under it; flat text, the yambar's spacing.
+        // The strip: dark and a little clear over river's slight blur, flat
+        // grey text, as the sway bar had it.
         .strip {
-          background-color: rgba(#000000, 0.8);
-          font-size: 13px;
+          background-color: rgba(${palette.surface.neutral0}, 0.8);
         }
         .strip label {
           font-size: 13px;
+          color: inherit;
         }
-        .strip .icon {
-          font-size: 15px;
+        .strip .glyph {
+          font-size: 13px;
         }
         .item-body {
-          margin: 0 9px;
-          transition: color $fast $standard;
-        }
-        .item-body label {
-          color: inherit;
+          color: ${palette.surface.textMuted};
           transition: color $fast $standard;
         }
         .item:hover .item-body,
         .item:hover .tag:not(.focused) {
-          color: $accent;
+          color: $text;
         }
-        .item-body.dim {
-          color: $dim;
-        }
-        .item-body .faint {
+        .item-body.faint {
           color: $faint;
         }
         .item-body.low {
           color: $error;
         }
-        .clock {
-          margin-right: 14px;
-        }
-
         .left {
-          margin-left: 14px;
+          margin-left: 20px;
         }
-        .avatar {
-          min-width: 22px;
-          min-height: 22px;
-          background-image: url("${../../../assets/avatar.jpg}");
-          background-size: cover;
-          background-position: center;
-          border-radius: 50%;
-          box-shadow: inset 0 0 0 1px rgba($text, 0.12);
-          transition: box-shadow $fast $standard;
-        }
-        .item:hover .avatar,
-        .avatar.open {
-          box-shadow: inset 0 0 0 1.5px $accent;
+        .right {
+          margin-right: 20px;
         }
 
-        .tags {
-          margin: 0 4px 0 6px;
-        }
         .tag {
-          margin-left: 14px;
-          color: $faint;
+          color: ${palette.surface.textMuted};
           transition: color $fast $standard;
-        }
-        .tag.occupied {
-          color: $text;
         }
         .tag.focused {
           color: $accent;
-          font-weight: bold;
+          font-size: 14px;
         }
         .app {
-          margin: 0 18px;
-          color: $dim;
+          margin-left: 20px;
         }
 
         .scrim {
@@ -718,7 +713,7 @@ in
 
         // Panels: lifted greys over river's blur, a hairline, generous corners.
         .panel {
-          background-color: rgba($raised, 0.86);
+          background-color: rgba($raised, 0.75);
           border: $hairline;
           border-radius: 18px;
           padding: 16px;
