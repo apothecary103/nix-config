@@ -83,6 +83,9 @@
         (deflisten volume :initial "" "${lib.getExe volume}")
         (deflisten clock :initial "" "${lib.getExe clock}")
 
+        ; The volume and brightness overlay (see osd.nix).
+        (include "./osd.yuck")
+
         (defwidget kwm-tag [tag]
           (eventbox
             :visible {tag.focused || tag.occupied || tag.id <= 3 || tag.id == 10}
@@ -117,6 +120,8 @@
         * {
           all: unset;
         }
+
+        @import "osd";
 
         .bar {
           min-height: 42px;

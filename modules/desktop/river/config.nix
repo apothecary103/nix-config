@@ -100,12 +100,12 @@
 
       # The media keys work locked too, as sway's --locked bindings did.
       media = lib.mapAttrsToList (keysym: cmd: key [ ] keysym (sh cmd)) {
-        XF86AudioRaiseVolume = "swayosd-client --output-volume raise --max-volume 100";
-        XF86AudioLowerVolume = "swayosd-client --output-volume lower";
-        XF86AudioMute = "swayosd-client --output-volume mute-toggle";
-        XF86AudioMicMute = "swayosd-client --input-volume mute-toggle";
-        XF86MonBrightnessUp = "swayosd-client --device apple-panel-bl --brightness raise";
-        XF86MonBrightnessDown = "swayosd-client --device apple-panel-bl --brightness lower";
+        XF86AudioRaiseVolume = "osd volume-up";
+        XF86AudioLowerVolume = "osd volume-down";
+        XF86AudioMute = "osd volume-mute";
+        XF86AudioMicMute = "osd mic-mute";
+        XF86MonBrightnessUp = "osd brightness-up";
+        XF86MonBrightnessDown = "osd brightness-down";
         XF86AudioPlay = "playerctl play-pause";
         XF86AudioPause = "playerctl play-pause";
         XF86AudioStop = "playerctl stop";
