@@ -33,7 +33,7 @@
         max-history=10
         background-color=${m.surface_container}e0
         text-color=${m.on_surface_variant}
-        border-color=${m.outline_variant}
+        border-color=${m.primary}
         progress-color=over ${m.surface_container_highest}
         format=<b><span foreground="${m.on_surface}">%s</span></b>\n%b
 
