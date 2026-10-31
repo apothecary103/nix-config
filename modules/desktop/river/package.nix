@@ -12,12 +12,12 @@
           patches = (old.patches or [ ]) ++ lib.filesystem.listFilesRecursive ./patches/river;
           nativeBuildInputs = old.nativeBuildInputs ++ [ pkgs.makeWrapper ];
           # Vulkan is the only wlroots renderer that applies an output colour
-          # transform (and advertises colour management to clients); 10-bit
-          # scanout keeps the P3 transform from banding.
+          # transform (and advertises colour management to clients). It stays
+          # at 8 bits: on Asahi every new 10-bit Vulkan frame flickers a border
+          # round the panel, and the panel link is 8 bpc regardless.
           postInstall = old.postInstall + ''
             wrapProgram $out/bin/river \
               --set-default WLR_RENDERER vulkan \
-              --set-default RIVER_RENDER_BIT_DEPTH 10 \
               --set-default XDG_CURRENT_DESKTOP river
             # Its log goes to the journal as `river`, where nothing else keeps it.
             substituteInPlace $out/share/wayland-sessions/river.desktop \

@@ -17,7 +17,7 @@
       WLR_RENDER_DRM_DEVICE = "/dev/dri/by-path/platform-406400000.gpu-render";
     };
 
-    # XRGB2101010, river's 10-bit scanout, would read its X bits as alpha.
+    # XRGB2101010, which 10-bit clients scan out in, would read its X bits as alpha.
     boot.kernelPatches = [
       {
         name = "appledrm-xrgb2101010-premultiplied";
