@@ -25,7 +25,6 @@
         tree-sitter
         imagemagick
 
-        prismlauncher
         signal-desktop
         vesktop
       ];
