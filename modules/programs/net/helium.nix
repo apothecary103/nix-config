@@ -39,6 +39,24 @@ in
       packages = [ inputs.helium.packages.${pkgs.stdenv.hostPlatform.system}.helium ];
     };
 
+  # On Wayland (NIXOS_OZONE_WL), with colour management so pages and video
+  # tagged wider than sRGB reach river's Display P3 instead of being clipped.
+  # Chromium keeps only the last --enable-features, so this repeats the
+  # window decorations the wrapper already asks for.
+  flake.modules.hjem.linux =
+    { pkgs, ... }:
+    {
+      packages = [
+        (inputs.helium.packages.${pkgs.stdenv.hostPlatform.system}.helium.override {
+          commandLineArgs = "--enable-features=WaylandWindowDecorations,WaylandWpColorManagerV1";
+        })
+      ];
+    };
+
+  # Helium on Linux reads Chromium's policy directory.
+  flake.modules.nixos.base.environment.etc."chromium/policies/managed/helium.json".text =
+    builtins.toJSON policies;
+
   flake.modules.darwin.base =
     { lib, pkgs, ... }:
     let
