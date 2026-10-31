@@ -198,11 +198,11 @@ in
         if [ "$(playerctl loop 2>/dev/null)" = None ]; then playerctl loop Playlist; else playerctl loop None; fi
       '';
 
-      # The time once a minute, on the minute.
+      # The time every second, on the second.
       clock = script "shell-clock" [ pkgs.coreutils ] ''
         while :; do
-          date '+{"hour":"%H","minute":"%M","weekday":"%A","date":"%-d, %B","stamp":"%m/%d/%Y %I:%M %p"}'
-          sleep $((60 - 10#$(date +%S)))
+          date '+{"hour":"%H","minute":"%M","weekday":"%A","date":"%-d, %B","stamp":"%d/%m/%Y %H:%M:%S"}'
+          sleep "$(printf '0.%09d' $(( 999999999 - 10#$(date +%N) )))"
         done
       '';
 
@@ -310,29 +310,6 @@ in
         "九"
       ];
 
-      # Maple's Nerd Font battery, in tens, charging or not, and the volume.
-      batteryGlyph =
-        let
-          step =
-            charging: i:
-            if charging then
-              nf."md-battery_charging_${toString (lib.max 10 (i * 10))}"
-            else if i == 0 then
-              nf.md-battery_outline
-            else if i == 10 then
-              nf.md-battery
-            else
-              nf."md-battery_${toString (i * 10)}";
-          levels =
-            charging:
-            lib.concatMapStrings (
-              i: "${bat}.capacity < ${toString (i * 10 + 5)} ? \"${step charging i}\" : "
-            ) (lib.range 0 9)
-            + "\"${step charging 10}\"";
-        in
-        "{${bat}.status == \"Charging\" ? (${levels true}) : (${levels false})}";
-      volumeGlyph = ''{volume.muted || volume.level == 0 ? "${nf.md-volume_off}" : volume.level > 66 ? "${nf.md-volume_high}" : volume.level > 33 ? "${nf.md-volume_medium}" : "${nf.md-volume_low}"}'';
-
       batteryIcon = ''
         {${bat}.status == "Charging" ? "${icon.battery-charging}"
           : ${bat}.capacity > 80 ? "${icon.battery-full}"
@@ -388,12 +365,14 @@ in
       xdg.config.files."eww/bar.yuck".text = ''
         ; CelestialCrafter's yambar as the lambda branch had it, barely changed:
         ; a flat panel-coloured strip, here as tall as the notch (the
-        ; ${toString band} rows Asahi gives back beside it) and a touch clear for
-        ; river's slight blur. The tags 14 apart in azuki, which draws the rice's
-        ; box-drawing glyphs as a spark (┨) for the one shown, a heart (┻) for
-        ; the rest and a note (┯) for the tenth; tags past the third stay hidden
-        ; unless shown or occupied. Then the focused app; on the right the
-        ; volume and the date and time, in Maple Mono.
+        ; ${toString band} rows Asahi gives back beside it) and clear enough
+        ; for river's blur, all in azuki, which draws the box-drawing glyphs as
+        ; pictures: a heart (┻) for the tags, a note (┯) for the tenth and for
+        ; the volume, a seashell (┓) for the battery. The tag shown wears a
+        ; witch's hat instead (Witch Hat's Q, a personal-use font installed by
+        ; hand in ~/.local/share/fonts). Tags past the third stay hidden unless
+        ; shown or occupied. Then the focused app; on the right the volume, the
+        ; battery, and the date and time to the second.
         (defwidget kwm-tag [tag]
           (eventbox
             :visible {tag.focused || tag.occupied || tag.id <= 3 || tag.id == 10}
@@ -402,7 +381,7 @@ in
             :onrightclick "echo toggle_output_tag ''${tag.id} > $XDG_RUNTIME_DIR/kwm/control"
             (label
               :class {tag.focused ? "tag focused" : "tag"}
-              :text {tag.focused ? "┨" : tag.id == 10 ? "┯" : "┻"})))
+              :text {tag.focused ? "Q" : tag.id == 10 ? "┯" : "┻"})))
 
         (defwindow bar
           :monitor 0
@@ -425,12 +404,12 @@ in
               (eventbox :cursor "pointer" :onclick "${popover} control" :onscroll "osd volume-{}"
                         :onrightclick "${popover} player"
                 (box :class "volume" :space-evenly false :spacing 6
-                  (label :class "glyph" :text ${volumeGlyph})
+                  (label :class "glyph" :text "┯")
                   (label :text "''${volume.level}%")))
               (eventbox :cursor "pointer" :onclick "${popover} control" :tooltip "''${${bat}.status}"
                 (box :class {${bat}.capacity <= 15 && ${bat}.status != "Charging" ? "battery low" : "battery"}
                      :space-evenly false :spacing 6
-                  (label :class "glyph" :text ${batteryGlyph})
+                  (label :class "glyph" :text "┓")
                   (label :text "''${${bat}.capacity}%")))
               (eventbox :cursor "pointer" :onclick "${popover} control"
                 (label :class "clock" :text {clock.stamp})))))
@@ -638,20 +617,23 @@ in
           color: $error;
         }
 
-        // The yambar: panel-coloured, clear enough to show river's blur,
-        // azuki for the tags and Maple Mono for the words.
+        // The yambar: Catppuccin's mantle, clear enough to show river's
+        // blur, all azuki; the tag shown wears its hat in the accent.
         .bar {
           background-color: rgba(${palette.surface.panel}, 0.75);
         }
         .bar label {
-          font-size: 14px;
+          font-family: "azuki_font";
+          font-size: 18px;
           color: $text;
         }
         .bar .tag {
           margin-left: 14px;
-          font-family: "azuki_font";
-          font-size: 18px;
           color: ${palette.surface.neutral4};
+        }
+        .bar .tag.focused {
+          font-family: "Witch Hat";
+          font-size: 26px;
         }
         .bar eventbox:hover .tag {
           color: $text;
@@ -668,7 +650,7 @@ in
           margin-right: 18px;
         }
         .bar .glyph {
-          font-size: 15px;
+          color: $accent;
         }
         .bar .battery.low label {
           color: $error;
