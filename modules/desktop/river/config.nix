@@ -25,13 +25,16 @@
           pkgs.awww
           pkgs.coreutils
         ];
+        # Until the daemon answers and river has an output for it (kanshi may
+        # still be configuring it), for up to ten seconds.
         text = ''
-          for _ in $(seq 50); do
-            awww query >/dev/null 2>&1 && break
+          for _ in $(seq 100); do
+            awww img ${../../../assets/botanical-shop.png} \
+              --resize crop --crop-gravity center --filter Lanczos3 --transition-type none \
+              2>/dev/null && exit 0
             sleep 0.1
           done
-          awww img ${../../../assets/botanical-shop.png} \
-            --resize crop --crop-gravity center --filter Lanczos3 --transition-type none
+          exit 1
         '';
       };
 
@@ -88,20 +91,37 @@
       };
 
       # river runs this once it is up. The session units start first, as sway's
-      # NixOS snippets did, and stop when river ends the session.
+      # NixOS snippets did, and stop when river ends the session. A session
+      # that died leaves graphical-session.target up (the portal holds it), and
+      # its units with it, talking to a display that is gone: they go first,
+      # their failures and start limits cleared. Each session is tagged, and
+      # only the session still tagged in systemd stops it on the way out, so an
+      # old one exiting late cannot take down the new one.
       init = pkgs.writeShellApplication {
         name = "river-init";
         runtimeInputs = [
           pkgs.dbus
+          pkgs.coreutils
+          pkgs.gnugrep
           pkgs.systemd
           kwm
         ];
         text = ''
-          trap 'systemctl --user stop river-session.target' EXIT
+          export RIVER_SESSION="$$-$(date +%s%N)"
+
+          stop() {
+            if systemctl --user show-environment | grep -qx "RIVER_SESSION=$RIVER_SESSION"; then
+              systemctl --user stop river-session.target graphical-session.target
+              systemctl --user unset-environment RIVER_SESSION
+            fi
+          }
+          trap stop EXIT
           trap 'exit' TERM INT HUP
 
+          systemctl --user stop river-session.target graphical-session.target
+          systemctl --user reset-failed
           dbus-update-activation-environment --systemd \
-            WAYLAND_DISPLAY DISPLAY XDG_CURRENT_DESKTOP WLR_RENDERER
+            WAYLAND_DISPLAY DISPLAY XDG_CURRENT_DESKTOP WLR_RENDERER RIVER_SESSION
           systemctl --user start river-session.target
 
           kwm
@@ -394,6 +414,11 @@
         wantedBy = [ "river-session.target" ];
         partOf = [ "graphical-session.target" ];
         after = [ "graphical-session.target" ];
+        # The daemon runs the client through sh.
+        path = [
+          pkgs.awww
+          pkgs.bash
+        ];
         serviceConfig = {
           ExecStart = lib.getExe' pkgs.awww "awww-daemon";
           ExecStartPost = lib.getExe setWallpaper;
