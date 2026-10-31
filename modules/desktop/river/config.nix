@@ -164,12 +164,11 @@
           "*"
         ]))
         (key [ "mod4" ] "b" (spawn [
-            "qs"
-            "ipc"
-            "call"
-            "bar"
-            "toggle"
-          ]))
+          "eww"
+          "open"
+          "--toggle"
+          "bar"
+        ]))
 
         (key [ "mod4" ] "j" { focus_iter.direction = enum "forward"; })
         (key [ "mod4" ] "k" { focus_iter.direction = enum "reverse"; })
@@ -239,7 +238,7 @@
           size = 24;
         };
 
-        # Quickshell draws the bar (see quickshell/); kwm's own stays hidden,
+        # eww draws the bar (see shell/); kwm's own stays hidden,
         # but its ten tags are what the bar is told about.
         bar = {
           show_default = false;
