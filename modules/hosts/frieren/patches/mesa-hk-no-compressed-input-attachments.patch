@@ -1,0 +1,41 @@
+hk: don't compress input attachments
+
+On G14S (M2 Pro) a compressed RGBA16F input attachment, read in a subpass
+that writes a linear RGB10A2 colour attachment, comes back wrong along the
+image edges. wlroots' two-pass Vulkan renderer does exactly that for 10-bit
+scanout, and every new frame flickers a border round the panel; the same
+pass writing linear BGRA8 is fine. Leaving the blend image uncompressed
+(HK_NOCOMPRESS=input in a debug build) fixes it, as ASAHI_MESA_DEBUG=nocompress
+does, so treat input attachments like feedback loops.
+
+--- a/src/asahi/vulkan/hk_image.c
++++ b/src/asahi/vulkan/hk_image.c
+@@ -239,18 +239,25 @@
+     * Feedback loops are problematic with compression. The GL driver bans them.
+     * Interestingly, the relevant CTS tests pass on G13G and G14C, but not on
+     * G13D. For now, conservatively ban compression with feedback loops.
++    *
++    * Input attachments go the same way: on G14S, a compressed RGBA16F input
++    * attachment read in a subpass that writes a linear RGB10A2 colour
++    * attachment comes back wrong along the image edges, which wlroots'
++    * two-pass Vulkan renderer hits on every frame of 10-bit scanout.
+     */
+    if (usage &
+        (VK_IMAGE_USAGE_HOST_TRANSFER_BIT_EXT | VK_IMAGE_USAGE_STORAGE_BIT |
+-        VK_IMAGE_USAGE_ATTACHMENT_FEEDBACK_LOOP_BIT_EXT)) {
++        VK_IMAGE_USAGE_ATTACHMENT_FEEDBACK_LOOP_BIT_EXT |
++        VK_IMAGE_USAGE_INPUT_ATTACHMENT_BIT)) {
+ 
+       perf_debug_dev(
+-         dev, "No compression: incompatible usage -%s%s%s",
++         dev, "No compression: incompatible usage -%s%s%s%s",
+          (usage & VK_IMAGE_USAGE_HOST_TRANSFER_BIT_EXT) ? " host-transfer" : "",
+          (usage & VK_IMAGE_USAGE_STORAGE_BIT) ? " storage" : "",
+          (usage & VK_IMAGE_USAGE_ATTACHMENT_FEEDBACK_LOOP_BIT_EXT)
+             ? " feedback-loop"
+-            : "");
++            : "",
++         (usage & VK_IMAGE_USAGE_INPUT_ATTACHMENT_BIT) ? " input-attachment" : "");
+       return false;
+    }
+ 
