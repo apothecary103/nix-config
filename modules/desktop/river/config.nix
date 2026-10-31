@@ -17,6 +17,7 @@
       kwm = pkgs.callPackage ./_kwm.nix { inherit kwim; };
 
       colour = hex: zon.colour hex "ff";
+      bare = lib.removePrefix "#";
 
       setWallpaper = pkgs.writeShellApplication {
         name = "set-wallpaper";
@@ -34,31 +35,55 @@
         '';
       };
 
-      # Mirrors macOS's Cmd+Shift+3/4 (whole screen / selected area), saving to
-      # ~/Pictures/Screenshots and copying to the clipboard.
+      # Mirrors macOS's Cmd+Shift+3/4/5: the whole screen, a region dragged on
+      # a frozen screen (wayfreeze, so menus and video hold still), or that
+      # region opened in satty to mark up. Never the cursor (grim leaves it
+      # out). Each lands in ~/Pictures/Screenshots and on the clipboard, with a
+      # notification showing it.
       screenshot = pkgs.writeShellApplication {
         name = "river-screenshot";
         runtimeInputs = [
           pkgs.coreutils
           pkgs.grim
+          pkgs.libnotify
+          pkgs.procps
+          pkgs.satty
           pkgs.slurp
+          pkgs.wayfreeze
           pkgs.wl-clipboard
         ];
         text = ''
-          geometry=""
-          if [ "''${1:-screen}" = area ]; then
-            geometry=$(slurp) || exit 0
-          fi
-
+          mode=''${1:-screen}
           dir="$HOME/Pictures/Screenshots"
           mkdir -p "$dir"
           file="$dir/$(date +%Y-%m-%d_%H-%M-%S).png"
+
+          geometry=""
+          if [ "$mode" != screen ]; then
+            ready=$(mktemp -u)
+            wayfreeze --hide-cursor --after-freeze-cmd "touch $ready" &
+            freeze=$!
+            trap 'kill $freeze 2>/dev/null || true; rm -f "$ready"' EXIT
+            for _ in $(seq 50); do [ -e "$ready" ] && break; sleep 0.02; done
+            geometry=$(slurp -d -w 2 \
+              -b '#${bare palette.surface.text}33' \
+              -c '#${bare palette.ui.accent}ff' \
+              -s '#${bare palette.ui.accent}22') || exit 0
+          fi
+
           if [ -n "$geometry" ]; then
             grim -g "$geometry" "$file"
           else
             grim "$file"
           fi
-          wl-copy < "$file"
+          if [ "$mode" = edit ]; then
+            kill "$freeze" 2>/dev/null || true
+            satty --filename "$file" --output-filename "$file" \
+              --copy-command wl-copy --early-exit --actions-on-enter save-to-file,save-to-clipboard
+          else
+            wl-copy < "$file"
+          fi
+          notify-send -a Screenshot -i "$file" "Screenshot" "$(basename "$file")" || true
         '';
       };
 
@@ -178,6 +203,10 @@
         (key [ "mod4" "shift" ] "4" (spawn [
           "river-screenshot"
           "area"
+        ]))
+        (key [ "mod4" "shift" ] "5" (spawn [
+          "river-screenshot"
+          "edit"
         ]))
         (key [ ] "Print" (spawn [
           "river-screenshot"
