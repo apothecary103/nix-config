@@ -608,23 +608,27 @@ in
         (defvar osd_label "volume")
         (defvar osd_open false)
 
-        ; As the lambda branch drew it: a flat panel low in the middle, where
-        ; macOS has long put it, the word and the level in azuki over a thin
-        ; bar; square, not interactive.
+        ; A pill like the bar's, at the bottom centre as far in as the bar is
+        ; from the top: the bar's icon, a level in its blue, the value or Mute.
+        ; Not interactive.
         (defwindow osd
           :monitor 0
           :stacking "overlay"
           :exclusive false
           :focusable "none"
           :namespace "osd"
-          :geometry (geometry :x "0" :y "96px" :width "280px" :anchor "bottom center")
-          (box :class {matches(osd_label, "muted$") ? "osd-card muted" : "osd-card"}
-               :orientation "v" :space-evenly false
-            (box :space-evenly false
-              (label :class "osd-label" :halign "start" :hexpand true :text {osd_label})
-              (label :class "osd-value" :halign "end" :text "''${osd_value}%"))
-            (box :class "osd-level" :width 244 :height 6 :space-evenly false
-              (box :class "osd-fill" :width {round(osd_value * 2.44, 0)}))))
+          :geometry (geometry :x "0" :y "${toString barMargin}px" :anchor "bottom center")
+          (box :class {matches(osd_label, "muted$") ? "pill osd muted" : "pill osd"}
+               :height ${toString barHeight} :space-evenly false :spacing 10
+            (label :class "osd-icon" :valign "center"
+                   :text {osd_kind == "brightness" ? "${nf.md-white_balance_sunny}"
+                     : osd_kind == "microphone" ? (osd_label == "microphone muted" ? "${nf.md-microphone_off}" : "${nf.md-microphone}")
+                     : osd_label == "muted" ? "${nf.fa-volume_off}"
+                     : osd_value >= 50 ? "${nf.fa-volume_up}" : "${nf.fa-volume_down}"})
+            (box :class "osd-level" :valign "center" :width 140 :height 4 :space-evenly false
+              (box :class "osd-fill" :width {round(osd_value * 1.4, 0)}))
+            (label :class "value osd-value" :valign "center" :xalign 1
+                   :text {matches(osd_label, "muted$") ? "Mute" : "''${osd_value}%"})))
       '';
 
       xdg.config.files."eww/eww.scss".text = ''
@@ -980,30 +984,33 @@ in
           font-size: 19px;
         }
 
-        .osd-card {
-          padding: 14px 18px;
-          border-radius: 7px;
-          background-color: rgba(${palette.surface.panel}, 0.92);
+        // The overlay, as a bar pill (.pill above).
+        .osd {
+          margin: 0;
+          padding: 0 14px;
         }
-        .osd-card label {
-          font-family: "azuki_font";
-          font-size: 20px;
-          color: $text;
-        }
-        .osd-card .osd-value {
-          color: $faint;
+        .pill .osd-icon {
+          font-size: 15px;
+          min-width: 18px;
         }
         .osd-level {
-          margin-top: 10px;
-          min-height: 6px;
-          background-color: ${palette.surface.neutral1};
+          min-height: 4px;
+          border-radius: 99px;
+          background-color: ${palette.native.surface1};
         }
         .osd-fill {
-          min-height: 6px;
-          background-color: $accent;
+          min-height: 4px;
+          border-radius: 99px;
+          background-color: ${palette.native.blue};
         }
-        .osd-card.muted .osd-fill {
-          background-color: $faint;
+        .pill .osd-value {
+          min-width: 36px;
+        }
+        .osd.muted .osd-fill {
+          background-color: ${palette.native.overlay0};
+        }
+        .pill.osd.muted label {
+          color: ${palette.native.overlay0};
         }
       '';
 
