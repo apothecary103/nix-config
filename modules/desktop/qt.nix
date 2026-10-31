@@ -7,6 +7,9 @@
       enable = true;
       platformTheme = "qt5ct";
     };
+    # The qt module sets this for login shells only; greetd starts river
+    # without one, so apps launched from it need it through PAM too.
+    environment.sessionVariables.QT_QPA_PLATFORMTHEME = "qt5ct";
   };
 
   flake.modules.hjem.linux =
