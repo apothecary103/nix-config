@@ -19,6 +19,59 @@ let
     lib.mapAttrs (_: code: builtins.fromJSON ''"\u${lib.toLower (lib.toHexString code)}"'') (
       builtins.fromJSON (builtins.readFile json)
     );
+
+  # The shell's accent, from the wallpaper river shows (see river/config.nix):
+  # matugen's source colour lends only its hue, and the lightness and chroma
+  # are sakura's own accent's (OKLCH 0.80, 0.09), pulled into sRGB by chroma
+  # alone, so the bar always reads as the theme meant whatever the picture.
+  wallpaperAccent =
+    pkgs: image:
+    let
+      python = pkgs.python3;
+      config = pkgs.writeText "matugen.toml" ''
+        [config]
+
+        [templates]
+      '';
+      hex = pkgs.runCommand "wallpaper-accent" { nativeBuildInputs = [ pkgs.matugen pkgs.jq ]; } ''
+        source=$(matugen image ${image} --config ${config} --type scheme-tonal-spot --prefer saturation \
+          --include-image-in-json false --json hex --dry-run | jq -r '.colors.source_color.dark.color')
+        ${python}/bin/python3 -I - "$source" > $out <<'PY'
+        import math, sys
+
+        def to_linear(c):
+            return c / 12.92 if c <= 0.04045 else ((c + 0.055) / 1.055) ** 2.4
+
+        def to_srgb(c):
+            return 12.92 * c if c <= 0.0031308 else 1.055 * c ** (1 / 2.4) - 0.055
+
+        def oklab(r, g, b):
+            l = (0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b) ** (1 / 3)
+            m = (0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b) ** (1 / 3)
+            s = (0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b) ** (1 / 3)
+            return (0.2104542553 * l + 0.7936177850 * m - 0.0040720468 * s,
+                    1.9779984951 * l - 2.4285922050 * m + 0.4505937099 * s,
+                    0.0259040371 * l + 0.7827717662 * m - 0.8086757660 * s)
+
+        def rgb(L, C, h):
+            a, b = C * math.cos(h), C * math.sin(h)
+            l = (L + 0.3963377774 * a + 0.2158037573 * b) ** 3
+            m = (L - 0.1055613458 * a - 0.0638541728 * b) ** 3
+            s = (L - 0.0894841775 * a - 1.2914855480 * b) ** 3
+            return (4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s,
+                    -1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s,
+                    -0.0041960863 * l - 0.7034186147 * m + 1.7076147010 * s)
+
+        source = sys.argv[1].lstrip("#")
+        _, a, b = oklab(*(to_linear(int(source[i:i + 2], 16) / 255) for i in (0, 2, 4)))
+        hue, chroma = math.atan2(b, a), 0.09
+        while chroma > 0 and not all(-1e-4 <= c <= 1 + 1e-4 for c in rgb(0.80, chroma, hue)):
+            chroma -= 0.002
+        print("#" + "".join(f"{round(to_srgb(min(max(c, 0), 1)) * 255):02x}" for c in rgb(0.80, chroma, hue)), end="")
+        PY
+      '';
+    in
+    builtins.readFile hex;
 in
 {
   flake.modules.nixos.base =
@@ -511,25 +564,27 @@ in
         (defvar osd_label "")
         (defvar osd_open false)
 
-        ; Bottom centre, as macOS has it; not interactive.
+        ; A slim capsule low in the middle, as macOS has it, over river's blur;
+        ; not interactive.
         (defwindow osd
           :monitor 0
           :stacking "overlay"
           :exclusive false
           :focusable "none"
           :namespace "osd"
-          :geometry (geometry :x "0" :y "96px" :width "260px" :anchor "bottom center")
-          (revealer :reveal osd_open :transition "crossfade" :duration "150ms"
-            (box :class {osd_label == "muted" || osd_label == "microphone muted" ? "osd muted" : "osd"}
-                 :height 44 :space-evenly false :spacing 12
+          :geometry (geometry :x "0" :y "72px" :width "220px" :anchor "bottom center")
+          (revealer :reveal osd_open :transition "crossfade" :duration "180ms"
+            (box :class {osd_label == "muted" || osd_label == "microphone muted" ? "capsule muted" : "capsule"}
+                 :height 38 :space-evenly false :spacing 12
               (label :class "icon"
                      :text {osd_kind == "brightness" ? "${icon.sun}" : osd_kind == "microphone" ? (osd_label == "microphone muted" ? "${icon.mic-off}" : "${icon.mic}") : osd_label == "muted" ? "${icon.volume-x}" : "${icon.volume-2}"})
-              (progress :class "elapsed" :hexpand true :valign "center" :value osd_value)
-              (label :class "strong" :width 28 :halign "end" :text "''${osd_value}"))))
+              (box :class "level" :width 124 :height 4 :valign "center" :space-evenly false
+                (box :class "fill" :width {round(osd_value * 1.24, 0)}))
+              (label :class "osd-value" :width 24 :halign "end" :text "''${osd_value}"))))
       '';
 
       xdg.config.files."eww/eww.scss".text = ''
-        // Sakura (see theme.nix): soft greys a breath off neutral, a calm pink.
+        // Sakura's greys (see theme.nix), and an accent from the wallpaper.
         $text: ${palette.surface.text};
         $dim: ${palette.surface.textDim};
         $faint: ${palette.surface.neutral4};
@@ -537,7 +592,7 @@ in
         $raised: ${palette.surface.neutral0};
         $key: ${palette.surface.neutral1};
         $well: ${palette.surface.neutral2};
-        $accent: ${palette.ui.accent};
+        $accent: ${wallpaperAccent pkgs ../../../assets/botanical-shop.png};
         $error: ${palette.status.error};
 
         $standard: cubic-bezier(0.2, 0, 0, 1);
@@ -582,9 +637,10 @@ in
           color: $error;
         }
 
-        // The strip: black like the notch, flat text, the yambar's spacing.
+        // The strip: dark like the notch but a little clear, for a slight blur
+        // of what is under it; flat text, the yambar's spacing.
         .strip {
-          background-color: #000000;
+          background-color: rgba(#000000, 0.8);
           font-size: 13px;
         }
         .strip label {
@@ -660,9 +716,9 @@ in
           background-color: transparent;
         }
 
-        // Panels: lifted greys, a hairline, generous corners.
+        // Panels: lifted greys over river's blur, a hairline, generous corners.
         .panel {
-          background-color: rgba($raised, 0.97);
+          background-color: rgba($raised, 0.86);
           border: $hairline;
           border-radius: 18px;
           padding: 16px;
@@ -826,14 +882,29 @@ in
           font-size: 19px;
         }
 
-        .osd {
-          background-color: rgba($raised, 0.97);
-          border: $hairline;
-          border-radius: 14px;
+        .capsule {
+          background-color: rgba(#000000, 0.55);
+          border: 1px solid rgba($text, 0.1);
+          border-radius: 19px;
           padding: 0 16px;
         }
-        .osd.muted progressbar progress {
+        .capsule .icon {
+          font-size: 15px;
+        }
+        .level {
+          border-radius: 99px;
+          background-color: rgba($text, 0.18);
+        }
+        .fill {
+          border-radius: 99px;
+          background-color: $accent;
+        }
+        .capsule.muted .fill {
           background-color: $faint;
+        }
+        .osd-value {
+          font-size: 11px;
+          color: $dim;
         }
       '';
 
