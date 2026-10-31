@@ -6,42 +6,44 @@
       palette,
       ...
     }:
+    let
+      m = palette.native;
+    in
     {
       packages = [
         pkgs.mako
         pkgs.libnotify
       ];
 
-      # Banners as the river rice's fnott draws them: square, Overlay with a 2 px
-      # border and a coloured title, 13 px apart and in from the corner,
-      # gone after five seconds unless they are critical.
+      # Banners in the shell's material (shell/shell.nix): square, a hairline
+      # edge, the title over the body in Maple Mono, on the 4 px grid and in
+      # from the corner under the menubar. Gone after five seconds unless critical.
       xdg.config.files."mako/config".text = ''
-        font=azuki_font 14
+        font=Maple Mono NF CN 10
         anchor=top-right
-        margin=13
-        padding=18
-        width=356
+        margin=8
+        padding=16
+        width=344
         height=160
-        border-size=2
+        border-size=1
         border-radius=0
         icon-location=left
-        max-icon-size=40
+        max-icon-size=32
         default-timeout=5000
         max-history=10
-        background-color=${palette.surface.panel}
-        text-color=${palette.surface.text}
-        border-color=${palette.hue.aqua}
-        progress-color=over ${palette.surface.textDim}
-        format=<span foreground="${palette.hue.aqua}">%s</span>\n%b
+        background-color=${m.surface_container}e0
+        text-color=${m.on_surface_variant}
+        border-color=${m.outline_variant}
+        progress-color=over ${m.surface_container_highest}
+        format=<b><span foreground="${m.on_surface}">%s</span></b>\n%b
 
         [urgency=low]
-        border-color=${palette.surface.neutral2}
-        format=<span foreground="${palette.surface.textDim}">%s</span>\n%b
+        format=<span foreground="${m.on_surface_variant}">%s</span>\n%b
 
         [urgency=critical]
         default-timeout=0
-        border-color=${palette.status.error}
-        format=<span foreground="${palette.status.error}">%s</span>\n%b
+        border-color=${m.error}
+        format=<b><span foreground="${m.error}">%s</span></b>\n%b
 
         # F6, the Do Not Disturb key: hide everything but critical alerts.
         [mode=do-not-disturb]
