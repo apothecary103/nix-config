@@ -32,7 +32,7 @@
       ];
 
       # Prism's own theme in the system palette (as qt.nix lays it out), with a
-      # stylesheet putting the whole launcher in azuki; Prism has no font
+      # stylesheet putting the whole launcher in Maple Mono; Prism has no font
       # setting beyond its console. Selected as "orchard" in prismlauncher.cfg.
       xdg.data.files = {
         "PrismLauncher/themes/orchard/theme.json".text = builtins.toJSON {
@@ -68,8 +68,8 @@
         };
         "PrismLauncher/themes/orchard/themeStyle.css".text = ''
           * {
-            font-family: "azuki_font";
-            font-size: 11pt;
+            font-family: "Maple Mono NF CN";
+            font-size: 10pt;
           }
         '';
       };
