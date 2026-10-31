@@ -692,7 +692,7 @@ in
         // Nerd glyphs are wider than the monospace cell they sit in, so each icon
         // gets a box its own size, as the quickshell bar gave them Items.
         .bar {
-          background-color: rgba(${palette.native.mantle}, 0.9);
+          background-color: rgba(${palette.native.mantle}, 0.95);
         }
         .side {
           padding: 0 ${toString inset}px;
