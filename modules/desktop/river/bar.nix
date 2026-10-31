@@ -59,6 +59,19 @@
         '';
       };
 
+      # The date and time once a minute, on the minute: EWW_TIME would wake the
+      # bar every second for a clock that shows minutes.
+      clock = pkgs.writeShellApplication {
+        name = "bar-clock";
+        runtimeInputs = [ pkgs.coreutils ];
+        text = ''
+          while :; do
+            date '+%m/%d/%Y %I:%M %p'
+            sleep $((60 - 10#$(date +%S)))
+          done
+        '';
+      };
+
       control = "echo %s > $XDG_RUNTIME_DIR/kwm/control";
       command = action: builtins.replaceStrings [ "%s" ] [ action ] control;
     in
@@ -68,6 +81,7 @@
       xdg.config.files."eww/eww.yuck".text = ''
         (deflisten kwm :initial '{"tags":[],"app_id":"","title":""}' "${lib.getExe kwmState}")
         (deflisten volume :initial "" "${lib.getExe volume}")
+        (deflisten clock :initial "" "${lib.getExe clock}")
 
         (defwidget kwm-tag [tag]
           (eventbox
@@ -96,7 +110,7 @@
             (box)
             (box :space-evenly false :halign "end"
               (label :class "volume" :visible {volume != ""} :text "''${volume}%")
-              (label :class "clock" :text {formattime(EWW_TIME, "%m/%d/%Y %I:%M %p")}))))
+              (label :class "clock" :text {clock}))))
       '';
 
       xdg.config.files."eww/eww.scss".text = ''
