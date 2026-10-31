@@ -30,7 +30,7 @@ in
   # The desktop shell, in eww. The bar is the river rice's yambar again: flat
   # text on one plain strip, filling the 37 rows Asahi gives back beside the
   # notch (show_notch=1) and black like it, so the notch disappears. The
-  # avatar, kanji workspaces from 〇 and the focused app on the left; the
+  # avatar, kanji workspaces from 零 and the focused app on the left; the
   # track, network, volume, battery and the clock on the right. The avatar
   # opens a panel after Tail-R's xmonad rice (a big clock, a profile card,
   # the power keys); the status and time open the controls, the track the
@@ -265,9 +265,9 @@ in
 
       art = ''{media.art != "" ? "background-image: url('" + media.art + "');" : ""}'';
 
-      # Workspaces in kanji, counting from nought.
+      # Workspaces in kanji, counting from nought: 零, not the ring 〇.
       numerals = builtins.toJSON [
-        "〇"
+        "零"
         "一"
         "二"
         "三"
