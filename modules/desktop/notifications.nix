@@ -12,7 +12,7 @@
         pkgs.libnotify
       ];
 
-      # Banners like the shell's modules (shell/shell.nix): rounded, an accent
+      # Banners like the shell (shell/shell.nix): square, an accent
       # edge, the title over the body in Maple Mono, on the 4 px grid and in
       # from the corner under the menubar. Gone after five seconds unless critical.
       xdg.config.files."mako/config".text = ''
@@ -23,7 +23,7 @@
         width=344
         height=160
         border-size=2
-        border-radius=12
+        border-radius=0
         icon-location=left
         max-icon-size=32
         default-timeout=5000
