@@ -7,7 +7,7 @@
     };
 
   # The media keys: step volume and brightness in sixteenths as macOS does,
-  # then show the level in the notch island (quickshell/qml/island). The river
+  # then show the level in the shell's overlay (shell/shell.nix). The river
   # config binds the keys.
   flake.modules.hjem.linux =
     { pkgs, ... }:
@@ -17,8 +17,11 @@
         runtimeInputs = [
           pkgs.brightnessctl
           pkgs.coreutils
+          pkgs.bash
+          pkgs.eww
           pkgs.gawk
-          pkgs.quickshell
+          pkgs.gnugrep
+          pkgs.procps
           pkgs.wireplumber
         ];
         text = ''
@@ -53,11 +56,18 @@
               value=$(brightnessctl -d "$panel" -m | cut -d, -f4 | tr -d %) ;;
           esac
 
-          qs ipc call island osd "$kind" "$value" "$label" >/dev/null 2>&1 || true
+          # Shown at once, hidden 1.5 s after the last press: each press replaces
+          # the pending hide.
+          eww active-windows 2>/dev/null | grep -q "^osd:" || eww open osd >/dev/null 2>&1 || true
+          eww update osd_kind="$kind" osd_value="$value" osd_label="$label" osd_open=true || true
+          pkill -f "^osd-hide" || true
+          (exec -a osd-hide bash -c "sleep 1.5; eww update osd_open=false; sleep 0.2; eww close osd" >/dev/null 2>&1 &)
         '';
       };
     in
     {
       packages = [ osd ];
+      # For scrolling over the bar's status icons.
+      systemd.services.eww.path = [ osd ];
     };
 }
