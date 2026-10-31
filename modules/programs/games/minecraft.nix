@@ -8,7 +8,9 @@
   # Minecraft 26.3 opens its window through SDL3, which falls back to XWayland
   # on river for want of fifo-v1. There OpenGL fails outright (so the game
   # drops to Vulkan without being asked) and it renders at half the panel's
-  # resolution. Native Wayland gives both APIs, at full resolution. The
+  # resolution. Native Wayland gives both APIs; SDL then still sizes the
+  # window in logical pixels (1512x982 at scale 2) unless told to scale it
+  # 1:1 to the panel, since the game does not ask for high pixel density. The
   # instance itself is set to prefer Vulkan, with Vitrail for shader packs.
   flake.modules.hjem.linux =
     { pkgs, palette, ... }:
@@ -22,7 +24,9 @@
           paths = [ pkgs.prismlauncher ];
           nativeBuildInputs = [ pkgs.makeWrapper ];
           postBuild = ''
-            wrapProgram $out/bin/prismlauncher --set SDL_VIDEO_DRIVER wayland
+            wrapProgram $out/bin/prismlauncher \
+              --set SDL_VIDEO_DRIVER wayland \
+              --set SDL_VIDEO_WAYLAND_SCALE_TO_DISPLAY 1
           '';
         })
       ];
