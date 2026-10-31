@@ -11,6 +11,10 @@
       image = "/mnt/maomao/nixbuild.img";
       mount = "/var/cache/kbuild";
       ccacheDir = "${mount}/ccache";
+
+      # Kernels built without ccache before it existed: 7.2.12 with the
+      # appledrm patches of 2026-10-30.
+      builtKernels = [ "/nix/store/maqhi4nwgd08s3sba3ywq3qq43ifby99-linux-asahi-7.2.12.drv" ];
     in
     {
       fileSystems."/mnt/maomao" = {
@@ -65,8 +69,19 @@
 
           # nixos-apple-silicon builds the kernel with the callPackage it is
           # given, so handing it one that swaps in ccache's stdenv is enough.
+          # The swap changes the derivation, though, and an empty cache saves
+          # nothing, so a kernel already in the store is kept as built; the
+          # next one that has to be compiled anyway goes through ccache.
           linux-asahi = prev.linux-asahi.override {
-            callPackage = fn: args: final.callPackage fn (args // { stdenv = final.ccacheStdenv; });
+            callPackage =
+              fn: args:
+              let
+                plain = final.callPackage fn args;
+              in
+              if builtins.elem (builtins.unsafeDiscardStringContext plain.drvPath) builtKernels then
+                plain
+              else
+                final.callPackage fn (args // { stdenv = final.ccacheStdenv; });
           };
         })
       ];
