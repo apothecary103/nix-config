@@ -11,7 +11,10 @@
   # resolution. Native Wayland gives both APIs, at full resolution. The
   # instance itself is set to prefer Vulkan, with Vitrail for shader packs.
   flake.modules.hjem.linux =
-    { pkgs, ... }:
+    { pkgs, palette, ... }:
+    let
+      s = palette.surface;
+    in
     {
       packages = [
         (pkgs.symlinkJoin {
@@ -23,5 +26,48 @@
           '';
         })
       ];
+
+      # Prism's own theme in the system palette (as qt.nix lays it out), with a
+      # stylesheet putting the whole launcher in azuki; Prism has no font
+      # setting beyond its console. Selected as "orchard" in prismlauncher.cfg.
+      xdg.data.files = {
+        "PrismLauncher/themes/orchard/theme.json".text = builtins.toJSON {
+          name = "Orchard";
+          widgets = "Fusion";
+          qssFilePath = "themeStyle.css";
+          colors = {
+            Window = s.panel;
+            WindowText = s.text;
+            Base = s.background;
+            AlternateBase = s.neutral0;
+            ToolTipBase = s.background;
+            ToolTipText = s.text;
+            Text = s.text;
+            Button = s.panel;
+            ButtonText = s.text;
+            BrightText = palette.status.error;
+            ErrorHighlight = palette.status.error;
+            Link = palette.hue.snow;
+            Highlight = palette.hue.snow;
+            HighlightedText = s.background;
+            fadeColor = s.neutral2;
+            fadeAmount = 0.5;
+          };
+          logColors = {
+            Launcher = palette.hue.snow;
+            Info = s.text;
+            Debug = s.neutral4;
+            Warning = palette.status.warning;
+            Error = palette.status.error;
+            FatalError = palette.status.error;
+          };
+        };
+        "PrismLauncher/themes/orchard/themeStyle.css".text = ''
+          * {
+            font-family: "azuki_font";
+            font-size: 11pt;
+          }
+        '';
+      };
     };
 }
