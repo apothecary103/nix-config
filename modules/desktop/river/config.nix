@@ -258,8 +258,8 @@
         border = {
           width = 1;
           color = {
-            focus = colour palette.native.primary;
-            unfocus = colour palette.native.outline_variant;
+            focus = colour palette.ui.accent;
+            unfocus = colour palette.surface.neutral2;
             swallowing = colour palette.hue.aqua;
           };
         };
