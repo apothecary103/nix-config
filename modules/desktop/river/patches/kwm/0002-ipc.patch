@@ -1,0 +1,247 @@
+Adds a small IPC for external bars: kwm writes the current output's tags and
+focused window to $XDG_RUNTIME_DIR/kwm/state.json whenever its own bar would
+redraw, and takes tag and focus commands from the fifo
+$XDG_RUNTIME_DIR/kwm/control (see src/kwm/ipc.zig).
+
+diff --git a/src/kwm.zig b/src/kwm.zig
+index 1a54914..0f59c15 100644
+--- a/src/kwm.zig
++++ b/src/kwm.zig
+@@ -12,12 +12,14 @@ const types = @import("kwm/types.zig");
+ const binding = @import("kwm/binding.zig");
+ const Window = @import("kwm/window.zig");
+ const Context = @import("kwm/context.zig");
++const ipc = @import("kwm/ipc.zig");
+ 
+ const FDType = enum {
+     wayland,
+     signal,
+     bar_status,
+     key_repeat,
++    control,
+ };
+ 
+ pub const Layout = @import("kwm/layout.zig");
+@@ -55,6 +57,8 @@ pub fn run(wl_display: *wl.Display) !void {
+     var poll_fds: std.ArrayList(posix.pollfd) = .initBuffer(&fd_buffer);
+     var fd_types: std.ArrayList(FDType) = .initBuffer(&fd_type_buffer);
+ 
++    ipc.init();
++
+     log.info("start running", .{});
+     defer log.info("stop running", .{});
+ 
+@@ -73,6 +77,11 @@ pub fn run(wl_display: *wl.Display) !void {
+             try fd_types.appendBounded(.bar_status);
+         }
+ 
++        if (ipc.control_fd) |fd| {
++            try poll_fds.appendBounded(.{ .fd = fd, .events = posix.POLL.IN, .revents = 0 });
++            try fd_types.appendBounded(.control);
++        }
++
+         if (ctx.key_repeat) |key_repeat| {
+             if (key_repeat.is_repeating()) {
+                 try poll_fds.appendBounded(.{ .fd = key_repeat.timer_fd, .events = posix.POLL.IN, .revents = 0 });
+@@ -80,6 +89,7 @@ pub fn run(wl_display: *wl.Display) !void {
+             }
+         }
+ 
++        ipc.write_state();
+         _ = wl_display.flush();
+         _ = try posix.poll(poll_fds.items, -1);
+ 
+@@ -92,6 +102,7 @@ pub fn run(wl_display: *wl.Display) !void {
+                         ctx.handle_signal(signal_info.signo);
+                     },
+                     .bar_status => ctx.update_bar_status(),
++                    .control => ipc.handle_control(),
+                     .key_repeat => {
+                         const count = try read(u64, poll_fd.fd) orelse continue;
+                         ctx.key_repeat.?.repeat(count);
+diff --git a/src/kwm/bar.zig b/src/kwm/bar.zig
+index 7e95bcd..6a2ffe5 100644
+--- a/src/kwm/bar.zig
++++ b/src/kwm/bar.zig
+@@ -187,6 +187,7 @@ pub fn toggle(self: *Self) void {
+ 
+ pub fn damage(self: *Self, @"type": enum { all, tags, dynamic, layout, mode, title, status }) void {
+     log.debug("<{*}> damage {s}", .{ self, @tagName(@"type") });
++    @import("ipc.zig").dirty = true;
+ 
+     switch (@"type") {
+         .all => {
+diff --git a/src/kwm/ipc.zig b/src/kwm/ipc.zig
+new file mode 100644
+index 0000000..9281095
+--- /dev/null
++++ b/src/kwm/ipc.zig
+@@ -0,0 +1,168 @@
++//! State for external bars and a way back in. Whenever the bar would redraw,
++//! kwm writes the current output's tags and focused window as one JSON line to
++//! $XDG_RUNTIME_DIR/kwm/state.json (replaced atomically, so readers can watch
++//! for renames). Commands arrive one per line on the fifo
++//! $XDG_RUNTIME_DIR/kwm/control:
++//!
++//!     set_output_tag <id>      show only tag <id> (1-based)
++//!     toggle_output_tag <id>   show or hide tag <id> alongside the others
++//!     set_window_tag <id>      move the focused window to tag <id>
++//!     toggle_window_tag <id>   add or remove tag <id> on the focused window
++//!     switch_to_previous_tag
++//!     focus_iter forward|reverse
++
++const std = @import("std");
++const mem = std.mem;
++const log = std.log.scoped(.ipc);
++
++const posix = @import("posix");
++
++const binding = @import("binding.zig");
++const Context = @import("context.zig");
++
++const ctx = Context.get();
++
++/// Set wherever the bar is damaged; the state is written once per loop.
++pub var dirty: bool = true;
++pub var control_fd: ?posix.fd_t = null;
++
++var dir_buffer: [4096]u8 = undefined;
++var dir: ?[:0]const u8 = null;
++
++extern "c" fn mkdir(path: [*:0]const u8, mode: c_uint) c_int;
++extern "c" fn mkfifo(path: [*:0]const u8, mode: c_uint) c_int;
++extern "c" fn unlink(path: [*:0]const u8) c_int;
++extern "c" fn rename(old: [*:0]const u8, new: [*:0]const u8) c_int;
++extern "c" fn write(fd: c_int, buf: [*]const u8, count: usize) isize;
++
++pub fn init() void {
++    const runtime_dir = std.c.getenv("XDG_RUNTIME_DIR") orelse {
++        log.warn("XDG_RUNTIME_DIR is unset, no ipc", .{});
++        return;
++    };
++    dir = std.fmt.bufPrintZ(&dir_buffer, "{s}/kwm", .{ runtime_dir }) catch return;
++    _ = mkdir(dir.?, 0o700);
++
++    var path_buffer: [4096]u8 = undefined;
++    const fifo = std.fmt.bufPrintZ(&path_buffer, "{s}/control", .{ dir.? }) catch return;
++    _ = unlink(fifo);
++    if (mkfifo(fifo, 0o600) != 0) {
++        log.err("create fifo `{s}` failed", .{ fifo });
++        return;
++    }
++    // Read-write, so the fifo never reports EOF between writers.
++    control_fd = posix.openZ(fifo, .{ .ACCMODE = .RDWR, .NONBLOCK = true, .CLOEXEC = true }, 0) catch |err| {
++        log.err("open fifo `{s}` failed: {}", .{ fifo, err });
++        return;
++    };
++}
++
++pub fn handle_control() void {
++    const fd = control_fd orelse return;
++    var buffer: [1024]u8 = undefined;
++    const nbytes = posix.read(fd, &buffer) catch |err| {
++        if (err != error.WouldBlock) log.err("read control fifo failed: {}", .{ err });
++        return;
++    };
++
++    const seat = ctx.current_seat orelse return;
++    var queued = false;
++    var lines = mem.tokenizeScalar(u8, buffer[0..nbytes], '\n');
++    while (lines.next()) |line| {
++        const action = parse(line) orelse {
++            log.warn("unknown command `{s}`", .{ line });
++            continue;
++        };
++        seat.append_action(action);
++        queued = true;
++    }
++    if (queued) ctx.rwm.manageDirty();
++}
++
++fn parse(line: []const u8) ?binding.Action {
++    var words = mem.tokenizeScalar(u8, line, ' ');
++    const command = words.next() orelse return null;
++    const arg = words.next() orelse "";
++
++    if (mem.eql(u8, command, "switch_to_previous_tag")) return .switch_to_previous_tag;
++    if (mem.eql(u8, command, "focus_iter")) {
++        if (mem.eql(u8, arg, "forward")) return .{ .focus_iter = .{ .direction = .forward } };
++        if (mem.eql(u8, arg, "reverse")) return .{ .focus_iter = .{ .direction = .reverse } };
++        return null;
++    }
++
++    const id = std.fmt.parseInt(u5, arg, 10) catch return null;
++    if (id == 0) return null;
++    const mask = @as(u32, 1) << (id - 1);
++    if (mem.eql(u8, command, "set_output_tag")) return .{ .set_output_tag = .{ .tag = .{ .tag = mask } } };
++    if (mem.eql(u8, command, "toggle_output_tag")) return .{ .toggle_output_tag = .{ .mask = mask } };
++    if (mem.eql(u8, command, "set_window_tag")) return .{ .set_window_tag = .{ .tag = .{ .tag = mask } } };
++    if (mem.eql(u8, command, "toggle_window_tag")) return .{ .toggle_window_tag = .{ .mask = mask } };
++    return null;
++}
++
++pub fn write_state() void {
++    if (!dirty) return;
++    dirty = false;
++    const d = dir orelse return;
++    const output = ctx.current_output orelse return;
++
++    var buffer: [8192]u8 = undefined;
++    var w: std.Io.Writer = .fixed(&buffer);
++    format(&w, output) catch {
++        log.err("state does not fit its buffer", .{});
++        return;
++    };
++
++    var tmp_buffer: [4096]u8 = undefined;
++    var path_buffer: [4096]u8 = undefined;
++    const tmp = std.fmt.bufPrintZ(&tmp_buffer, "{s}/state.json.tmp", .{ d }) catch return;
++    const path = std.fmt.bufPrintZ(&path_buffer, "{s}/state.json", .{ d }) catch return;
++
++    const fd = posix.openZ(tmp, .{ .ACCMODE = .WRONLY, .CREAT = true, .TRUNC = true, .CLOEXEC = true }, 0o600) catch |err| {
++        log.err("open `{s}` failed: {}", .{ tmp, err });
++        return;
++    };
++    const data = w.buffered();
++    const written = write(fd, data.ptr, data.len);
++    posix.close(fd);
++    if (written != @as(isize, @intCast(data.len))) {
++        log.err("write `{s}` failed", .{ tmp });
++        return;
++    }
++    if (rename(tmp, path) != 0) log.err("rename `{s}` failed", .{ tmp });
++}
++
++fn format(w: *std.Io.Writer, output: anytype) !void {
++    const count: usize = if (ctx.cfg.bar.tags) |area| area.tags.len else 9;
++    const occupied = output.occupied_tags();
++
++    try w.writeAll("{\"tags\":[");
++    for (0..count) |i| {
++        const bit = @as(u32, 1) << @as(u5, @intCast(i));
++        try w.print("{s}{{\"id\":{},\"focused\":{},\"occupied\":{}}}", .{
++            if (i == 0) "" else ",",
++            i + 1,
++            output.tag & bit != 0,
++            occupied & bit != 0,
++        });
++    }
++
++    const window = ctx.focused_window();
++    try w.writeAll("],\"app_id\":");
++    try string(w, if (window) |win| win.app_id orelse "" else "");
++    try w.writeAll(",\"title\":");
++    try string(w, if (window) |win| win.title orelse "" else "");
++    try w.writeAll("}\n");
++}
++
++fn string(w: *std.Io.Writer, s: []const u8) !void {
++    try w.writeByte('"');
++    for (s) |c| switch (c) {
++        '"' => try w.writeAll("\\\""),
++        '\\' => try w.writeAll("\\\\"),
++        0...0x1f => try w.print("\\u{x:0>4}", .{ c }),
++        else => try w.writeByte(c),
++    };
++    try w.writeByte('"');
++}

@@ -1,6 +1,6 @@
 # kwm, a dwm-like window manager for river's window management protocol, with
-# a bar height option (./patches/kwm/0001-bar-height.patch) so the bar clears the
-# notch. It starts kwim itself.
+# ./patches/kwm applied in order: a bar height option, and state and commands
+# for an external bar. It starts kwim itself.
 {
   lib,
   stdenv,
@@ -30,7 +30,7 @@ stdenv.mkDerivation (finalAttrs: {
     hash = "sha256-hX76wTHPTgg5RAHILfd3CjRKPlgAwGSK3lG82IFoUUs=";
   };
 
-  patches = [ ./patches/kwm/0001-bar-height.patch ];
+  patches = lib.filesystem.listFilesRecursive ./patches/kwm;
 
   zigDeps = zig.fetchDeps {
     inherit (finalAttrs) src pname version;
