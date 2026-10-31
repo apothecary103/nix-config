@@ -135,6 +135,36 @@ in
             nmcli monitor | while read -r _; do emit; done
           '';
 
+      # The default route's interface every two seconds: whether bytes came in
+      # or went out since the last look (a liveness hint, not a rate, as the
+      # quickshell bar had it), and its Wi-Fi link quality out of 100.
+      traffic =
+        script "shell-traffic"
+          [
+            pkgs.coreutils
+            pkgs.gawk
+            pkgs.iproute2
+          ]
+          ''
+            last_iface="" last_rx=-1 last_tx=-1
+            while :; do
+              iface=$(ip route show default 2>/dev/null | awk '{ print $5; exit }')
+              rx=-1 tx=-1 signal=0 receiving=false transmitting=false
+              if [ -n "$iface" ] && [ -r "/sys/class/net/$iface/statistics/rx_bytes" ]; then
+                rx=$(< "/sys/class/net/$iface/statistics/rx_bytes")
+                tx=$(< "/sys/class/net/$iface/statistics/tx_bytes")
+                signal=$(awk -v i="$iface:" '$1 == i { q = $3; sub(/\.$/, "", q); print int(q * 100 / 70) }' /proc/net/wireless)
+              fi
+              if [ "$iface" = "$last_iface" ] && [ "$last_rx" -ge 0 ]; then
+                [ $((rx - last_rx)) -gt 1024 ] && receiving=true
+                [ $((tx - last_tx)) -gt 1024 ] && transmitting=true
+              fi
+              printf '{"rx":%s,"tx":%s,"signal":%s}\n' "$receiving" "$transmitting" "''${signal:-0}"
+              last_iface=$iface last_rx=$rx last_tx=$tx
+              sleep 2
+            done
+          '';
+
       bluetooth =
         script "shell-bluetooth"
           [
@@ -326,6 +356,7 @@ in
         (deflisten kwm :initial '{"tags":[],"app_id":"","title":""}' "${tags}")
         (deflisten volume :initial '{"level":0,"muted":false}' "${volume}")
         (deflisten network :initial '{"kind":"none","ssid":"","enabled":true}' "${network}")
+        (deflisten traffic :initial '{"rx":false,"tx":false,"signal":0}' "${traffic}")
         (deflisten media :initial '{"status":"","title":"","artist":"","art":"","tint":"","length":0,"player":""}' "${media}")
         (defpoll bluetooth :interval "5s" :initial '{"powered":false,"device":""}' "${bluetooth}")
         (deflisten clock :initial '{"hour":"","minute":"","weekday":"","date":"","stamp":""}' "${clock}")
@@ -363,25 +394,28 @@ in
       '';
 
       xdg.config.files."eww/bar.yuck".text = ''
-        ; CelestialCrafter's yambar as the lambda branch had it, barely changed:
-        ; a flat panel-coloured strip, here as tall as the notch (the
-        ; ${toString band} rows Asahi gives back beside it) and clear enough
-        ; for river's blur, all in azuki, which draws the box-drawing glyphs as
-        ; pictures: a heart (┻) for the tags, a note (┯) for the tenth and for
-        ; the volume, a seashell (┓) for the battery. The tag shown wears a
-        ; witch's hat instead (Witch Hat's Q, a personal-use font installed by
-        ; hand in ~/.local/share/fonts). Tags past the third stay hidden unless
-        ; shown or occupied. Then the focused app; on the right the volume, the
-        ; battery, and the date and time to the second.
+        ; After the quickshell bar on main: two mantle pills, here hung from the
+        ; top corners at the notch's height (the ${toString band} rows Asahi
+        ; gives back beside it) with the notch between them, square and over
+        ; river's blur, which takes only the pills (the window between them is
+        ; clear). All azuki, but for a witch's hat on the tag shown (Witch Hat's
+        ; Q, a personal-use font installed by hand in ~/.local/share/fonts).
+        ; Left: the avatar, the tags in kanji from 零 (five always, more as
+        ; occupied), and the track; right: the tray, the network, the volume
+        ; (a note), the battery (a seashell) and the date and time.
+        (defwidget separator [?visible]
+          (box :class "separator" :valign "center" :width 1 :height 14
+               :visible {visible == "" ? true : visible}))
+
         (defwidget kwm-tag [tag]
           (eventbox
-            :visible {tag.focused || tag.occupied || tag.id <= 3 || tag.id == 10}
+            :visible {tag.focused || tag.occupied || tag.id <= 5}
             :cursor "pointer"
             :onclick "echo set_output_tag ''${tag.id} > $XDG_RUNTIME_DIR/kwm/control"
             :onrightclick "echo toggle_output_tag ''${tag.id} > $XDG_RUNTIME_DIR/kwm/control"
             (label
-              :class {tag.focused ? "tag focused" : "tag"}
-              :text {tag.focused ? "Q" : tag.id == 10 ? "┯" : "┻"})))
+              :class {tag.focused ? "tag focused" : tag.occupied ? "tag occupied" : "tag"}
+              :text {tag.focused ? "Q" : numerals[tag.id - 1]})))
 
         (defwindow bar
           :monitor 0
@@ -391,26 +425,48 @@ in
           :namespace "bar"
           :geometry (geometry :x "0" :y "0" :width "100%" :height "${toString band}px" :anchor "top center")
           (centerbox :class "bar"
-            (box :space-evenly false :halign "start"
+            (box :class "pill" :halign "start" :space-evenly false :spacing 10
+              (eventbox :cursor "pointer" :onclick "${popover} dashboard" :tooltip "${username}" :valign "center"
+                (box :class "avatar" :width 20 :height 20))
               ; Its own box: eww appends a for's children after their siblings.
-              (box :space-evenly false
+              (box :space-evenly false :spacing 12
                 (for tag in {kwm.tags}
                   (kwm-tag :tag tag)))
-              (eventbox :cursor "pointer" :onclick "${popover} dashboard"
-                (label :class "app-id" :visible {kwm.app_id != ""}
-                       :text {replace(kwm.app_id, ".*\\.", "")})))
+              (separator :visible {media.title != ""})
+              (box :class "now-playing" :space-evenly false :spacing 8 :visible {media.title != ""}
+                (eventbox :cursor "pointer" :onclick "${popover} player"
+                  (box :space-evenly false :spacing 8
+                    (box :class "cover" :width 20 :height 20 :valign "center" :style ${art})
+                    (label :class "title" :limit-width 18 :text {media.title})
+                    (label :class "dot" :visible {media.artist != ""} :text "・")
+                    (label :class "artist" :limit-width 12 :visible {media.artist != ""} :text {media.artist})))
+                (eventbox :cursor "pointer" :onclick "playerctl play-pause"
+                  (label :class "play" :text {media.status == "Playing" ? "${nf.fa-pause}" : "${nf.fa-play}"}))))
             (box)
-            (box :space-evenly false :halign "end"
-              (eventbox :cursor "pointer" :onclick "${popover} control" :onscroll "osd volume-{}"
-                        :onrightclick "${popover} player"
-                (box :class "volume" :space-evenly false :spacing 6
+            (box :class "pill" :halign "end" :space-evenly false :spacing 12
+              (systray :class "tray" :icon-size 16 :spacing 8 :prepend-new true)
+              (eventbox :cursor "pointer" :onclick "${popover} control"
+                (box :class {network.kind == "none" ? "network off" : "network"} :space-evenly false
+                  (label :class "wifi"
+                         :text {network.kind == "none" ? "${nf.md-wifi_strength_off_outline}"
+                           : network.kind == "wired" || traffic.signal > 75 ? "${nf.md-wifi_strength_4}"
+                           : traffic.signal > 50 ? "${nf.md-wifi_strength_3}"
+                           : traffic.signal > 25 ? "${nf.md-wifi_strength_2}" : "${nf.md-wifi_strength_1}"})
+                  (box :class "arrows" :orientation "v" :valign "center" :visible {network.kind != "none"}
+                    (label :class {traffic.tx ? "arrow on" : "arrow"} :text "▴")
+                    (label :class {traffic.rx ? "arrow on" : "arrow"} :text "▾"))))
+              (eventbox :cursor "pointer" :onclick "wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle"
+                        :onrightclick "${popover} control" :onscroll "osd volume-{}"
+                (box :class {volume.muted ? "volume muted" : "volume"} :space-evenly false :spacing 6
                   (label :class "glyph" :text "┯")
-                  (label :text "''${volume.level}%")))
+                  (label :text {volume.muted ? "mute" : "''${volume.level}%"})))
               (eventbox :cursor "pointer" :onclick "${popover} control" :tooltip "''${${bat}.status}"
-                (box :class {${bat}.capacity <= 15 && ${bat}.status != "Charging" ? "battery low" : "battery"}
+                (box :class {${bat}.status == "Charging" ? "battery charging"
+                       : ${bat}.capacity < 20 ? "battery low" : "battery"}
                      :space-evenly false :spacing 6
                   (label :class "glyph" :text "┓")
                   (label :text "''${${bat}.capacity}%")))
+              (separator)
               (eventbox :cursor "pointer" :onclick "${popover} control"
                 (label :class "clock" :text {clock.stamp})))))
 
@@ -617,46 +673,85 @@ in
           color: $error;
         }
 
-        // The yambar: Catppuccin's mantle, clear enough to show river's
-        // blur, all azuki; the tag shown wears its hat in the accent.
+        // The pills: Catppuccin's mantle, clear enough for river's blur, square;
+        // azuki throughout, at the quickshell bar's spacing.
         .bar {
+          background-color: transparent;
+        }
+        .pill {
           background-color: rgba(${palette.surface.panel}, 0.75);
+          padding: 0 14px;
         }
-        .bar label {
+        .pill label {
           font-family: "azuki_font";
-          font-size: 18px;
+          font-size: 16px;
           color: $text;
         }
-        .bar .tag {
-          margin-left: 14px;
-          color: ${palette.surface.neutral4};
+        .separator {
+          background-color: ${palette.native.surface1};
         }
-        .bar .tag.focused {
+        .avatar {
+          background-image: url("${../../../assets/avatar.jpg}");
+          background-size: cover;
+          background-position: center;
+        }
+        .pill .tag {
+          color: ${palette.native.overlay0};
+        }
+        .pill .tag.occupied {
+          color: ${palette.native.subtext0};
+        }
+        .pill .tag.focused {
           font-family: "Witch Hat";
-          font-size: 26px;
+          font-size: 24px;
+          color: $accent;
         }
-        .bar eventbox:hover .tag {
+        .pill eventbox:hover .tag:not(.focused) {
           color: $text;
         }
-        .bar .tag.focused,
-        .bar eventbox:hover .tag.focused {
+        .now-playing .cover {
+          background-color: ${palette.native.surface0};
+          background-size: cover;
+          background-position: center;
+        }
+        .now-playing .dot {
+          color: ${palette.native.overlay0};
+        }
+        .now-playing .artist {
+          color: ${palette.native.subtext0};
+          font-style: italic;
+        }
+        .pill .play {
+          font-family: "Maple Mono NF CN";
+          font-size: 13px;
+          color: ${palette.native.blue};
+        }
+        .pill .wifi {
+          font-family: "Maple Mono NF CN";
+          font-size: 17px;
+        }
+        .network.off .wifi {
+          color: ${palette.native.overlay0};
+        }
+        .pill .arrow {
+          font-family: "Maple Mono NF CN";
+          font-size: 8px;
+          color: ${palette.native.surface1};
+        }
+        .pill .arrow.on {
+          color: $text;
+        }
+        .pill .glyph {
           color: $accent;
         }
-        .app-id,
-        .volume {
-          margin: 0 18px;
+        .volume.muted label {
+          color: ${palette.native.overlay0};
         }
-        .battery {
-          margin-right: 18px;
+        .battery.charging label {
+          color: ${palette.native.green};
         }
-        .bar .glyph {
-          color: $accent;
-        }
-        .bar .battery.low label {
-          color: $error;
-        }
-        .clock {
-          margin-right: 14px;
+        .battery.low label {
+          color: ${palette.native.red};
         }
 
         .scrim {
