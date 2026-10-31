@@ -5,12 +5,14 @@
     {
       imports = [ inputs.orchard.hjemModules.default ];
 
-      # CelestialCrafter's river rice: Rosé Pine Dawn, opaque, rose for focus.
+      # Material You from the wallpaper (matugen): every program orchard
+      # themes, the shell included, takes its roles from the same image.
       orchard = {
         enable = true;
-        theme = "rose-pine";
-        flavour = "dawn";
-        accent = "rose";
+        theme = "matugen";
+        flavour = "dark";
+        accent = "primary";
+        matugen.image = ../../assets/botanical-shop.png;
       };
 
       # Shorter names for the hand-styled configs orchard covers no port for.

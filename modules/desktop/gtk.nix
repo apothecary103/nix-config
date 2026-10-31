@@ -1,6 +1,16 @@
+{ username, ... }:
 {
   flake.modules.nixos.base =
-    { lib, pkgs, ... }:
+    {
+      config,
+      lib,
+      pkgs,
+      ...
+    }:
+    let
+      # Light or dark as the orchard flavour is (see theme.nix).
+      light = config.hjem.users.${username}.orchard.palette.isLight;
+    in
     {
       programs.dconf = {
         enable = true;
@@ -11,7 +21,7 @@
         profiles.user.databases = [
           {
             settings."org/gnome/desktop/interface" = {
-              color-scheme = "prefer-light";
+              color-scheme = if light then "prefer-light" else "prefer-dark";
               icon-theme = "Adwaita";
               cursor-theme = "WhiteSur-cursors";
               # The schema types this `i`, which a bare Nix int is ambiguous for.
@@ -40,7 +50,7 @@
     };
 
   flake.modules.hjem.linux =
-    { pkgs, ... }:
+    { pkgs, palette, ... }:
     {
       rum.misc.gtk = {
         enable = true;
@@ -61,7 +71,7 @@
 
           # In step with fontconfig.nix for GTK3 under X11. On Wayland GTK3
           # takes these from the dconf keys above and GTK4 ignores them.
-          application-prefer-dark-theme = 0;
+          application-prefer-dark-theme = if palette.isLight then 0 else 1;
           xft-antialias = 1;
           xft-hinting = 1;
           xft-hintstyle = "hintslight";
