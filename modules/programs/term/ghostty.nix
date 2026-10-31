@@ -26,13 +26,19 @@
       };
     in
     {
+      orchard.ghostty = {
+        theme = "catppuccin";
+        flavor = "macchiato";
+      };
+
       rum.programs.ghostty = {
         enable = true;
         package = if pkgs.stdenv.hostPlatform.isDarwin then pkgs.ghostty-bin else ghostty;
 
         settings = {
           # Maple Mono at 13 pt, padded 18 px all round with the slack
-          # balanced, a beam cursor, opaque. Its medium cut, since the regular
+          # balanced, a beam cursor, in Catppuccin Macchiato at 93 % (river
+          # leaves terminals unblurred). Its medium cut, since the regular
           # reads thin here and stem darkening adds under a pixel.
           font-family = "Maple Mono NF CN";
           font-style = "Medium";
@@ -40,6 +46,7 @@
           # so this is the same 17.3 logical px on both.
           font-size = if pkgs.stdenv.hostPlatform.isDarwin then 13 * 96 / 72.0 else 13;
           cursor-style = "bar";
+          background-opacity = 0.93;
 
           font-thicken = true;
           macos-titlebar-style = "hidden";
