@@ -1,0 +1,779 @@
+Backdrop blur in the scene graph: wlr_scene_node_set_backdrop_blur marks a
+node, and each buffer under it is drawn over a dual-filter blur of what is
+behind it, clipped to where the buffer is not transparent. Built from the
+render pass API alone, so it works on every renderer and goes through the
+output colour transform like any other texture. Its state lives in addons,
+so the structs bindings mirror keep their layout.
+
+diff --git a/include/wlr/types/wlr_scene.h b/include/wlr/types/wlr_scene.h
+index 6c627b1..4dfa597 100644
+--- a/include/wlr/types/wlr_scene.h
++++ b/include/wlr/types/wlr_scene.h
+@@ -300,6 +300,12 @@ void wlr_scene_node_destroy(struct wlr_scene_node *node);
+  * implicitly disabled as well.
+  */
+ void wlr_scene_node_set_enabled(struct wlr_scene_node *node, bool enabled);
++/**
++ * Blur what is drawn behind the node and its descendants, where they are not
++ * fully transparent: a dual-filter blur, strength halvings deep (0 disables,
++ * at most 6). The node closest to a buffer that sets a strength decides it.
++ */
++void wlr_scene_node_set_backdrop_blur(struct wlr_scene_node *node, int strength);
+ /**
+  * Set the position of the node relative to its parent.
+  */
+diff --git a/types/scene/wlr_scene.c b/types/scene/wlr_scene.c
+index 7bc8b76..049531f 100644
+--- a/types/scene/wlr_scene.c
++++ b/types/scene/wlr_scene.c
+@@ -1,7 +1,11 @@
++#include <drm_fourcc.h>
+ #include <assert.h>
++#include <math.h>
+ #include <stdlib.h>
+ #include <string.h>
+ #include <wlr/backend.h>
++#include <wlr/render/allocator.h>
++#include <wlr/render/drm_format_set.h>
+ #include <wlr/render/swapchain.h>
+ #include <wlr/render/drm_syncobj.h>
+ #include <wlr/render/wlr_renderer.h>
+@@ -16,6 +20,8 @@
+ #include <wlr/util/region.h>
+ #include <wlr/util/transform.h>
+ #include "render/color.h"
++#include "render/drm_format_set.h"
++#include "render/wlr_renderer.h"
+ #include "types/wlr_output.h"
+ #include "types/wlr_scene.h"
+ #include "util/array.h"
+@@ -893,6 +899,188 @@ struct wlr_scene_buffer *wlr_scene_buffer_create(struct wlr_scene_tree *parent,
+ 	return scene_buffer;
+ }
+ 
++/**
++ * Backdrop blur keeps its state in addons on the scene's objects, so their
++ * layout, which bindings in other languages mirror, stays as it is.
++ */
++
++// The strongest backdrop blur: halvings deep.
++#define BLUR_STRENGTH_MAX 6
++
++struct scene_blur_node {
++	struct wlr_addon addon;
++	int strength;
++};
++
++static void scene_blur_node_destroy(struct wlr_addon *addon) {
++	struct scene_blur_node *blur = wl_container_of(addon, blur, addon);
++	wlr_addon_finish(addon);
++	free(blur);
++}
++
++static const struct wlr_addon_interface scene_blur_node_impl = {
++	.name = "wlr_scene_blur_node",
++	.destroy = scene_blur_node_destroy,
++};
++
++static int scene_node_backdrop_blur(struct wlr_scene_node *node) {
++	while (node != NULL) {
++		struct wlr_addon *addon = wlr_addon_find(&node->addons, NULL, &scene_blur_node_impl);
++		if (addon != NULL) {
++			struct scene_blur_node *blur = wl_container_of(addon, blur, addon);
++			if (blur->strength > 0) {
++				return blur->strength;
++			}
++		}
++		node = node->parent != NULL ? &node->parent->node : NULL;
++	}
++	return 0;
++}
++
++// A blurred buffer's shape, and its blurred backdrop for the frame being built.
++struct scene_blur_buffer {
++	struct wlr_addon addon;
++
++	// Where the buffer is not fully transparent, in buffer coordinates.
++	pixman_region32_t mask;
++	bool mask_valid;
++
++	struct wlr_buffer *result;
++	struct wlr_texture *result_texture;
++	struct wlr_box result_box;
++	bool result_ready;
++};
++
++static void scene_blur_buffer_drop_result(struct scene_blur_buffer *blur) {
++	wlr_texture_destroy(blur->result_texture);
++	blur->result_texture = NULL;
++	wlr_buffer_drop(blur->result);
++	blur->result = NULL;
++	blur->result_ready = false;
++}
++
++static void scene_blur_buffer_destroy(struct wlr_addon *addon) {
++	struct scene_blur_buffer *blur = wl_container_of(addon, blur, addon);
++	scene_blur_buffer_drop_result(blur);
++	pixman_region32_fini(&blur->mask);
++	wlr_addon_finish(addon);
++	free(blur);
++}
++
++static const struct wlr_addon_interface scene_blur_buffer_impl = {
++	.name = "wlr_scene_blur_buffer",
++	.destroy = scene_blur_buffer_destroy,
++};
++
++static struct scene_blur_buffer *scene_blur_buffer_get(
++		struct wlr_scene_buffer *scene_buffer, bool create) {
++	struct wlr_addon *addon =
++		wlr_addon_find(&scene_buffer->node.addons, NULL, &scene_blur_buffer_impl);
++	if (addon != NULL) {
++		struct scene_blur_buffer *blur = wl_container_of(addon, blur, addon);
++		return blur;
++	}
++	if (!create) {
++		return NULL;
++	}
++	struct scene_blur_buffer *blur = calloc(1, sizeof(*blur));
++	if (blur == NULL) {
++		return NULL;
++	}
++	pixman_region32_init(&blur->mask);
++	wlr_addon_init(&blur->addon, &scene_buffer->node.addons, NULL, &scene_blur_buffer_impl);
++	return blur;
++}
++
++/**
++ * Note where a blurred buffer is not fully transparent, so the blur takes the
++ * buffer's shape (rounded corners, a panel in a larger window) rather than its
++ * box. Only shm buffers can be read; anything else blurs its whole box.
++ */
++static void scene_buffer_update_blur_mask(struct wlr_scene_buffer *scene_buffer,
++		struct wlr_buffer *buffer) {
++	struct scene_blur_buffer *blur = scene_blur_buffer_get(scene_buffer, true);
++	if (blur == NULL) {
++		return;
++	}
++	blur->mask_valid = false;
++
++	struct wlr_client_buffer *client_buffer = wlr_client_buffer_get(buffer);
++	if (client_buffer != NULL) {
++		if (client_buffer->source == NULL) {
++			return;
++		}
++		buffer = client_buffer->source;
++	}
++
++	void *data;
++	uint32_t format;
++	size_t stride;
++	if (!wlr_buffer_begin_data_ptr_access(buffer, WLR_BUFFER_DATA_PTR_ACCESS_READ,
++			&data, &format, &stride)) {
++		return;
++	}
++	if (format != DRM_FORMAT_ARGB8888 && format != DRM_FORMAT_ABGR8888) {
++		wlr_buffer_end_data_ptr_access(buffer);
++		return;
++	}
++
++	struct wl_array boxes;
++	wl_array_init(&boxes);
++	size_t prev_start = 0, prev_len = 0;
++	bool ok = true;
++	for (int y = 0; y < buffer->height && ok; y++) {
++		const uint32_t *row = (const uint32_t *)((const uint8_t *)data + (size_t)y * stride);
++		size_t row_start = boxes.size / sizeof(pixman_box32_t);
++		int x = 0;
++		while (x < buffer->width) {
++			while (x < buffer->width && (row[x] >> 24) == 0) {
++				x++;
++			}
++			if (x == buffer->width) {
++				break;
++			}
++			int x1 = x;
++			while (x < buffer->width && (row[x] >> 24) != 0) {
++				x++;
++			}
++			pixman_box32_t *box = wl_array_add(&boxes, sizeof(*box));
++			if (box == NULL) {
++				ok = false;
++				break;
++			}
++			*box = (pixman_box32_t){ .x1 = x1, .y1 = y, .x2 = x, .y2 = y + 1 };
++		}
++
++		// A row that repeats the one above grows its boxes instead.
++		pixman_box32_t *all = boxes.data;
++		size_t row_len = boxes.size / sizeof(pixman_box32_t) - row_start;
++		bool repeat = row_len > 0 && row_len == prev_len;
++		for (size_t i = 0; repeat && i < row_len; i++) {
++			repeat = all[prev_start + i].x1 == all[row_start + i].x1 &&
++				all[prev_start + i].x2 == all[row_start + i].x2;
++		}
++		if (repeat) {
++			for (size_t i = 0; i < row_len; i++) {
++				all[prev_start + i].y2 = y + 1;
++			}
++			boxes.size = row_start * sizeof(pixman_box32_t);
++		} else {
++			prev_start = row_start;
++			prev_len = row_len;
++		}
++	}
++	wlr_buffer_end_data_ptr_access(buffer);
++
++	if (ok) {
++		pixman_region32_fini(&blur->mask);
++		pixman_region32_init_rects(&blur->mask, boxes.data,
++			boxes.size / sizeof(pixman_box32_t));
++		blur->mask_valid = true;
++	}
++	wl_array_release(&boxes);
++}
++
+ void wlr_scene_buffer_set_buffer_with_options(struct wlr_scene_buffer *scene_buffer,
+ 		struct wlr_buffer *buffer, const struct wlr_scene_buffer_set_buffer_options *options) {
+ 	const struct wlr_scene_buffer_set_buffer_options default_options = {0};
+@@ -949,6 +1137,10 @@ void wlr_scene_buffer_set_buffer_with_options(struct wlr_scene_buffer *scene_buf
+ 	scene_buffer_set_wait_timeline(scene_buffer,
+ 		options->wait_timeline, options->wait_point);
+ 
++	if (buffer != NULL && scene_node_backdrop_blur(&scene_buffer->node) > 0) {
++		scene_buffer_update_blur_mask(scene_buffer, buffer);
++	}
++
+ 	if (update) {
+ 		scene_node_update(&scene_buffer->node, NULL);
+ 		// updating the node will already damage the whole node for us. Return
+@@ -1250,6 +1442,34 @@ void wlr_scene_node_set_enabled(struct wlr_scene_node *node, bool enabled) {
+ 	scene_node_update(node, &visible);
+ }
+ 
++void wlr_scene_node_set_backdrop_blur(struct wlr_scene_node *node, int strength) {
++	if (strength < 0) {
++		strength = 0;
++	} else if (strength > BLUR_STRENGTH_MAX) {
++		strength = BLUR_STRENGTH_MAX;
++	}
++
++	struct scene_blur_node *blur = NULL;
++	struct wlr_addon *addon = wlr_addon_find(&node->addons, NULL, &scene_blur_node_impl);
++	if (addon != NULL) {
++		blur = wl_container_of(addon, blur, addon);
++	} else if (strength > 0) {
++		blur = calloc(1, sizeof(*blur));
++		if (blur == NULL) {
++			return;
++		}
++		wlr_addon_init(&blur->addon, &node->addons, NULL, &scene_blur_node_impl);
++	} else {
++		return;
++	}
++
++	if (blur->strength == strength) {
++		return;
++	}
++	blur->strength = strength;
++	scene_node_update(node, NULL);
++}
++
+ void wlr_scene_node_set_position(struct wlr_scene_node *node, int x, int y) {
+ 	if (node->x == x && node->y == y) {
+ 		return;
+@@ -2310,6 +2530,454 @@ cleanup_transforms:
+ 	return result;
+ }
+ 
++/**
++ * Backdrop blur: a dual filter (Bjørge, "Bandwidth-efficient rendering",
++ * SIGGRAPH 2015) built from the render pass's own bilinear texture draws.
++ * Each tap of a pass is one draw of the source, offset by part of a texel and
++ * blended over the taps before it as a running average, so any renderer that
++ * can draw a texture can blur. Halving the size at each step down keeps the
++ * work small, and only the blurred buffers' regions are drawn.
++ */
++
++// The filter's sampling offset, in source texels.
++#define BLUR_OFFSET 3.0f
++
++struct wlr_scene_blur_chain {
++	// On the output, kept from frame to frame.
++	struct wlr_addon addon;
++	int width, height;
++	// Level k is the output's buffer halved k times.
++	struct wlr_buffer *buffers[BLUR_STRENGTH_MAX + 1];
++	struct wlr_texture *textures[BLUR_STRENGTH_MAX + 1];
++};
++
++struct blur_tap {
++	float dx, dy, weight;
++};
++
++static void scene_blur_chain_destroy(struct wlr_scene_blur_chain *chain) {
++	wlr_addon_finish(&chain->addon);
++	for (int i = 0; i <= BLUR_STRENGTH_MAX; i++) {
++		wlr_texture_destroy(chain->textures[i]);
++		wlr_buffer_drop(chain->buffers[i]);
++	}
++	free(chain);
++}
++
++static void scene_blur_chain_handle_destroy(struct wlr_addon *addon) {
++	struct wlr_scene_blur_chain *chain = wl_container_of(addon, chain, addon);
++	scene_blur_chain_destroy(chain);
++}
++
++static const struct wlr_addon_interface scene_blur_chain_impl = {
++	.name = "wlr_scene_blur_chain",
++	.destroy = scene_blur_chain_handle_destroy,
++};
++
++// How far the blur reaches: change within it changes the blurred result.
++static int blur_reach(int strength) {
++	return (int)ceilf((BLUR_OFFSET + 1.0f) * (float)(1 << (strength + 1)));
++}
++
++static struct wlr_buffer *blur_buffer_create(struct wlr_output *output,
++		int width, int height) {
++	const struct wlr_drm_format_set *formats =
++		wlr_renderer_get_render_formats(output->renderer);
++	const uint32_t fourccs[] = { DRM_FORMAT_ARGB8888, DRM_FORMAT_XRGB8888 };
++	for (size_t i = 0; i < sizeof(fourccs) / sizeof(fourccs[0]); i++) {
++		const struct wlr_drm_format *format = wlr_drm_format_set_get(formats, fourccs[i]);
++		if (format == NULL) {
++			continue;
++		}
++		struct wlr_buffer *buffer =
++			wlr_allocator_create_buffer(output->allocator, width, height, format);
++		if (buffer != NULL) {
++			return buffer;
++		}
++		if (wlr_drm_format_has(format, DRM_FORMAT_MOD_LINEAR)) {
++			struct wlr_drm_format linear = { .format = fourccs[i] };
++			if (wlr_drm_format_add(&linear, DRM_FORMAT_MOD_LINEAR)) {
++				buffer = wlr_allocator_create_buffer(output->allocator,
++					width, height, &linear);
++			}
++			wlr_drm_format_finish(&linear);
++			if (buffer != NULL) {
++				return buffer;
++			}
++		}
++	}
++	wlr_log(WLR_ERROR, "Failed to allocate a %dx%d buffer for backdrop blur",
++		width, height);
++	return NULL;
++}
++
++static struct wlr_scene_blur_chain *scene_output_blur_chain(
++		struct wlr_scene_output *scene_output, int width, int height, int strength) {
++	struct wlr_output *output = scene_output->output;
++	struct wlr_scene_blur_chain *chain = NULL;
++	struct wlr_addon *addon = wlr_addon_find(&output->addons, NULL, &scene_blur_chain_impl);
++	if (addon != NULL) {
++		chain = wl_container_of(addon, chain, addon);
++		if (chain->width != width || chain->height != height) {
++			scene_blur_chain_destroy(chain);
++			chain = NULL;
++		}
++	}
++	if (chain == NULL) {
++		chain = calloc(1, sizeof(*chain));
++		if (chain == NULL) {
++			return NULL;
++		}
++		chain->width = width;
++		chain->height = height;
++		wlr_addon_init(&chain->addon, &output->addons, NULL, &scene_blur_chain_impl);
++	}
++
++	for (int k = 0; k <= strength; k++) {
++		if (chain->buffers[k] != NULL) {
++			continue;
++		}
++		int level_width = (width + (1 << k) - 1) >> k;
++		int level_height = (height + (1 << k) - 1) >> k;
++		struct wlr_buffer *buffer = blur_buffer_create(output, level_width, level_height);
++		if (buffer == NULL) {
++			return NULL;
++		}
++		struct wlr_texture *texture = wlr_texture_from_buffer(output->renderer, buffer);
++		if (texture == NULL) {
++			wlr_buffer_drop(buffer);
++			return NULL;
++		}
++		chain->buffers[k] = buffer;
++		chain->textures[k] = texture;
++	}
++	return chain;
++}
++
++// A box at level k: halved k times, rounded outward.
++static struct wlr_box blur_level_box(const struct wlr_box *box, int k) {
++	int x1 = box->x >> k;
++	int y1 = box->y >> k;
++	int x2 = (box->x + box->width + (1 << k) - 1) >> k;
++	int y2 = (box->y + box->height + (1 << k) - 1) >> k;
++	return (struct wlr_box){ .x = x1, .y = y1, .width = x2 - x1, .height = y2 - y1 };
++}
++
++static void blur_draw_taps(struct wlr_render_pass *pass, struct wlr_texture *texture,
++		const struct wlr_box *dst, const struct wlr_fbox *src,
++		const struct blur_tap *taps, size_t taps_len) {
++	float total = 0;
++	for (size_t i = 0; i < taps_len; i++) {
++		total += taps[i].weight;
++		float alpha = taps[i].weight / total;
++
++		// Shifted, then held inside the texture: at its edges the taps
++		// repeat the outermost texels.
++		struct wlr_fbox box = *src;
++		box.width = fminf(box.width, texture->width);
++		box.height = fminf(box.height, texture->height);
++		box.x = fminf(fmaxf(box.x + taps[i].dx, 0), texture->width - box.width);
++		box.y = fminf(fmaxf(box.y + taps[i].dy, 0), texture->height - box.height);
++
++		wlr_render_pass_add_texture(pass, &(struct wlr_render_texture_options){
++			.texture = texture,
++			.src_box = box,
++			.dst_box = *dst,
++			.alpha = &alpha,
++			.filter_mode = WLR_SCALE_FILTER_BILINEAR,
++			.blend_mode = i == 0 ?
++				WLR_RENDER_BLEND_MODE_NONE : WLR_RENDER_BLEND_MODE_PREMULTIPLIED,
++		});
++	}
++}
++
++static const struct blur_tap blur_down_taps[] = {
++	{ -BLUR_OFFSET / 2, -BLUR_OFFSET / 2, 1 },
++	{ BLUR_OFFSET / 2, -BLUR_OFFSET / 2, 1 },
++	{ -BLUR_OFFSET / 2, BLUR_OFFSET / 2, 1 },
++	{ BLUR_OFFSET / 2, BLUR_OFFSET / 2, 1 },
++	{ 0, 0, 4 },
++};
++
++static const struct blur_tap blur_up_taps[] = {
++	{ -BLUR_OFFSET, 0, 1 },
++	{ BLUR_OFFSET, 0, 1 },
++	{ 0, -BLUR_OFFSET, 1 },
++	{ 0, BLUR_OFFSET, 1 },
++	{ -BLUR_OFFSET / 2, -BLUR_OFFSET / 2, 2 },
++	{ BLUR_OFFSET / 2, -BLUR_OFFSET / 2, 2 },
++	{ -BLUR_OFFSET / 2, BLUR_OFFSET / 2, 2 },
++	{ BLUR_OFFSET / 2, BLUR_OFFSET / 2, 2 },
++};
++
++/**
++ * The output-buffer region where a blurred entry shows its backdrop: what of
++ * it is visible and damaged, where its buffer is not transparent. False if
++ * the entry is not blurred or shows nothing.
++ */
++static bool scene_entry_blur_region(struct render_list_entry *entry,
++		const struct render_data *data, bool damaged, pixman_region32_t *region) {
++	struct wlr_scene_node *node = entry->node;
++	if (node->type != WLR_SCENE_NODE_BUFFER || scene_node_backdrop_blur(node) == 0) {
++		return false;
++	}
++	struct wlr_scene_buffer *scene_buffer = wlr_scene_buffer_from_node(node);
++	struct scene_blur_buffer *blur = scene_blur_buffer_get(scene_buffer, false);
++
++	pixman_region32_copy(region, &node->visible);
++	pixman_region32_translate(region, -data->logical.x, -data->logical.y);
++	logical_to_buffer_coords(region, data, true);
++	if (damaged) {
++		pixman_region32_intersect(region, region, &data->damage);
++	}
++
++	if (blur != NULL && blur->mask_valid &&
++			scene_buffer->transform == WL_OUTPUT_TRANSFORM_NORMAL &&
++			data->transform == WL_OUTPUT_TRANSFORM_NORMAL &&
++			scene_buffer->buffer_width > 0 && scene_buffer->buffer_height > 0) {
++		struct wlr_box dst_box = {
++			.x = entry->x - data->logical.x,
++			.y = entry->y - data->logical.y,
++		};
++		scene_node_get_size(node, &dst_box.width, &dst_box.height);
++		transform_output_box(&dst_box, data);
++
++		struct wlr_fbox src = scene_buffer->src_box;
++		if (wlr_fbox_empty(&src)) {
++			src = (struct wlr_fbox){
++				.width = scene_buffer->buffer_width,
++				.height = scene_buffer->buffer_height,
++			};
++		}
++
++		pixman_region32_t mask;
++		pixman_region32_init(&mask);
++		pixman_region32_intersect_rect(&mask, &blur->mask,
++			floor(src.x), floor(src.y), ceil(src.width), ceil(src.height));
++		pixman_region32_translate(&mask, -floor(src.x), -floor(src.y));
++		wlr_region_scale_xy(&mask, &mask,
++			dst_box.width / src.width, dst_box.height / src.height);
++		pixman_region32_translate(&mask, dst_box.x, dst_box.y);
++		pixman_region32_intersect(region, region, &mask);
++		pixman_region32_fini(&mask);
++	}
++
++	return !pixman_region32_empty(region);
++}
++
++// Grow the frame's damage over every blurred entry that change reaches.
++static void scene_output_damage_blur(struct wlr_scene_output *scene_output,
++		struct render_list_entry *list, int list_len, struct render_data *data,
++		struct wlr_output_state *state) {
++	pixman_region32_t area, reach, added;
++	pixman_region32_init(&area);
++	pixman_region32_init(&reach);
++	pixman_region32_init(&added);
++
++	// A blurred entry newly damaged can reach another; a few rounds settle it.
++	for (int round = 0; round < 4; round++) {
++		bool grew = false;
++		for (int i = 0; i < list_len; i++) {
++			if (!scene_entry_blur_region(&list[i], data, false, &area)) {
++				continue;
++			}
++			int strength = scene_node_backdrop_blur(list[i].node);
++			wlr_region_expand(&reach, &area, blur_reach(strength));
++			pixman_region32_intersect(&reach, &reach, &data->damage);
++			if (pixman_region32_empty(&reach)) {
++				continue;
++			}
++			pixman_region32_subtract(&area, &area, &data->damage);
++			if (!pixman_region32_empty(&area)) {
++				pixman_region32_union(&data->damage, &data->damage, &area);
++				pixman_region32_union(&added, &added, &area);
++				grew = true;
++			}
++		}
++		if (!grew) {
++			break;
++		}
++	}
++
++	if (!pixman_region32_empty(&added)) {
++		pixman_region32_union(&scene_output->pending_commit_damage,
++			&scene_output->pending_commit_damage, &added);
++		wlr_output_state_set_damage(state, &scene_output->pending_commit_damage);
++
++		// The other buffers in the swapchain need the blur redrawn too: they
++		// take their damage from the entry this frame's buffer just got.
++		if (!wl_list_empty(&scene_output->damage_ring.buffers)) {
++			struct wlr_damage_ring_buffer *entry = wl_container_of(
++				scene_output->damage_ring.buffers.next, entry, link);
++			pixman_region32_union(&entry->damage, &entry->damage, &added);
++		}
++	}
++
++	pixman_region32_fini(&area);
++	pixman_region32_fini(&reach);
++	pixman_region32_fini(&added);
++}
++
++/**
++ * Blur the backdrop of every blurred entry this frame shows, before the frame
++ * itself is drawn: each draws what is below it offscreen, then halves it down
++ * and doubles it back up into a buffer of its own, for the frame to draw
++ * under it. Blurred entries see each other unblurred.
++ */
++static void scene_output_render_blur(struct wlr_scene_output *scene_output,
++		struct render_list_entry *list, int list_len, const struct render_data *data,
++		struct wlr_buffer *output_buffer) {
++	struct wlr_output *output = scene_output->output;
++	struct wlr_renderer *renderer = output->renderer;
++
++	pixman_region32_t region;
++	pixman_region32_init(&region);
++	for (int i = list_len - 1; i >= 0; i--) {
++		if (!scene_entry_blur_region(&list[i], data, true, &region)) {
++			continue;
++		}
++		struct wlr_scene_buffer *scene_buffer = wlr_scene_buffer_from_node(list[i].node);
++		struct scene_blur_buffer *blur = scene_blur_buffer_get(scene_buffer, true);
++		if (blur == NULL) {
++			continue;
++		}
++		int strength = scene_node_backdrop_blur(list[i].node);
++
++		const pixman_box32_t *extents = pixman_region32_extents(&region);
++		struct wlr_box out = {
++			.x = extents->x1,
++			.y = extents->y1,
++			.width = extents->x2 - extents->x1,
++			.height = extents->y2 - extents->y1,
++		};
++
++		// Drawn wider than shown: each pass reads stale texels past the edge of
++		// what it drew, and that creeps inward by a reach each way.
++		int margin = 2 * blur_reach(strength);
++		struct wlr_box roi = {
++			.x = out.x - margin,
++			.y = out.y - margin,
++			.width = out.width + 2 * margin,
++			.height = out.height + 2 * margin,
++		};
++		struct wlr_box bounds = { .width = output_buffer->width, .height = output_buffer->height };
++		if (!wlr_box_intersection(&roi, &roi, &bounds)) {
++			continue;
++		}
++
++		struct wlr_scene_blur_chain *chain = scene_output_blur_chain(scene_output,
++			output_buffer->width, output_buffer->height, strength);
++		if (chain == NULL) {
++			continue;
++		}
++
++		if (blur->result != NULL &&
++				(blur->result->width != out.width ||
++				blur->result->height != out.height)) {
++			scene_blur_buffer_drop_result(blur);
++		}
++		if (blur->result == NULL) {
++			blur->result = blur_buffer_create(output, out.width, out.height);
++			if (blur->result == NULL) {
++				continue;
++			}
++			blur->result_texture =
++				wlr_texture_from_buffer(renderer, blur->result);
++			if (blur->result_texture == NULL) {
++				scene_blur_buffer_drop_result(blur);
++				continue;
++			}
++		}
++
++		// What is below, as the frame will draw it.
++		struct wlr_render_pass *pass =
++			wlr_renderer_begin_buffer_pass(renderer, chain->buffers[0], NULL);
++		if (pass == NULL) {
++			continue;
++		}
++		struct render_data below = *data;
++		below.render_pass = pass;
++		pixman_region32_init_rect(&below.damage, roi.x, roi.y, roi.width, roi.height);
++		wlr_render_pass_add_rect(pass, &(struct wlr_render_rect_options){
++			.box = roi,
++			.color = { .r = 0, .g = 0, .b = 0, .a = 1 },
++		});
++		for (int j = list_len - 1; j > i; j--) {
++			scene_entry_render(&list[j], &below);
++		}
++		pixman_region32_fini(&below.damage);
++		bool ok = wlr_render_pass_submit(pass);
++
++		for (int k = 1; ok && k <= strength; k++) {
++			struct wlr_box dst = blur_level_box(&roi, k);
++			struct wlr_fbox src = {
++				.x = dst.x * 2, .y = dst.y * 2,
++				.width = dst.width * 2, .height = dst.height * 2,
++			};
++			pass = wlr_renderer_begin_buffer_pass(renderer, chain->buffers[k], NULL);
++			if (pass == NULL) {
++				ok = false;
++				break;
++			}
++			blur_draw_taps(pass, chain->textures[k - 1], &dst, &src,
++				blur_down_taps, sizeof(blur_down_taps) / sizeof(blur_down_taps[0]));
++			ok = wlr_render_pass_submit(pass);
++		}
++
++		for (int k = strength - 1; ok && k >= 0; k--) {
++			// The last step lands in the entry's own buffer, cut to what it shows.
++			struct wlr_buffer *target = k == 0 ? blur->result : chain->buffers[k];
++			struct wlr_box dst = k == 0 ? out : blur_level_box(&roi, k);
++			struct wlr_fbox src = {
++				.x = dst.x / 2.0, .y = dst.y / 2.0,
++				.width = dst.width / 2.0, .height = dst.height / 2.0,
++			};
++			if (k == 0) {
++				dst.x = dst.y = 0;
++			}
++			pass = wlr_renderer_begin_buffer_pass(renderer, target, NULL);
++			if (pass == NULL) {
++				ok = false;
++				break;
++			}
++			blur_draw_taps(pass, chain->textures[k + 1], &dst, &src,
++				blur_up_taps, sizeof(blur_up_taps) / sizeof(blur_up_taps[0]));
++			ok = wlr_render_pass_submit(pass);
++		}
++
++		blur->result_box = out;
++		blur->result_ready = ok;
++	}
++	pixman_region32_fini(&region);
++}
++
++// Draw a blurred entry's backdrop, just before the entry itself.
++static void scene_entry_render_backdrop(struct render_list_entry *entry,
++		const struct render_data *data) {
++	if (entry->node->type != WLR_SCENE_NODE_BUFFER) {
++		return;
++	}
++	struct scene_blur_buffer *blur =
++		scene_blur_buffer_get(wlr_scene_buffer_from_node(entry->node), false);
++	if (blur == NULL || !blur->result_ready) {
++		return;
++	}
++	blur->result_ready = false;
++
++	pixman_region32_t region;
++	pixman_region32_init(&region);
++	if (scene_entry_blur_region(entry, data, true, &region)) {
++		wlr_render_pass_add_texture(data->render_pass, &(struct wlr_render_texture_options){
++			.texture = blur->result_texture,
++			.dst_box = blur->result_box,
++			.clip = &region,
++			.filter_mode = WLR_SCALE_FILTER_BILINEAR,
++			.blend_mode = WLR_RENDER_BLEND_MODE_NONE,
++		});
++	}
++	pixman_region32_fini(&region);
++}
++
+ bool wlr_scene_output_build_state(struct wlr_scene_output *scene_output,
+ 		struct wlr_output_state *state, const struct wlr_scene_output_state_options *options) {
+ 	struct wlr_scene_output_state_options default_options = {0};
+@@ -2516,6 +3184,13 @@ bool wlr_scene_output_build_state(struct wlr_scene_output *scene_output,
+ 		}
+ 	}
+ 
++	pixman_region32_init(&render_data.damage);
++	wlr_damage_ring_rotate_buffer(&scene_output->damage_ring, buffer,
++		&render_data.damage);
++
++	scene_output_damage_blur(scene_output, list_data, list_len, &render_data, state);
++	scene_output_render_blur(scene_output, list_data, list_len, &render_data, buffer);
++
+ 	scene_output->in_point++;
+ 	struct wlr_render_pass *render_pass = wlr_renderer_begin_buffer_pass(output->renderer, buffer,
+ 			&(struct wlr_buffer_pass_options){
+@@ -2525,16 +3200,13 @@ bool wlr_scene_output_build_state(struct wlr_scene_output *scene_output,
+ 		.signal_point = scene_output->in_point,
+ 	});
+ 	if (render_pass == NULL) {
++		pixman_region32_fini(&render_data.damage);
+ 		wlr_buffer_unlock(buffer);
+ 		return false;
+ 	}
+ 
+ 	render_data.render_pass = render_pass;
+ 
+-	pixman_region32_init(&render_data.damage);
+-	wlr_damage_ring_rotate_buffer(&scene_output->damage_ring, buffer,
+-		&render_data.damage);
+-
+ 	pixman_region32_t background;
+ 	pixman_region32_init(&background);
+ 	pixman_region32_copy(&background, &render_data.damage);
+@@ -2580,6 +3252,7 @@ bool wlr_scene_output_build_state(struct wlr_scene_output *scene_output,
+ 
+ 	for (int i = list_len - 1; i >= 0; i--) {
+ 		struct render_list_entry *entry = &list_data[i];
++		scene_entry_render_backdrop(entry, &render_data);
+ 		scene_entry_render(entry, &render_data);
+ 
+ 		if (entry->node->type == WLR_SCENE_NODE_BUFFER) {

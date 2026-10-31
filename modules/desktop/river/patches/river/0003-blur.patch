@@ -1,0 +1,41 @@
+Blurs what is behind layer surfaces, by namespace, as RIVER_BLUR lists them:
+comma-separated namespace:strength pairs, the strength in halvings. Needs
+wlroots with wlr_scene_node_set_backdrop_blur (see ../wlroots).
+
+diff --git a/river/LayerSurface.zig b/river/LayerSurface.zig
+index 9394c0e..72644d1 100644
+--- a/river/LayerSurface.zig
++++ b/river/LayerSurface.zig
+@@ -61,6 +61,9 @@ pub fn create(wlr_layer_surface: *wlr.LayerSurfaceV1) error{OutOfMemory}!void {
+ 
+     wlr_layer_surface.surface.data = &layer_surface.scene_layer_surface.tree.node;
+ 
++    const blur = blurStrength(std.mem.span(wlr_layer_surface.namespace));
++    if (blur > 0) wlr_scene_node_set_backdrop_blur(&layer_surface.scene_layer_surface.tree.node, blur);
++
+     wlr_layer_surface.events.destroy.add(&layer_surface.destroy);
+     wlr_layer_surface.surface.events.map.add(&layer_surface.map);
+     wlr_layer_surface.surface.events.unmap.add(&layer_surface.unmap);
+@@ -68,6 +71,22 @@ pub fn create(wlr_layer_surface: *wlr.LayerSurfaceV1) error{OutOfMemory}!void {
+     wlr_layer_surface.events.new_popup.add(&layer_surface.new_popup);
+ }
+ 
++/// How strongly RIVER_BLUR asks for what is behind a layer surface to be
++/// blurred, by namespace: comma-separated "namespace:strength" pairs, the
++/// strength in halvings (see wlr_scene_node_set_backdrop_blur). 0 if unlisted.
++fn blurStrength(namespace: []const u8) c_int {
++    const spec = std.c.getenv("RIVER_BLUR") orelse return 0;
++    var it = std.mem.splitScalar(u8, std.mem.span(spec), ',');
++    while (it.next()) |pair| {
++        const colon = std.mem.indexOfScalar(u8, pair, ':') orelse continue;
++        if (!std.mem.eql(u8, std.mem.trim(u8, pair[0..colon], " "), namespace)) continue;
++        return std.fmt.parseInt(c_int, std.mem.trim(u8, pair[colon + 1 ..], " "), 10) catch 0;
++    }
++    return 0;
++}
++
++extern fn wlr_scene_node_set_backdrop_blur(node: *wlr.SceneNode, strength: c_int) void;
++
+ pub fn destroyPopups(layer_surface: *LayerSurface) void {
+     var it = layer_surface.wlr_layer_surface.popups.safeIterator(.forward);
+     while (it.next()) |wlr_xdg_popup| wlr_xdg_popup.destroy();

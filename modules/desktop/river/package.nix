@@ -5,10 +5,17 @@
   # session file, portals and the rest of a wayland session.
   flake.modules.nixos.base =
     { lib, pkgs, ... }:
+    let
+      wlroots = pkgs.wlroots_0_20.overrideAttrs (old: {
+        patches = (old.patches or [ ]) ++ lib.filesystem.listFilesRecursive ./patches/wlroots;
+      });
+    in
     {
       programs.river-classic = {
         enable = true;
-        package = pkgs.river.overrideAttrs (old: {
+        # wlroots with backdrop blur (patches/wlroots), which river's layer
+        # surfaces ask for by namespace (patches/river/0003-blur.patch).
+        package = (pkgs.river.override { wlroots_0_20 = wlroots; }).overrideAttrs (old: {
           patches = (old.patches or [ ]) ++ lib.filesystem.listFilesRecursive ./patches/river;
           nativeBuildInputs = old.nativeBuildInputs ++ [ pkgs.makeWrapper ];
           # Vulkan is the only wlroots renderer that applies an output colour
@@ -19,6 +26,7 @@
             wrapProgram $out/bin/river \
               --set-default WLR_RENDERER vulkan \
               --set-default RIVER_RENDER_BIT_DEPTH 10 \
+              --set-default RIVER_BLUR "bar:2,launcher:4,popover:4,osd:4" \
               --set-default XDG_CURRENT_DESKTOP river
             # Its log goes to the journal as `river`, where nothing else keeps it.
             substituteInPlace $out/share/wayland-sessions/river.desktop \
