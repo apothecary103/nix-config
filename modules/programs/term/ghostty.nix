@@ -3,8 +3,8 @@
   flake.modules.hjem.base =
     { lib, pkgs, ... }:
     let
-      # azuki is 1024 upem, near enough 1000, which the session's autofitter
-      # curve (tuned for 2048, see fontconfig.nix) darkens twice as much as
+      # Maple Mono is 1000 upem, which the session's autofitter curve
+      # (tuned for 2048, see fontconfig.nix) darkens twice as much as
       # CoreText would; this one gives a 1000 upem face CoreText's
       # min(0.6, 0.0116 * ppem) px. The variable replaces the session's
       # wholesale, so it carries the other drivers' curves too. The D-Bus and
@@ -31,13 +31,14 @@
         package = if pkgs.stdenv.hostPlatform.isDarwin then pkgs.ghostty-bin else ghostty;
 
         settings = {
-          # The river rice's foot: azuki at 14 pt, padded 18 px all round with
-          # the slack balanced, a beam cursor, opaque. Its bold cut, since the
-          # regular reads thin here and stem darkening adds under a pixel.
-          font-family = "azukifontB";
+          # Maple Mono at 13 pt, padded 18 px all round with the slack
+          # balanced, a beam cursor, opaque. Its medium cut, since the regular
+          # reads thin here and stem darkening adds under a pixel.
+          font-family = "Maple Mono NF CN";
+          font-style = "Medium";
           # Ghostty turns points into pixels at 72 dpi on macOS and 96 on Linux,
-          # so this is the same 18.7 logical px on both.
-          font-size = if pkgs.stdenv.hostPlatform.isDarwin then 14 * 96 / 72.0 else 14;
+          # so this is the same 17.3 logical px on both.
+          font-size = if pkgs.stdenv.hostPlatform.isDarwin then 13 * 96 / 72.0 else 13;
           cursor-style = "bar";
 
           font-thicken = true;
