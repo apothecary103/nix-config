@@ -19,11 +19,6 @@ let
     lib.mapAttrs (_: code: builtins.fromJSON ''"\u${lib.toLower (lib.toHexString code)}"'') (
       builtins.fromJSON (builtins.readFile json)
     );
-
-  # The panel's notch, in logical pixels at the default 1512 x 982: about 185
-  # wide. Asahi gives back the 37 rows beside it (show_notch=1).
-  notch.width = 185;
-  screen = 1512;
 in
 {
   flake.modules.nixos.base =
@@ -32,10 +27,11 @@ in
       fonts.packages = [ pkgs.lucide ];
     };
 
-  # The desktop shell, in eww. The 37 rows beside the notch are a black band,
-  # so the notch vanishes into it as macOS has it, with soft grey pills
-  # floating in the band: the avatar, kanji workspaces from 〇 and the focused
-  # window on the left, the track, status and time on the right. The avatar
+  # The desktop shell, in eww. The bar is the river rice's yambar again: flat
+  # text on one plain strip, filling the 37 rows Asahi gives back beside the
+  # notch (show_notch=1) and black like it, so the notch disappears. The
+  # avatar, kanji workspaces from 〇 and the focused app on the left; the
+  # track, network, volume, battery and the clock on the right. The avatar
   # opens a panel after Tail-R's xmonad rice (a big clock, a profile card,
   # the power keys); the status and time open the controls, the track the
   # player. Maple Mono with Lucide icons, in the sakura theme.
@@ -46,19 +42,8 @@ in
       eww = lib.getExe pkgs.eww;
 
       band = 37;
-      pill = 27;
       edge = 10;
       gap = 6;
-      widths = {
-        music = 210;
-        status = 176;
-        clock = 148;
-      };
-      # The player hangs centred under the track, the rightmost pill but two.
-      music = {
-        right = screen - edge - widths.clock - gap - widths.status - gap;
-        centre = music.right - widths.music / 2;
-      };
 
       script =
         name: runtimeInputs: text:
@@ -191,7 +176,7 @@ in
       '';
 
       clock = script "shell-clock" [ pkgs.coreutils ] ''
-        date '+{"hour":"%H","minute":"%M","weekday":"%A","date":"%-d, %B","short":"%a %-d %b"}'
+        date '+{"hour":"%H","minute":"%M","weekday":"%A","date":"%-d, %B","us":"%m/%d/%Y %I:%M %p"}'
       '';
 
       brightness = script "shell-brightness" [ pkgs.brightnessctl pkgs.coreutils ] ''
@@ -312,7 +297,7 @@ in
         (deflisten network :initial '{"kind":"none","ssid":"","enabled":true}' "${network}")
         (deflisten media :initial '{"status":"","title":"","artist":"","art":"","tint":"","length":0,"player":""}' "${media}")
         (defpoll bluetooth :interval "5s" :initial '{"powered":false,"device":""}' "${bluetooth}")
-        (defpoll clock :interval "5s" :initial '{"hour":"","minute":"","weekday":"","date":"","short":""}' "${clock}")
+        (defpoll clock :interval "5s" :initial '{"hour":"","minute":"","weekday":"","date":"","us":""}' "${clock}")
         (defpoll brightness :interval "5s" :initial "0" "${brightness}")
 
         ${lib.concatMapStringsSep "\n" (p: "(defvar ${p}_open false)") popovers}
@@ -334,29 +319,30 @@ in
         ; GTK 3 eventboxes take no size or padding, so in these the eventbox
         ; only catches the pointer and the box inside carries the look.
 
-        ; A pill in the band.
-        (defwidget pill [?class ?width ?onclick ?onscroll ?tooltip ?hexpand]
-          (eventbox :class "hit" :onclick onclick :onscroll onscroll :tooltip tooltip
-                    :cursor {onclick != "" ? "pointer" : "default"}
-            (box :class "pill ''${class}" :width {width == "" ? 0 : width} :height ${toString pill}
-                 :space-evenly false
-              (children))))
-
         ; A key in a panel.
         (defwidget key [?class ?width height onclick ?tooltip]
           (eventbox :class "hit" :onclick onclick :cursor "pointer" :tooltip tooltip
             (box :class "key ''${class}" :width {width == "" ? 0 : width} :height height
               (children))))
 
-        ; A panel, square to the band's edge but rounded below it.
+        ; A panel dropped from the strip.
         (defwidget panel [?class]
           (box :class "panel ''${class}" :orientation "v" :space-evenly false
             (children)))
       '';
 
       xdg.config.files."eww/bar.yuck".text = ''
-        ; The band: the ${toString band} rows beside the notch, black like the
-        ; notch, with ${toString pill}-tall pills floating in it.
+        ; After the yambar the river rice had: flat text on one plain strip, no
+        ; boxes; tags 14 apart, the focused app, then the volume and the clock
+        ; at the far end. The strip is the ${toString band} rows beside the
+        ; notch, and black like it, so the notch disappears.
+        (defwidget item [?class ?onclick ?onscroll ?tooltip ?visible]
+          (eventbox :class "item" :onclick onclick :onscroll onscroll :tooltip tooltip
+                    :visible {visible == "" ? true : visible}
+                    :cursor {onclick != "" ? "pointer" : "default"}
+            (box :class "item-body ''${class}" :space-evenly false :spacing 7
+              (children))))
+
         (defwindow bar
           :monitor 0
           :stacking "fg"
@@ -364,45 +350,36 @@ in
           :focusable "none"
           :namespace "bar"
           :geometry (geometry :x "0" :y "0" :width "100%" :height "${toString band}px" :anchor "top center")
-          (centerbox :class "band"
-            (box :class "side" :halign "start" :valign "center" :space-evenly false :spacing ${toString gap}
-              (eventbox :class "hit" :onclick "${popover} dashboard" :cursor "pointer" :tooltip "${username}"
-                (box :class "avatar ''${dashboard_open ? 'open' : '''}" :width ${toString pill} :height ${toString pill}))
-              (pill :class "workspaces"
-                (box :space-evenly false :spacing 2
-                  (for tag in {kwm.tags}
-                    (eventbox :cursor "pointer" :visible {tag.focused || tag.occupied || tag.id <= 5}
-                              :onclick "echo set_output_tag ''${tag.id} > $XDG_RUNTIME_DIR/kwm/control"
-                              :onrightclick "echo toggle_output_tag ''${tag.id} > $XDG_RUNTIME_DIR/kwm/control"
-                      (box :class {tag.focused ? "ws focused" : tag.occupied ? "ws occupied" : "ws"}
-                           :width 23 :height 21
-                        (label :hexpand true :text {numerals[tag.id - 1]}))))))
-              (pill :class "title" :visible {kwm.title != "" || kwm.app_id != ""}
-                (label :class "strong" :limit-width 40 :text {kwm.title != "" ? kwm.title : kwm.app_id})))
-            (box :class "notch" :width ${toString (notch.width + 2 * 8)})
-            (box :class "side" :halign "end" :valign "center" :space-evenly false :spacing ${toString gap}
-              (pill :class {player_open ? "music open" : "music"} :width ${toString widths.music}
-                    :visible {media.title != ""} :onclick "${popover} player"
-                (box :space-evenly false :spacing 8
-                  (box :class "thumb" :width 19 :height 19 :valign "center" :visible {media.art != ""} :style ${art})
-                  (label :class "icon dim" :visible {media.art == ""} :text "${icon.music}")
-                  (label :class "strong" :limit-width 22 :text {media.title})))
-              (pill :class {control_open ? "open" : ""} :width ${toString widths.status}
-                    :onclick "${popover} control" :onscroll "osd volume-{}"
-                (box :hexpand true :halign "center" :space-evenly false :spacing 14
-                  (label :class {network.kind == "none" ? "icon dim" : "icon"}
-                         :text {network.kind == "wired" ? "${icon.ethernet-port}" : network.kind == "wifi" ? "${icon.wifi}" : "${icon.wifi-off}"})
-                  (label :class {bluetooth.powered ? "icon" : "icon dim"}
-                         :text {bluetooth.device != "" ? "${icon.bluetooth-connected}" : bluetooth.powered ? "${icon.bluetooth}" : "${icon.bluetooth-off}"})
-                  (label :class "icon" :text ${volumeIcon})
-                  (box :space-evenly false :spacing 6
-                    :class {${bat}.capacity <= 15 && ${bat}.status != "Charging" ? "low" : ""}
-                    (label :class "icon" :text ${batteryIcon})
-                    (label :class "strong" :text "''${${bat}.capacity}%"))))
-              (pill :class {control_open ? "open" : ""} :width ${toString widths.clock} :onclick "${popover} control"
-                (box :hexpand true :halign "center" :space-evenly false :spacing 8
-                  (label :class "dim" :text {clock.short})
-                  (label :class "strong" :text "''${clock.hour}:''${clock.minute}"))))))
+          (centerbox :class "strip"
+            (box :class "left" :halign "start" :space-evenly false
+              (eventbox :class "item" :onclick "${popover} dashboard" :cursor "pointer" :tooltip "${username}"
+                (box :class "avatar ''${dashboard_open ? 'open' : '''}" :valign "center"))
+              ; Its own box: eww appends a for's children after their siblings.
+              (box :class "tags" :space-evenly false
+                (for tag in {kwm.tags}
+                  (eventbox :class "item" :cursor "pointer" :visible {tag.focused || tag.occupied || tag.id <= 5}
+                            :onclick "echo set_output_tag ''${tag.id} > $XDG_RUNTIME_DIR/kwm/control"
+                            :onrightclick "echo toggle_output_tag ''${tag.id} > $XDG_RUNTIME_DIR/kwm/control"
+                    (label :class {tag.focused ? "tag focused" : tag.occupied ? "tag occupied" : "tag"}
+                           :text {numerals[tag.id - 1]}))))
+              (label :class "app" :visible {kwm.app_id != ""} :limit-width 40 :text {kwm.app_id}))
+            (box)
+            (box :halign "end" :space-evenly false
+              (item :class "dim" :onclick "${popover} player" :visible {media.title != ""}
+                (label :class "icon" :text {media.status == "Playing" ? "${icon.music}" : "${icon.pause}"})
+                (label :limit-width 28 :text {media.title}))
+              (item :onclick "${popover} control"
+                (label :class {network.kind == "none" ? "icon faint" : "icon"}
+                       :text {network.kind == "wired" ? "${icon.ethernet-port}" : network.kind == "wifi" ? "${icon.wifi}" : "${icon.wifi-off}"}))
+              (item :onclick "${popover} control" :onscroll "osd volume-{}"
+                (label :class {volume.muted ? "icon faint" : "icon"} :text ${volumeIcon})
+                (label :text "''${volume.level}%"))
+              (item :class {${bat}.capacity <= 15 && ${bat}.status != "Charging" ? "low" : ""}
+                    :onclick "${popover} control"
+                (label :class "icon" :text ${batteryIcon})
+                (label :text "''${${bat}.capacity}%"))
+              (item :class "clock" :onclick "${popover} control"
+                (label :text {clock.us})))))
 
         ; A clear surface under any open popover: a click outside closes it.
         (defwindow scrim
@@ -497,14 +474,14 @@ in
       '';
 
       xdg.config.files."eww/player.yuck".text = ''
-        ; Centred under the track.
+        ; From the track, at the right like the controls.
         (defwindow player
           :monitor 0
           :stacking "overlay"
           :exclusive false
           :focusable "none"
           :namespace "popover"
-          :geometry (geometry :x "${toString (music.centre - 150)}px" :y "${toString gap}px" :width "300px" :anchor "top left")
+          :geometry (geometry :x "${toString edge}px" :y "${toString gap}px" :width "300px" :anchor "top right")
           (revealer :reveal player_open :transition "slidedown" :duration "250ms"
             (panel
               (overlay :class "stage"
@@ -605,28 +582,48 @@ in
           color: $error;
         }
 
-        // The band, black like the notch.
-        .band {
+        // The strip: black like the notch, flat text, the yambar's spacing.
+        .strip {
           background-color: #000000;
+          font-size: 13px;
         }
-        .side {
-          margin: 0 ${toString edge}px;
+        .strip label {
+          font-size: 13px;
         }
-        .pill {
-          background-color: $raised;
-          border: $hairline;
-          border-radius: 9px;
-          padding: 0 12px;
-          transition: background-color $fast $standard;
+        .strip .icon {
+          font-size: 15px;
         }
-        .hit:hover > .pill {
-          background-color: mix($text, $raised, 6%);
+        .item-body {
+          margin: 0 9px;
+          transition: color $fast $standard;
         }
-        .pill.open {
-          background-color: mix($text, $raised, 10%);
+        .item-body label {
+          color: inherit;
+          transition: color $fast $standard;
+        }
+        .item:hover .item-body,
+        .item:hover .tag:not(.focused) {
+          color: $accent;
+        }
+        .item-body.dim {
+          color: $dim;
+        }
+        .item-body .faint {
+          color: $faint;
+        }
+        .item-body.low {
+          color: $error;
+        }
+        .clock {
+          margin-right: 14px;
         }
 
+        .left {
+          margin-left: 14px;
+        }
         .avatar {
+          min-width: 22px;
+          min-height: 22px;
           background-image: url("${../../../assets/avatar.jpg}");
           background-size: cover;
           background-position: center;
@@ -634,41 +631,29 @@ in
           box-shadow: inset 0 0 0 1px rgba($text, 0.12);
           transition: box-shadow $fast $standard;
         }
-        .hit:hover > .avatar,
+        .item:hover .avatar,
         .avatar.open {
-          box-shadow: inset 0 0 0 2px $accent;
+          box-shadow: inset 0 0 0 1.5px $accent;
         }
 
-        .workspaces {
-          padding: 0 3px;
+        .tags {
+          margin: 0 4px 0 6px;
         }
-        .ws {
-          border-radius: 6px;
+        .tag {
+          margin-left: 14px;
           color: $faint;
-          transition: background-color $fast $standard, color $fast $standard;
+          transition: color $fast $standard;
         }
-        .ws label {
-          color: inherit;
-          font-size: 12px;
-        }
-        .ws.occupied {
+        .tag.occupied {
           color: $text;
         }
-        .ws.focused {
-          background-color: rgba($accent, 0.16);
+        .tag.focused {
           color: $accent;
-        }
-        .ws.focused label {
           font-weight: bold;
         }
-        eventbox:hover > .ws:not(.focused) {
-          background-color: rgba($text, 0.07);
-        }
-
-        .thumb {
-          background-size: cover;
-          background-position: center;
-          border-radius: 5px;
+        .app {
+          margin: 0 18px;
+          color: $dim;
         }
 
         .scrim {
@@ -682,10 +667,9 @@ in
           border-radius: 18px;
           padding: 16px;
         }
+        // Groups inside a panel sit on the panel itself, parted by space.
         .card {
-          background-color: rgba($text, 0.035);
-          border: $hairline;
-          border-radius: 14px;
+          border-top: $hairline;
         }
         .key {
           background-color: $key;
@@ -751,7 +735,13 @@ in
           margin-bottom: 12px;
         }
         .tile-body {
-          padding: 0 12px;
+          padding: 0 4px;
+        }
+        .key.tile {
+          background-color: transparent;
+        }
+        .hit:hover > .key.tile {
+          background-color: rgba($text, 0.05);
         }
         .badge {
           background-color: $well;
@@ -765,7 +755,7 @@ in
         }
 
         .meters {
-          padding: 14px 14px 2px;
+          padding: 16px 2px 0;
         }
         .meter {
           margin-bottom: 12px;
