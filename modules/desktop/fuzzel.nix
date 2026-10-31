@@ -22,8 +22,11 @@
             prompt = ''"${magnifier}  "'';
             placeholder = "search...";
             terminal = "ghostty -e";
-            lines = 8;
-            width = 34;
+            # The quickshell launcher's six 42-px rows (32 pt at 2x; fuzzel's px are
+            # the buffer's), 480 wide.
+            lines = 6;
+            line-height = 32;
+            width = 44;
             tabs = 4;
             horizontal-pad = 25;
             vertical-pad = 25;
