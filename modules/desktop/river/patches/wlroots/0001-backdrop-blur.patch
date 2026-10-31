@@ -1,10 +1,79 @@
-Backdrop blur in the scene graph: wlr_scene_node_set_backdrop_blur marks a
-node, and each buffer under it is drawn over a dual-filter blur of what is
-behind it, clipped to where the buffer is not transparent. Built from the
-render pass API alone, so it works on every renderer and goes through the
-output colour transform like any other texture. Its state lives in addons,
-so the structs bindings mirror keep their layout.
+Backdrop blur in the scene graph, and blending as sway does.
 
+wlr_scene_node_set_backdrop_blur marks a node, and each buffer under it is
+drawn over a dual-filter blur of what is behind it (swayfx's algorithm and
+finish), clipped to where the buffer is not transparent. On Vulkan each step
+is one draw of a new blur shader; elsewhere it is built from texture draws.
+Its state lives in addons, so the structs bindings mirror keep their layout.
+
+The Vulkan renderer's blend image now holds sRGB-encoded values, so
+translucent surfaces blend as on GLES and in sway rather than in linear
+light, which lets far too much of what is behind show through dark
+translucency. The output pass decodes before its colour transform.
+
+diff --git a/include/render/vulkan.h b/include/render/vulkan.h
+index f96619f..1330872 100644
+--- a/include/render/vulkan.h
++++ b/include/render/vulkan.h
+@@ -166,6 +166,9 @@ enum wlr_vk_texture_transform {
+ enum wlr_vk_shader_source {
+ 	WLR_VK_SHADER_SOURCE_TEXTURE,
+ 	WLR_VK_SHADER_SOURCE_SINGLE_COLOR,
++	// The dual-filter blur's steps down and up (shaders/blur.frag)
++	WLR_VK_SHADER_SOURCE_BLUR_DOWN,
++	WLR_VK_SHADER_SOURCE_BLUR_UP,
+ };
+ 
+ // Constants used to pick the color transform for the blend-to-output
+@@ -302,6 +305,7 @@ struct wlr_vk_renderer {
+ 	VkShaderModule tex_frag_module;
+ 	VkShaderModule quad_frag_module;
+ 	VkShaderModule output_module;
++	VkShaderModule blur_frag_module;
+ 
+ 	struct wl_list pipeline_layouts; // struct wlr_vk_pipeline_layout.link
+ 
+@@ -370,6 +374,16 @@ struct wlr_vk_frag_texture_pcr_data {
+ 	float luminance_multiplier;
+ };
+ 
++struct wlr_vk_frag_blur_pcr_data {
++	float halfpixel[2];
++	float radius;
++	float finish;
++	float noise;
++	float brightness;
++	float contrast;
++	float saturation;
++};
++
+ struct wlr_vk_frag_output_pcr_data {
+ 	float matrix[4][4]; // only a 3x3 subset is used
+ 	float lut_3d_offset;
+@@ -435,6 +449,23 @@ struct wlr_vk_render_pass {
+ 	struct wl_array textures; // struct wlr_vk_render_pass_texture
+ };
+ 
++// One step of the dual-filter blur, for backdrop blur in the scene graph.
++struct wlr_vk_blur_options {
++	struct wlr_texture *texture;
++	struct wlr_fbox src_box;
++	struct wlr_box dst_box;
++	bool up;
++	// The sampling offset, in half texels of the target
++	float radius;
++	// On the last step up: swayfx's finish
++	bool finish;
++	float noise, brightness, contrast, saturation;
++};
++
++// False if the pass is not a Vulkan one or the step could not be recorded.
++bool vulkan_render_pass_add_blur(struct wlr_render_pass *pass,
++	const struct wlr_vk_blur_options *options);
++
+ struct wlr_vk_render_pass *vulkan_begin_render_pass(struct wlr_vk_renderer *renderer,
+ 	struct wlr_vk_render_buffer *buffer, const struct wlr_buffer_pass_options *options);
+ 
 diff --git a/include/wlr/types/wlr_scene.h b/include/wlr/types/wlr_scene.h
 index 6c627b1..4dfa597 100644
 --- a/include/wlr/types/wlr_scene.h
@@ -22,8 +91,401 @@ index 6c627b1..4dfa597 100644
  /**
   * Set the position of the node relative to its parent.
   */
+diff --git a/render/vulkan/pass.c b/render/vulkan/pass.c
+index 503e37c..190c8fe 100644
+--- a/render/vulkan/pass.c
++++ b/render/vulkan/pass.c
+@@ -686,15 +686,17 @@ static void render_pass_add_rect(struct wlr_render_pass *wlr_pass,
+ 	struct wlr_vk_render_pass *pass = get_render_pass(wlr_pass);
+ 	VkCommandBuffer cb = pass->command_buffer->vk;
+ 
+-	// Input color values are given in sRGB space, shader expects
+-	// them in linear space. The shader does all computation in linear
+-	// space and expects in inputs in linear space since it outputs
+-	// colors in linear space as well (and vulkan then automatically
+-	// does the conversion for out sRGB render targets).
++	// Input color values are given in sRGB space. A pass with a blend image
++	// blends sRGB-encoded values, as GLES does (see texture.frag), so they
++	// go in as they are; otherwise the shader works in linear space (and
++	// vulkan then does the conversion for sRGB render targets).
+ 	float linear_color[] = {
+-		color_to_linear_premult(options->color.r, options->color.a),
+-		color_to_linear_premult(options->color.g, options->color.a),
+-		color_to_linear_premult(options->color.b, options->color.a),
++		pass->two_pass ? options->color.r * options->color.a :
++			color_to_linear_premult(options->color.r, options->color.a),
++		pass->two_pass ? options->color.g * options->color.a :
++			color_to_linear_premult(options->color.g, options->color.a),
++		pass->two_pass ? options->color.b * options->color.a :
++			color_to_linear_premult(options->color.b, options->color.a),
+ 		options->color.a, // no conversion for alpha
+ 	};
+ 
+@@ -1005,6 +1007,114 @@ void vk_color_transform_destroy(struct wlr_addon *addon) {
+ 	free(transform);
+ }
+ 
++
++bool vulkan_render_pass_add_blur(struct wlr_render_pass *wlr_pass,
++		const struct wlr_vk_blur_options *options) {
++	if (wlr_pass->impl != &render_pass_impl) {
++		return false;
++	}
++	struct wlr_vk_render_pass *pass = get_render_pass(wlr_pass);
++	struct wlr_vk_renderer *renderer = pass->renderer;
++	VkCommandBuffer cb = pass->command_buffer->vk;
++
++	struct wlr_vk_texture *texture = vulkan_get_texture(options->texture);
++	assert(texture->renderer == renderer);
++	if (texture->dmabuf_imported && !texture->owned) {
++		// Acquired before the pass and released after it, as in
++		// render_pass_add_texture.
++		texture->owned = true;
++		wl_list_insert(&renderer->foreign_textures, &texture->foreign_link);
++	}
++
++	const struct wlr_fbox *src_box = &options->src_box;
++	const struct wlr_box *dst_box = &options->dst_box;
++
++	float proj[9], matrix[9];
++	wlr_matrix_identity(proj);
++	wlr_matrix_project_box(matrix, dst_box, WL_OUTPUT_TRANSFORM_NORMAL, proj);
++	wlr_matrix_multiply(matrix, pass->projection, matrix);
++
++	struct wlr_vk_vert_pcr_data vert_pcr_data = {
++		.uv_off = {
++			src_box->x / options->texture->width,
++			src_box->y / options->texture->height,
++		},
++		.uv_size = {
++			src_box->width / options->texture->width,
++			src_box->height / options->texture->height,
++		},
++	};
++	encode_proj_matrix(matrix, vert_pcr_data.mat4);
++
++	struct wlr_vk_pipeline *pipe = setup_get_or_create_pipeline(
++		pass->render_setup,
++		&(struct wlr_vk_pipeline_key) {
++			.source = options->up ?
++				WLR_VK_SHADER_SOURCE_BLUR_UP : WLR_VK_SHADER_SOURCE_BLUR_DOWN,
++			.layout = { .filter_mode = WLR_SCALE_FILTER_BILINEAR },
++			.blend_mode = WLR_RENDER_BLEND_MODE_NONE,
++		});
++	if (!pipe) {
++		pass->failed = true;
++		return false;
++	}
++
++	// Read as stored: the blur works on the encoded values.
++	struct wlr_vk_texture_view *view =
++		vulkan_texture_get_or_create_view(texture, pipe->layout, false);
++	if (!view) {
++		pass->failed = true;
++		return false;
++	}
++
++	struct wlr_vk_frag_blur_pcr_data frag_pcr_data = {
++		.halfpixel = { 0.5f / dst_box->width, 0.5f / dst_box->height },
++		.radius = options->radius,
++		.finish = options->finish ? 1.0f : 0.0f,
++		.noise = options->noise,
++		.brightness = options->brightness,
++		.contrast = options->contrast,
++		.saturation = options->saturation,
++	};
++
++	bind_pipeline(pass, pipe->vk);
++	vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_GRAPHICS,
++		pipe->layout->vk, 0, 1, &view->ds, 0, NULL);
++	vkCmdPushConstants(cb, pipe->layout->vk,
++		VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(vert_pcr_data), &vert_pcr_data);
++	vkCmdPushConstants(cb, pipe->layout->vk,
++		VK_SHADER_STAGE_FRAGMENT_BIT, sizeof(vert_pcr_data),
++		sizeof(frag_pcr_data), &frag_pcr_data);
++
++	struct wlr_box bounds = {
++		.width = pass->render_buffer->wlr_buffer->width,
++		.height = pass->render_buffer->wlr_buffer->height,
++	};
++	struct wlr_box area;
++	if (wlr_box_intersection(&area, dst_box, &bounds)) {
++		VkRect2D rect = {
++			.offset = { area.x, area.y },
++			.extent = { area.width, area.height },
++		};
++		vkCmdSetScissor(cb, 0, 1, &rect);
++		vkCmdDraw(cb, 4, 1, 0, 0);
++		render_pass_mark_box_updated(pass, &area);
++	}
++
++	texture->last_used_cb = pass->command_buffer;
++
++	if (texture->dmabuf_imported) {
++		struct wlr_vk_render_pass_texture *pass_texture =
++			wl_array_add(&pass->textures, sizeof(*pass_texture));
++		if (pass_texture == NULL) {
++			pass->failed = true;
++			return false;
++		}
++		*pass_texture = (struct wlr_vk_render_pass_texture){ .texture = texture };
++	}
++	return true;
++}
++
+ static bool create_3d_lut_image(struct wlr_vk_renderer *renderer,
+ 		struct wlr_color_transform *tr, size_t dim_len,
+ 		VkImage *image, VkImageView *image_view,
+diff --git a/render/vulkan/renderer.c b/render/vulkan/renderer.c
+index da17a47..22f6d26 100644
+--- a/render/vulkan/renderer.c
++++ b/render/vulkan/renderer.c
+@@ -26,6 +26,7 @@
+ #include "render/vulkan/shaders/texture.frag.h"
+ #include "render/vulkan/shaders/quad.frag.h"
+ #include "render/vulkan/shaders/output.frag.h"
++#include "render/vulkan/shaders/blur.frag.h"
+ #include "types/wlr_buffer.h"
+ #include "util/time.h"
+ 
+@@ -1181,6 +1182,7 @@ static void vulkan_destroy(struct wlr_renderer *wlr_renderer) {
+ 	vkDestroyShaderModule(dev->dev, renderer->tex_frag_module, NULL);
+ 	vkDestroyShaderModule(dev->dev, renderer->quad_frag_module, NULL);
+ 	vkDestroyShaderModule(dev->dev, renderer->output_module, NULL);
++	vkDestroyShaderModule(dev->dev, renderer->blur_frag_module, NULL);
+ 
+ 	struct wlr_vk_pipeline_layout *pipeline_layout, *pipeline_layout_tmp;
+ 	wl_list_for_each_safe(pipeline_layout, pipeline_layout_tmp,
+@@ -1724,19 +1726,31 @@ struct wlr_vk_pipeline *setup_get_or_create_pipeline(
+ 	VkResult res;
+ 	VkDevice dev = renderer->dev->dev;
+ 
+-	uint32_t color_transform_type = key->texture_transform;
++	// texture.frag: the texture's transfer function, and whether to blend
++	// sRGB-encoded (in a pass's blend image); blur.frag: whether to step up.
++	uint32_t spec_data[2] = {
++		key->source == WLR_VK_SHADER_SOURCE_TEXTURE ?
++			(uint32_t)key->texture_transform : key->source == WLR_VK_SHADER_SOURCE_BLUR_UP,
++		setup->use_blending_buffer ? VK_TRUE : VK_FALSE,
++	};
+ 
+-	VkSpecializationMapEntry spec_entry = {
+-		.constantID = 0,
+-		.offset = 0,
+-		.size = sizeof(uint32_t),
++	VkSpecializationMapEntry spec_entries[2] = {
++		{ .constantID = 0, .offset = 0, .size = sizeof(uint32_t) },
++		{ .constantID = 1, .offset = sizeof(uint32_t), .size = sizeof(uint32_t) },
+ 	};
+ 
+ 	VkSpecializationInfo specialization = {
++		.mapEntryCount = 2,
++		.pMapEntries = spec_entries,
++		.dataSize = sizeof(spec_data),
++		.pData = spec_data,
++	};
++
++	VkSpecializationInfo blur_specialization = {
+ 		.mapEntryCount = 1,
+-		.pMapEntries = &spec_entry,
++		.pMapEntries = spec_entries,
+ 		.dataSize = sizeof(uint32_t),
+-		.pData = &color_transform_type,
++		.pData = spec_data,
+ 	};
+ 
+ 	VkPipelineShaderStageCreateInfo stages[2];
+@@ -1765,6 +1779,16 @@ struct wlr_vk_pipeline *setup_get_or_create_pipeline(
+ 			.pSpecializationInfo = &specialization,
+ 		};
+ 		break;
++	case WLR_VK_SHADER_SOURCE_BLUR_DOWN:
++	case WLR_VK_SHADER_SOURCE_BLUR_UP:
++		stages[1] = (VkPipelineShaderStageCreateInfo) {
++			.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
++			.stage = VK_SHADER_STAGE_FRAGMENT_BIT,
++			.module = renderer->blur_frag_module,
++			.pName = "main",
++			.pSpecializationInfo = &blur_specialization,
++		};
++		break;
+ 	}
+ 
+ 	VkPipelineInputAssemblyStateCreateInfo assembly = {
+@@ -2244,6 +2268,17 @@ static bool init_static_render_data(struct wlr_vk_renderer *renderer) {
+ 		return false;
+ 	}
+ 
++	sinfo = (VkShaderModuleCreateInfo){
++		.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO,
++		.codeSize = sizeof(blur_frag_data),
++		.pCode = blur_frag_data,
++	};
++	res = vkCreateShaderModule(dev, &sinfo, NULL, &renderer->blur_frag_module);
++	if (res != VK_SUCCESS) {
++		wlr_vk_error("Failed to create blur fragment shader module", res);
++		return false;
++	}
++
+ 	return true;
+ }
+ 
+diff --git a/render/vulkan/shaders/blur.frag b/render/vulkan/shaders/blur.frag
+new file mode 100644
+index 0000000..c7bcc69
+--- /dev/null
++++ b/render/vulkan/shaders/blur.frag
+@@ -0,0 +1,60 @@
++#version 450
++
++// The dual filter (Bjørge, "Bandwidth-efficient rendering", SIGGRAPH 2015) as
++// swayfx draws it: a 5-tap step down to half size, an 8-tap step back up, and
++// on the last step up swayfx's finish of brightness, saturation, contrast and
++// noise. It reads and writes the blend space as is, sRGB-encoded.
++
++layout(set = 0, binding = 0) uniform sampler2D tex;
++
++layout(location = 0) in vec2 uv;
++layout(location = 0) out vec4 out_color;
++
++// struct wlr_vk_frag_blur_pcr_data
++layout(push_constant) uniform UBO {
++	layout(offset = 80) vec2 halfpixel;
++	float radius;
++	float finish;
++	float noise;
++	float brightness;
++	float contrast;
++	float saturation;
++} data;
++
++layout (constant_id = 0) const int BLUR_UP = 0;
++
++float hash(vec2 p) {
++	return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453);
++}
++
++void main() {
++	vec2 o = data.halfpixel * data.radius;
++	vec4 sum;
++	if (BLUR_UP == 0) {
++		sum = textureLod(tex, uv, 0) * 4.0;
++		sum += textureLod(tex, uv - o, 0);
++		sum += textureLod(tex, uv + o, 0);
++		sum += textureLod(tex, uv + vec2(o.x, -o.y), 0);
++		sum += textureLod(tex, uv - vec2(o.x, -o.y), 0);
++		out_color = sum / 8.0;
++	} else {
++		sum = textureLod(tex, uv + vec2(-o.x * 2.0, 0.0), 0);
++		sum += textureLod(tex, uv + vec2(-o.x, o.y), 0) * 2.0;
++		sum += textureLod(tex, uv + vec2(0.0, o.y * 2.0), 0);
++		sum += textureLod(tex, uv + vec2(o.x, o.y), 0) * 2.0;
++		sum += textureLod(tex, uv + vec2(o.x * 2.0, 0.0), 0);
++		sum += textureLod(tex, uv + vec2(o.x, -o.y), 0) * 2.0;
++		sum += textureLod(tex, uv + vec2(0.0, -o.y * 2.0), 0);
++		sum += textureLod(tex, uv + vec2(-o.x, -o.y), 0) * 2.0;
++		out_color = sum / 12.0;
++	}
++
++	if (data.finish > 0.5) {
++		vec3 rgb = out_color.rgb * data.brightness;
++		float luma = dot(rgb, vec3(0.2125, 0.7154, 0.0721));
++		rgb = mix(vec3(luma), rgb, data.saturation);
++		rgb = mix(vec3(0.5), rgb, data.contrast);
++		rgb += (hash(gl_FragCoord.xy) - 0.5) * data.noise;
++		out_color = vec4(clamp(rgb, 0.0, 1.0), 1.0);
++	}
++}
+diff --git a/render/vulkan/shaders/meson.build b/render/vulkan/shaders/meson.build
+index 50f4a1f..36b230e 100644
+--- a/render/vulkan/shaders/meson.build
++++ b/render/vulkan/shaders/meson.build
+@@ -3,6 +3,7 @@ vulkan_shaders_src = [
+ 	'texture.frag',
+ 	'quad.frag',
+ 	'output.frag',
++	'blur.frag',
+ ]
+ 
+ vulkan_shaders = []
+diff --git a/render/vulkan/shaders/output.frag b/render/vulkan/shaders/output.frag
+index e63de80..558b5cc 100644
+--- a/render/vulkan/shaders/output.frag
++++ b/render/vulkan/shaders/output.frag
+@@ -24,6 +24,12 @@ layout (constant_id = 0) const int OUTPUT_TRANSFORM = 0;
+ #define OUTPUT_TRANSFORM_INVERSE_GAMMA22 4
+ #define OUTPUT_TRANSFORM_INVERSE_BT1886 5
+ 
++float srgb_channel_to_linear(float x) {
++	return mix(x / 12.92,
++		pow((x + 0.055) / 1.055, 2.4),
++		x > 0.04045);
++}
++
+ float linear_channel_to_srgb(float x) {
+ 	return max(min(x * 12.92, 0.04045), 1.055 * pow(x, 1. / 2.4) - 0.055);
+ }
+@@ -70,6 +76,13 @@ void main() {
+ 		rgb = in_color.rgb / alpha;
+ 	}
+ 
++	// The blend image holds sRGB-encoded values (see texture.frag).
++	rgb = vec3(
++		srgb_channel_to_linear(rgb.r),
++		srgb_channel_to_linear(rgb.g),
++		srgb_channel_to_linear(rgb.b)
++	);
++
+ 	rgb = mat3(data.matrix) * rgb;
+ 
+ 	if (OUTPUT_TRANSFORM != OUTPUT_TRANSFORM_IDENTITY) {
+diff --git a/render/vulkan/shaders/texture.frag b/render/vulkan/shaders/texture.frag
+index 3ec9742..cebd7ec 100644
+--- a/render/vulkan/shaders/texture.frag
++++ b/render/vulkan/shaders/texture.frag
+@@ -14,6 +14,10 @@ layout(push_constant, row_major) uniform UBO {
+ 
+ layout (constant_id = 0) const int TEXTURE_TRANSFORM = 0;
+ 
++// Blend in sRGB-encoded values, as GLES and sway do, rather than in linear
++// light: set for passes that blend in an intermediate image.
++layout (constant_id = 1) const bool ENCODE_SRGB = false;
++
+ // Matches enum wlr_vk_texture_transform
+ #define TEXTURE_TRANSFORM_IDENTITY 0
+ #define TEXTURE_TRANSFORM_SRGB 1
+@@ -46,6 +50,18 @@ vec3 pq_color_to_linear(vec3 color) {
+ 	return pow(num / denom, vec3(inv_m1));
+ }
+ 
++float linear_channel_to_srgb(float x) {
++	return max(min(x * 12.92, 0.04045), 1.055 * pow(x, 1. / 2.4) - 0.055);
++}
++
++vec3 linear_color_to_srgb(vec3 color) {
++	return vec3(
++		linear_channel_to_srgb(color.r),
++		linear_channel_to_srgb(color.g),
++		linear_channel_to_srgb(color.b)
++	);
++}
++
+ vec3 bt1886_color_to_linear(vec3 color) {
+ 	float Lmin = 0.01;
+ 	float Lmax = 100.0;
+@@ -86,6 +102,10 @@ void main() {
+ 
+ 	rgb = mat3(data.matrix) * rgb;
+ 
++	if (ENCODE_SRGB) {
++		rgb = linear_color_to_srgb(max(rgb, vec3(0)));
++	}
++
+ 	// Back to pre-multiplied alpha
+ 	out_color = vec4(rgb * alpha, alpha);
+ 
 diff --git a/types/scene/wlr_scene.c b/types/scene/wlr_scene.c
-index 7bc8b76..049531f 100644
+index 7bc8b76..4118e7d 100644
 --- a/types/scene/wlr_scene.c
 +++ b/types/scene/wlr_scene.c
 @@ -1,7 +1,11 @@
@@ -47,7 +509,19 @@ index 7bc8b76..049531f 100644
  #include "types/wlr_output.h"
  #include "types/wlr_scene.h"
  #include "util/array.h"
-@@ -893,6 +899,188 @@ struct wlr_scene_buffer *wlr_scene_buffer_create(struct wlr_scene_tree *parent,
+@@ -24,6 +30,11 @@
+ 
+ #include <wlr/config.h>
+ 
++#if WLR_HAS_VULKAN_RENDERER
++#include <wlr/render/vulkan.h>
++#include "render/vulkan.h"
++#endif
++
+ #if WLR_HAS_XWAYLAND
+ #include <wlr/xwayland/xwayland.h>
+ #endif
+@@ -893,6 +904,189 @@ struct wlr_scene_buffer *wlr_scene_buffer_create(struct wlr_scene_tree *parent,
  	return scene_buffer;
  }
  
@@ -101,6 +575,7 @@ index 7bc8b76..049531f 100644
 +	struct wlr_texture *result_texture;
 +	struct wlr_box result_box;
 +	bool result_ready;
++	bool result_encoded;
 +};
 +
 +static void scene_blur_buffer_drop_result(struct scene_blur_buffer *blur) {
@@ -236,7 +711,7 @@ index 7bc8b76..049531f 100644
  void wlr_scene_buffer_set_buffer_with_options(struct wlr_scene_buffer *scene_buffer,
  		struct wlr_buffer *buffer, const struct wlr_scene_buffer_set_buffer_options *options) {
  	const struct wlr_scene_buffer_set_buffer_options default_options = {0};
-@@ -949,6 +1137,10 @@ void wlr_scene_buffer_set_buffer_with_options(struct wlr_scene_buffer *scene_buf
+@@ -949,6 +1143,10 @@ void wlr_scene_buffer_set_buffer_with_options(struct wlr_scene_buffer *scene_buf
  	scene_buffer_set_wait_timeline(scene_buffer,
  		options->wait_timeline, options->wait_point);
  
@@ -247,7 +722,7 @@ index 7bc8b76..049531f 100644
  	if (update) {
  		scene_node_update(&scene_buffer->node, NULL);
  		// updating the node will already damage the whole node for us. Return
-@@ -1250,6 +1442,34 @@ void wlr_scene_node_set_enabled(struct wlr_scene_node *node, bool enabled) {
+@@ -1250,6 +1448,34 @@ void wlr_scene_node_set_enabled(struct wlr_scene_node *node, bool enabled) {
  	scene_node_update(node, &visible);
  }
  
@@ -282,7 +757,7 @@ index 7bc8b76..049531f 100644
  void wlr_scene_node_set_position(struct wlr_scene_node *node, int x, int y) {
  	if (node->x == x && node->y == y) {
  		return;
-@@ -2310,6 +2530,454 @@ cleanup_transforms:
+@@ -2310,6 +2536,514 @@ cleanup_transforms:
  	return result;
  }
  
@@ -295,8 +770,16 @@ index 7bc8b76..049531f 100644
 + * work small, and only the blurred buffers' regions are drawn.
 + */
 +
-+// The filter's sampling offset, in source texels.
-+#define BLUR_OFFSET 3.0f
++// swayfx's defaults: the sampling offset in half texels of each step's
++// target, and the finish of the last step up.
++#define BLUR_RADIUS 5.0f
++#define BLUR_NOISE 0.02f
++#define BLUR_BRIGHTNESS 0.9f
++#define BLUR_CONTRAST 0.9f
++#define BLUR_SATURATION 1.1f
++
++// The same offset for the fallback below, in source texels.
++#define BLUR_OFFSET (BLUR_RADIUS / 2)
 +
 +struct wlr_scene_blur_chain {
 +	// On the output, kept from frame to frame.
@@ -305,6 +788,8 @@ index 7bc8b76..049531f 100644
 +	// Level k is the output's buffer halved k times.
 +	struct wlr_buffer *buffers[BLUR_STRENGTH_MAX + 1];
 +	struct wlr_texture *textures[BLUR_STRENGTH_MAX + 1];
++	// On Vulkan, passes end in sRGB-encoded values, to be read back as such.
++	struct wlr_color_transform *encode;
 +};
 +
 +struct blur_tap {
@@ -316,6 +801,9 @@ index 7bc8b76..049531f 100644
 +	for (int i = 0; i <= BLUR_STRENGTH_MAX; i++) {
 +		wlr_texture_destroy(chain->textures[i]);
 +		wlr_buffer_drop(chain->buffers[i]);
++	}
++	if (chain->encode != NULL) {
++		wlr_color_transform_unref(chain->encode);
 +	}
 +	free(chain);
 +}
@@ -332,14 +820,18 @@ index 7bc8b76..049531f 100644
 +
 +// How far the blur reaches: change within it changes the blurred result.
 +static int blur_reach(int strength) {
-+	return (int)ceilf((BLUR_OFFSET + 1.0f) * (float)(1 << (strength + 1)));
++	return (int)ceilf(BLUR_RADIUS * (float)(1 << (strength + 1)));
 +}
 +
 +static struct wlr_buffer *blur_buffer_create(struct wlr_output *output,
 +		int width, int height) {
 +	const struct wlr_drm_format_set *formats =
 +		wlr_renderer_get_render_formats(output->renderer);
-+	const uint32_t fourccs[] = { DRM_FORMAT_ARGB8888, DRM_FORMAT_XRGB8888 };
++	// Ten bits keep the steps from banding; the blurred backdrop is opaque.
++	const uint32_t fourccs[] = {
++		DRM_FORMAT_XRGB2101010, DRM_FORMAT_XBGR2101010,
++		DRM_FORMAT_ARGB8888, DRM_FORMAT_XRGB8888,
++	};
 +	for (size_t i = 0; i < sizeof(fourccs) / sizeof(fourccs[0]); i++) {
 +		const struct wlr_drm_format *format = wlr_drm_format_set_get(formats, fourccs[i]);
 +		if (format == NULL) {
@@ -386,6 +878,12 @@ index 7bc8b76..049531f 100644
 +		}
 +		chain->width = width;
 +		chain->height = height;
++#if WLR_HAS_VULKAN_RENDERER
++		if (wlr_renderer_is_vk(output->renderer)) {
++			chain->encode = wlr_color_transform_init_linear_to_inverse_eotf(
++				WLR_COLOR_TRANSFER_FUNCTION_SRGB);
++		}
++#endif
 +		wlr_addon_init(&chain->addon, &output->addons, NULL, &scene_blur_chain_impl);
 +	}
 +
@@ -465,6 +963,39 @@ index 7bc8b76..049531f 100644
 +	{ -BLUR_OFFSET / 2, BLUR_OFFSET / 2, 2 },
 +	{ BLUR_OFFSET / 2, BLUR_OFFSET / 2, 2 },
 +};
++
++// One step of the blur: native on Vulkan, otherwise the taps above.
++static void blur_step(struct wlr_render_pass *pass, struct wlr_texture *texture,
++		const struct wlr_box *dst, const struct wlr_fbox *src, bool up, bool finish) {
++#if WLR_HAS_VULKAN_RENDERER
++	struct wlr_fbox box = *src;
++	box.width = fminf(box.width, texture->width);
++	box.height = fminf(box.height, texture->height);
++	box.x = fminf(fmaxf(box.x, 0), texture->width - box.width);
++	box.y = fminf(fmaxf(box.y, 0), texture->height - box.height);
++	if (vulkan_render_pass_add_blur(pass, &(struct wlr_vk_blur_options){
++			.texture = texture,
++			.src_box = box,
++			.dst_box = *dst,
++			.up = up,
++			.radius = BLUR_RADIUS,
++			.finish = finish,
++			.noise = BLUR_NOISE,
++			.brightness = BLUR_BRIGHTNESS,
++			.contrast = BLUR_CONTRAST,
++			.saturation = BLUR_SATURATION,
++		})) {
++		return;
++	}
++#endif
++	if (up) {
++		blur_draw_taps(pass, texture, dst, src,
++			blur_up_taps, sizeof(blur_up_taps) / sizeof(blur_up_taps[0]));
++	} else {
++		blur_draw_taps(pass, texture, dst, src,
++			blur_down_taps, sizeof(blur_down_taps) / sizeof(blur_down_taps[0]));
++	}
++}
 +
 +/**
 + * The output-buffer region where a blurred entry shows its backdrop: what of
@@ -645,9 +1176,11 @@ index 7bc8b76..049531f 100644
 +			}
 +		}
 +
++		struct wlr_buffer_pass_options encode = { .color_transform = chain->encode };
++
 +		// What is below, as the frame will draw it.
 +		struct wlr_render_pass *pass =
-+			wlr_renderer_begin_buffer_pass(renderer, chain->buffers[0], NULL);
++			wlr_renderer_begin_buffer_pass(renderer, chain->buffers[0], &encode);
 +		if (pass == NULL) {
 +			continue;
 +		}
@@ -670,13 +1203,12 @@ index 7bc8b76..049531f 100644
 +				.x = dst.x * 2, .y = dst.y * 2,
 +				.width = dst.width * 2, .height = dst.height * 2,
 +			};
-+			pass = wlr_renderer_begin_buffer_pass(renderer, chain->buffers[k], NULL);
++			pass = wlr_renderer_begin_buffer_pass(renderer, chain->buffers[k], &encode);
 +			if (pass == NULL) {
 +				ok = false;
 +				break;
 +			}
-+			blur_draw_taps(pass, chain->textures[k - 1], &dst, &src,
-+				blur_down_taps, sizeof(blur_down_taps) / sizeof(blur_down_taps[0]));
++			blur_step(pass, chain->textures[k - 1], &dst, &src, false, false);
 +			ok = wlr_render_pass_submit(pass);
 +		}
 +
@@ -691,17 +1223,17 @@ index 7bc8b76..049531f 100644
 +			if (k == 0) {
 +				dst.x = dst.y = 0;
 +			}
-+			pass = wlr_renderer_begin_buffer_pass(renderer, target, NULL);
++			pass = wlr_renderer_begin_buffer_pass(renderer, target, &encode);
 +			if (pass == NULL) {
 +				ok = false;
 +				break;
 +			}
-+			blur_draw_taps(pass, chain->textures[k + 1], &dst, &src,
-+				blur_up_taps, sizeof(blur_up_taps) / sizeof(blur_up_taps[0]));
++			blur_step(pass, chain->textures[k + 1], &dst, &src, true, k == 0);
 +			ok = wlr_render_pass_submit(pass);
 +		}
 +
 +		blur->result_box = out;
++		blur->result_encoded = chain->encode != NULL;
 +		blur->result_ready = ok;
 +	}
 +	pixman_region32_fini(&region);
@@ -729,6 +1261,9 @@ index 7bc8b76..049531f 100644
 +			.clip = &region,
 +			.filter_mode = WLR_SCALE_FILTER_BILINEAR,
 +			.blend_mode = WLR_RENDER_BLEND_MODE_NONE,
++			// As the blur's passes encoded it, where they did (on Vulkan)
++			.transfer_function = blur->result_encoded ?
++				WLR_COLOR_TRANSFER_FUNCTION_SRGB : 0,
 +		});
 +	}
 +	pixman_region32_fini(&region);
@@ -737,7 +1272,7 @@ index 7bc8b76..049531f 100644
  bool wlr_scene_output_build_state(struct wlr_scene_output *scene_output,
  		struct wlr_output_state *state, const struct wlr_scene_output_state_options *options) {
  	struct wlr_scene_output_state_options default_options = {0};
-@@ -2516,6 +3184,13 @@ bool wlr_scene_output_build_state(struct wlr_scene_output *scene_output,
+@@ -2516,6 +3250,13 @@ bool wlr_scene_output_build_state(struct wlr_scene_output *scene_output,
  		}
  	}
  
@@ -751,7 +1286,7 @@ index 7bc8b76..049531f 100644
  	scene_output->in_point++;
  	struct wlr_render_pass *render_pass = wlr_renderer_begin_buffer_pass(output->renderer, buffer,
  			&(struct wlr_buffer_pass_options){
-@@ -2525,16 +3200,13 @@ bool wlr_scene_output_build_state(struct wlr_scene_output *scene_output,
+@@ -2525,16 +3266,13 @@ bool wlr_scene_output_build_state(struct wlr_scene_output *scene_output,
  		.signal_point = scene_output->in_point,
  	});
  	if (render_pass == NULL) {
@@ -769,7 +1304,7 @@ index 7bc8b76..049531f 100644
  	pixman_region32_t background;
  	pixman_region32_init(&background);
  	pixman_region32_copy(&background, &render_data.damage);
-@@ -2580,6 +3252,7 @@ bool wlr_scene_output_build_state(struct wlr_scene_output *scene_output,
+@@ -2580,6 +3318,7 @@ bool wlr_scene_output_build_state(struct wlr_scene_output *scene_output,
  
  	for (int i = list_len - 1; i >= 0; i--) {
  		struct render_list_entry *entry = &list_data[i];
