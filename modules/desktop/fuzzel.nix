@@ -1,11 +1,16 @@
 {
-  # The launcher as the river rice has it, in Maple Mono: a ＃ prompt, roomy
-  # padding. Orchard colours it; the background drops to 72 % so river's blur
-  # shows through, with a hairline edge and corners like the shell's panels.
+  # The launcher after the quickshell launcher on main (quickshell/qml/launcher),
+  # to sit with the bar and the overlay: Maple Mono at medium weight on
+  # Catppuccin's base, rounded as the bar's theme is (7), a magnifier for the
+  # prompt and a `search...` placeholder, the chosen row inverted, matches in
+  # the accent the wallpaper suggests (theme.nix). A touch clear for river's
+  # blur, which takes the `launcher` namespace (river/package.nix).
   flake.modules.hjem.linux =
     { lib, palette, ... }:
     let
-      bare = lib.removePrefix "#";
+      c = palette.native;
+      opaque = colour: "${lib.removePrefix "#" colour}ff";
+      magnifier = builtins.fromJSON ''"\uf002"''; # Font Awesome's magnifier
     in
     {
       rum.programs.fuzzel = {
@@ -13,25 +18,35 @@
 
         settings = {
           main = {
-            font = "Maple Mono NF CN:size=13";
-            prompt = ''"＃ "'';
+            font = "Maple Mono NF CN:size=12:weight=medium";
+            prompt = ''"${magnifier}  "'';
+            placeholder = "search...";
             terminal = "ghostty -e";
-            lines = 12;
-            width = 32;
+            lines = 8;
+            width = 34;
             tabs = 4;
-            horizontal-pad = 24;
-            vertical-pad = 18;
-            inner-pad = 12;
+            horizontal-pad = 25;
+            vertical-pad = 25;
+            inner-pad = 10;
           };
 
           colors = {
-            background = "${bare palette.surface.background}b8";
-            border = "${bare palette.surface.text}1f";
+            background = "${lib.removePrefix "#" c.base}f2";
+            text = opaque c.text;
+            prompt = opaque c.subtext1;
+            placeholder = opaque c.surface2;
+            input = opaque c.text;
+            match = opaque palette.ui.accent;
+            selection = opaque c.text;
+            selection-text = opaque c.base;
+            selection-match = opaque c.base;
+            counter = opaque c.overlay0;
+            border = opaque c.base;
           };
 
           border = {
-            radius = 18;
-            width = 1;
+            radius = 7;
+            width = 0;
           };
         };
       };
