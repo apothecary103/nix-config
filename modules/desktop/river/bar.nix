@@ -144,6 +144,12 @@
         wantedBy = [ "river-session.target" ];
         partOf = [ "graphical-session.target" ];
         after = [ "graphical-session.target" ];
+        # eww runs its scripts and click handlers through sh, which a user
+        # unit's PATH does not have.
+        path = [
+          pkgs.bash
+          pkgs.coreutils
+        ];
         serviceConfig = {
           ExecStart = "${lib.getExe pkgs.eww} daemon --no-daemonize";
           ExecStartPost = "${lib.getExe pkgs.eww} --no-daemonize open bar";
