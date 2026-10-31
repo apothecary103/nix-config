@@ -8,8 +8,9 @@
 
   # The volume and brightness overlay macOS shows for the media keys, drawn by
   # the bar's eww (see river/bar.nix) in the bar's style: flat Overlay, azuki,
-  # a rose level. It sits top right under the bar, where macOS puts it now,
-  # and steps in sixteenths as macOS does. The river config binds the keys.
+  # a rose level. It sits low in the middle of the screen, where macOS has
+  # long put it, and steps in sixteenths as macOS does. The river config
+  # binds the keys.
   flake.modules.hjem.linux =
     { pkgs, palette, ... }:
     let
@@ -35,7 +36,7 @@
             volume-mute) wpctl set-mute "$sink" toggle ;;
             mic-mute) wpctl set-mute "$source" toggle ;;
             brightness-up) brightnessctl -q -d "$panel" set 6.25%+ ;;
-            brightness-down) brightnessctl -q -d "$panel" -n 6 set 6.25%- ;;
+            brightness-down) brightnessctl -q -d "$panel" --min-value=6 set 6.25%- ;;
             *) echo "usage: osd volume-up|volume-down|volume-mute|mic-mute|brightness-up|brightness-down" >&2; exit 2 ;;
           esac
 
@@ -81,7 +82,7 @@
           :exclusive false
           :focusable "none"
           :namespace "osd"
-          :geometry (geometry :x "13px" :y "13px" :width "280px" :anchor "top right")
+          :geometry (geometry :x "0" :y "96px" :width "280px" :anchor "bottom center")
           (box :class {matches(osd_label, "muted$") ? "osd muted" : "osd"}
                :orientation "v" :space-evenly false
             (box :space-evenly false
