@@ -251,11 +251,11 @@ in
         if [ "$(playerctl loop 2>/dev/null)" = None ]; then playerctl loop Playlist; else playerctl loop None; fi
       '';
 
-      # The time on every second, on the second.
+      # The time once a minute, on the minute.
       clock = script "shell-clock" [ pkgs.coreutils ] ''
         while :; do
-          date '+{"hour":"%H","minute":"%M","weekday":"%A","date":"%-d, %B","stamp":"%d/%m/%y %H:%M:%S"}'
-          sleep "$(printf '%d.%09d' 0 $(( 999999999 - 10#$(date +%N) )))"
+          date '+{"hour":"%H","minute":"%M","weekday":"%A","date":"%-d, %B","stamp":"%m/%d/%Y %I:%M %p"}'
+          sleep $((60 - 10#$(date +%S)))
         done
       '';
 
@@ -337,10 +337,14 @@ in
             esac
           '';
 
-      # The bar, once the daemon answers.
-      open = script "shell-open" [ pkgs.eww ] ''
-        until eww ping >/dev/null 2>&1; do sleep 0.1; done
-        eww open bar
+      # The bar, once the daemon answers and river has a monitor for it, for up
+      # to ten seconds.
+      open = script "shell-open" [ pkgs.coreutils pkgs.eww ] ''
+        for _ in $(seq 100); do
+          eww ping >/dev/null 2>&1 && eww open bar >/dev/null 2>&1 && exit 0
+          sleep 0.1
+        done
+        exit 1
       '';
 
       art = ''{media.art != "" ? "background-image: url('" + media.art + "');" : ""}'';
@@ -412,16 +416,23 @@ in
       '';
 
       xdg.config.files."eww/bar.yuck".text = ''
-        ; After the sway bar this MacBook had: one flat, dark, slightly clear
-        ; strip over river's blur, as tall as the notch (the ${toString band}
-        ; rows Asahi gives back beside it). Kanji tags in grey with a witch's
-        ; hat on the focused one, then the app; brightness, volume, battery
-        ; and the date and time with seconds at the far end.
-        (defwidget item [?class ?onclick ?onrightclick ?onscroll ?tooltip]
-          (eventbox :class "item" :onclick onclick :onrightclick onrightclick :onscroll onscroll
-                    :tooltip tooltip :cursor {onclick != "" ? "pointer" : "default"}
-            (box :class "item-body ''${class}" :space-evenly false :spacing 8
-              (children))))
+        ; CelestialCrafter's yambar as the lambda branch had it, barely changed:
+        ; a flat panel-coloured strip, here as tall as the notch (the
+        ; ${toString band} rows Asahi gives back beside it) and a touch clear for
+        ; river's slight blur. The tags 14 apart in azuki, which draws the rice's
+        ; box-drawing glyphs as a spark (┨) for the one shown, a heart (┻) for
+        ; the rest and a note (┯) for the tenth; tags past the third stay hidden
+        ; unless shown or occupied. Then the focused app; on the right the
+        ; volume and the date and time, in Maple Mono.
+        (defwidget kwm-tag [tag]
+          (eventbox
+            :visible {tag.focused || tag.occupied || tag.id <= 3 || tag.id == 10}
+            :cursor "pointer"
+            :onclick "echo set_output_tag ''${tag.id} > $XDG_RUNTIME_DIR/kwm/control"
+            :onrightclick "echo toggle_output_tag ''${tag.id} > $XDG_RUNTIME_DIR/kwm/control"
+            (label
+              :class {tag.focused ? "tag focused" : "tag"}
+              :text {tag.focused ? "┨" : tag.id == 10 ? "┯" : "┻"})))
 
         (defwindow bar
           :monitor 0
@@ -430,34 +441,22 @@ in
           :focusable "none"
           :namespace "bar"
           :geometry (geometry :x "0" :y "0" :width "100%" :height "${toString band}px" :anchor "top center")
-          (centerbox :class "strip"
-            (box :class "left" :halign "start" :space-evenly false
+          (centerbox :class "bar"
+            (box :space-evenly false :halign "start"
               ; Its own box: eww appends a for's children after their siblings.
-              (box :class "tags" :space-evenly false :spacing 14
+              (box :space-evenly false
                 (for tag in {kwm.tags}
-                  (eventbox :class "item" :cursor "pointer"
-                            :visible {tag.focused || tag.occupied || tag.id <= 3}
-                            :onclick "echo set_output_tag ''${tag.id} > $XDG_RUNTIME_DIR/kwm/control"
-                            :onrightclick "echo toggle_output_tag ''${tag.id} > $XDG_RUNTIME_DIR/kwm/control"
-                    (label :class {tag.focused ? "tag focused" : tag.occupied ? "tag occupied" : "tag"}
-                           :text {tag.focused ? "${nf.fa-hat_wizard}" : numerals[tag.id - 1]}))))
-              (item :class "app" :onclick "${popover} dashboard" :tooltip "${username}"
-                (label :limit-width 40 :visible {kwm.app_id != ""}
+                  (kwm-tag :tag tag)))
+              (eventbox :cursor "pointer" :onclick "${popover} dashboard"
+                (label :class "app-id" :visible {kwm.app_id != ""}
                        :text {replace(kwm.app_id, ".*\\.", "")})))
             (box)
-            (box :class "right" :halign "end" :space-evenly false :spacing 22
-              (item :onclick "${popover} control"
-                (label :class "glyph" :text "${nf.fa-hurricane}")
-                (label :text "''${brightness}%"))
-              (item :class {volume.muted ? "faint" : ""} :onclick "${popover} control"
-                    :onrightclick "${popover} player" :onscroll "osd volume-{}"
-                (label :class "glyph" :text "${nf.fa-music}")
-                (label :text "ℒ:''${volume.level}%"))
-              (item :class {${bat}.capacity <= 15 && ${bat}.status != "Charging" ? "low" : ""}
-                    :onclick "${popover} control" :tooltip "''${${bat}.status}"
-                (label :text "ℭ''${${bat}.capacity}%"))
-              (item :onclick "${popover} control"
-                (label :text {clock.stamp})))))
+            (box :space-evenly false :halign "end"
+              (eventbox :cursor "pointer" :onclick "${popover} control" :onscroll "osd volume-{}"
+                        :onrightclick "${popover} player"
+                (label :class "volume" :text "''${volume.level}%"))
+              (eventbox :cursor "pointer" :onclick "${popover} control"
+                (label :class "clock" :text {clock.stamp})))))
 
         ; A clear surface under any open popover: a click outside closes it.
         (defwindow scrim
@@ -662,49 +661,34 @@ in
           color: $error;
         }
 
-        // The strip: dark and a little clear over river's slight blur, flat
-        // grey text, as the sway bar had it.
-        .strip {
-          background-color: rgba(${palette.surface.neutral0}, 0.8);
+        // The yambar: panel-coloured, a touch clear over river's slight blur,
+        // azuki for the tags and Maple Mono for the words.
+        .bar {
+          background-color: rgba(${palette.surface.panel}, 0.9);
         }
-        .strip label {
-          font-size: 13px;
-          color: inherit;
-        }
-        .strip .glyph {
-          font-size: 13px;
-        }
-        .item-body {
-          color: ${palette.surface.textMuted};
-          transition: color $fast $standard;
-        }
-        .item:hover .item-body,
-        .item:hover .tag:not(.focused) {
+        .bar label {
+          font-size: 14px;
           color: $text;
         }
-        .item-body.faint {
-          color: $faint;
+        .bar .tag {
+          margin-left: 14px;
+          font-family: "azuki_font";
+          font-size: 18px;
+          color: ${palette.surface.neutral4};
         }
-        .item-body.low {
-          color: $error;
+        .bar eventbox:hover .tag {
+          color: $text;
         }
-        .left {
-          margin-left: 20px;
-        }
-        .right {
-          margin-right: 20px;
-        }
-
-        .tag {
-          color: ${palette.surface.textMuted};
-          transition: color $fast $standard;
-        }
-        .tag.focused {
+        .bar .tag.focused,
+        .bar eventbox:hover .tag.focused {
           color: $accent;
-          font-size: 14px;
         }
-        .app {
-          margin-left: 20px;
+        .app-id,
+        .volume {
+          margin: 0 18px;
+        }
+        .clock {
+          margin-right: 14px;
         }
 
         .scrim {
