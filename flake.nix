@@ -73,6 +73,9 @@
       url = "github:ryantm/agenix";
       inputs.nixpkgs.follows = "nixpkgs";
     };
+    # Not following nixpkgs: the packages are built against its own pin, which
+    # is what cache.numtide.com holds.
+    llm-agents.url = "github:numtide/llm-agents.nix";
   };
 
   # Dendritic pattern: every file under modules/ is a flake-parts module,

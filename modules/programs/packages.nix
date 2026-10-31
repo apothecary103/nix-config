@@ -1,3 +1,4 @@
+{ inputs, ... }:
 {
   flake.modules.hjem.base =
     { pkgs, ... }:
@@ -16,7 +17,8 @@
         gh
         tokei
         krabby
-        claude-code
+        # Claude Code from numtide's llm-agents, which tracks releases daily.
+        inputs.llm-agents.packages.${pkgs.stdenv.hostPlatform.system}.claude-code
         pi-coding-agent
         glow
         util-linux
