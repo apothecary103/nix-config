@@ -16,6 +16,10 @@
       };
     in
     {
+      # Catppuccin's own yazi highlights in blue; the accent the wallpaper
+      # suggests (theme.nix) does not suit a file manager's every border.
+      orchard.yazi.accent = "blue";
+
       rum.programs.yazi = {
         enable = true;
 
