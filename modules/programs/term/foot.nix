@@ -1,12 +1,12 @@
 {
-  # The river rice's foot: azuki, padded 18 px with the slack centred, a beam
+  # The river rice's foot in Maple Mono, padded 18 px with the slack centred, a beam
   # cursor, opaque.
   flake.modules.hjem.linux.rum.programs.foot = {
     enable = true;
 
     settings = {
       main = {
-        font = "azuki_font:size=14";
+        font = "Maple Mono NF CN:size=13";
         pad = "18x18 center";
         resize-delay-ms = 0;
       };
