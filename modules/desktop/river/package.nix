@@ -19,6 +19,9 @@
               --set-default WLR_RENDERER vulkan \
               --set-default RIVER_RENDER_BIT_DEPTH 10 \
               --set-default XDG_CURRENT_DESKTOP river
+            # Its log goes to the journal as `river`, where nothing else keeps it.
+            substituteInPlace $out/share/wayland-sessions/river.desktop \
+              --replace-fail "Exec=river" "Exec=systemd-cat -t river river"
           '';
         });
         extraPackages = [ ];
@@ -32,7 +35,7 @@
             [Desktop Entry]
             Name=River (GLES)
             Comment=river on the GLES renderer, without the Display P3 transform
-            Exec=env WLR_RENDERER=gles2 river
+            Exec=systemd-cat -t river env WLR_RENDERER=gles2 river
             Type=Application
           '').overrideAttrs
             { passthru.providedSessions = [ "river-gles" ]; }

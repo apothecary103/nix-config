@@ -11,7 +11,7 @@
         enable = true;
         settings = {
           default_session = {
-            command = "${lib.getExe pkgs.tuigreet} --time --remember --remember-session --sessions ${config.services.displayManager.sessionData.desktops}/share/wayland-sessions --cmd river";
+            command = "${lib.getExe pkgs.tuigreet} --time --remember --remember-session --sessions ${config.services.displayManager.sessionData.desktops}/share/wayland-sessions --cmd 'systemd-cat -t river river'";
             user = "greeter";
           };
         };
