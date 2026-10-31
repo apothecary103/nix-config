@@ -391,6 +391,8 @@
       packages = [
         kwm
         kwim
+        # The wallpaper daemon's client, to change the picture at will.
+        pkgs.awww
         pkgs.fuzzel
         pkgs.brightnessctl
         pkgs.playerctl
