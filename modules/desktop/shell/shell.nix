@@ -65,9 +65,12 @@ in
       eww = lib.getExe pkgs.eww;
 
       band = 37;
-      # The quickshell bar's Theme.
-      barHeight = 38;
-      barMargin = 10;
+      # The notch is 74 rows deep (the device tree's apple,notch-height), 37
+      # at 2x, the height macOS gives this MacBook's menu bar; about 185 wide,
+      # kept clear with some room either side. The panel's top corners are
+      # rounded, so the bar keeps 16 in from its ends.
+      notchZone = 200;
+      inset = 16;
       edge = 10;
       gap = 6;
 
@@ -397,9 +400,10 @@ in
       '';
 
       xdg.config.files."eww/bar.yuck".text = ''
-        ; The quickshell bar on main (quickshell/qml/bar), ported one to one: two
-        ; mantle pills ${toString barHeight} tall, ${toString barMargin} in from the top
-        ; and sides, the edge reserved under them by the strip they sit in.
+        ; The quickshell bar on main (quickshell/qml/bar), its pills made one
+        ; mantle strip for this MacBook: as tall as the notch (${toString band}),
+        ; flush with the top, its two halves either side of the notch with
+        ; nothing under it, ${toString inset} in from the panel's rounded corners.
         ; Left: the avatar, the workspaces in kanji from 零 (five always), the
         ; track; right: the tray behind a chevron, the network with its
         ; traffic arrows, the volume, the battery drawn as a cell, the clock.
@@ -422,9 +426,9 @@ in
           :exclusive true
           :focusable "none"
           :namespace "bar"
-          :geometry (geometry :x "0" :y "0" :width "100%" :height "${toString (barMargin + barHeight)}px" :anchor "top center")
-          (centerbox :class "strut"
-            (box :class "pill" :halign "start" :valign "end" :height ${toString barHeight} :space-evenly false :spacing 10
+          :geometry (geometry :x "0" :y "0" :width "100%" :height "${toString band}px" :anchor "top center")
+          (centerbox :class "bar"
+            (box :class "side left" :halign "start" :space-evenly false :spacing 10
               (box :class "avatar" :valign "center" :width 20 :height 20)
               ; Its own box: eww appends a for's children after their siblings.
               (box :space-evenly false :spacing 12 :valign "center"
@@ -441,8 +445,9 @@ in
                   (label :class "artist" :limit-width 13 :visible {media.artist != ""} :text {media.artist}))
                 (eventbox :cursor "pointer" :onclick "playerctl play-pause" :width 16
                   (label :class "play" :text {media.status == "Playing" ? "${nf.fa-pause}" : "${nf.fa-play}"}))))
-            (box)
-            (box :class "pill" :halign "end" :valign "end" :height ${toString barHeight} :space-evenly false :spacing 12
+            ; Nothing under the notch.
+            (box :class "notch" :width ${toString notchZone})
+            (box :class "side right" :halign "end" :space-evenly false :spacing 12
               (box :space-evenly false :spacing 6 :valign "center"
                 (eventbox :cursor "pointer" :onclick "eww update tray_expanded=''${!tray_expanded}"
                   (label :class {tray_expanded ? "chevron expanded" : "chevron"} :text "${nf.md-chevron_left}"))
@@ -608,27 +613,24 @@ in
         (defvar osd_label "volume")
         (defvar osd_open false)
 
-        ; A pill like the bar's, at the bottom centre as far in as the bar is
-        ; from the top: the bar's icon, a level in its blue, the value or Mute.
-        ; Not interactive.
+        ; As the lambda branch drew it: a card low in the middle, where macOS
+        ; has long put it, the word and the level over a thin bar; here in
+        ; Catppuccin and Maple Mono, rounded like the bar's tooltips. Not
+        ; interactive.
         (defwindow osd
           :monitor 0
           :stacking "overlay"
           :exclusive false
           :focusable "none"
           :namespace "osd"
-          :geometry (geometry :x "0" :y "${toString barMargin}px" :anchor "bottom center")
-          (box :class {matches(osd_label, "muted$") ? "pill osd muted" : "pill osd"}
-               :height ${toString barHeight} :space-evenly false :spacing 10
-            (label :class "osd-icon" :valign "center"
-                   :text {osd_kind == "brightness" ? "${nf.md-white_balance_sunny}"
-                     : osd_kind == "microphone" ? (osd_label == "microphone muted" ? "${nf.md-microphone_off}" : "${nf.md-microphone}")
-                     : osd_label == "muted" ? "${nf.fa-volume_off}"
-                     : osd_value >= 50 ? "${nf.fa-volume_up}" : "${nf.fa-volume_down}"})
-            (box :class "osd-level" :valign "center" :width 140 :height 4 :space-evenly false
-              (box :class "osd-fill" :width {round(osd_value * 1.4, 0)}))
-            (label :class "value osd-value" :valign "center" :xalign 1
-                   :text {matches(osd_label, "muted$") ? "Mute" : "''${osd_value}%"})))
+          :geometry (geometry :x "0" :y "96px" :width "280px" :anchor "bottom center")
+          (box :class {matches(osd_label, "muted$") ? "osd-card muted" : "osd-card"}
+               :orientation "v" :space-evenly false
+            (box :space-evenly false
+              (label :class "osd-label" :halign "start" :hexpand true :text {osd_label})
+              (label :class "osd-value" :halign "end" :text "''${osd_value}%"))
+            (box :class "osd-level" :width 244 :height 6 :space-evenly false
+              (box :class "osd-fill" :width {round(osd_value * 2.44, 0)}))))
       '';
 
       xdg.config.files."eww/eww.scss".text = ''
@@ -685,20 +687,17 @@ in
           color: $error;
         }
 
-        // The quickshell bar's Theme: Maple Mono, radius 7, mantle pills; its
-        // Colors are Catppuccin Macchiato.
+        // The quickshell bar's Theme, as one strip: Maple Mono on Catppuccin's
+        // mantle, a touch clear over river's blur.
         // Nerd glyphs are wider than the monospace cell they sit in, so each icon
         // gets a box its own size, as the quickshell bar gave them Items.
-        .strut {
-          background-color: transparent;
+        .bar {
+          background-color: rgba(${palette.native.mantle}, 0.9);
         }
-        .pill {
-          margin: 0 ${toString barMargin}px;
-          padding: 0 9px;
-          background-color: ${palette.native.mantle};
-          border-radius: 7px;
+        .side {
+          padding: 0 ${toString inset}px;
         }
-        .pill label {
+        .bar label {
           font-family: "Maple Mono NF CN";
           font-size: 12px;
           color: ${palette.native.text};
@@ -713,12 +712,12 @@ in
           background-size: cover;
           background-position: center;
         }
-        .pill .numeral {
+        .bar .numeral {
           font-size: 13px;
           font-weight: bold;
           color: ${palette.native.overlay0};
         }
-        .pill .numeral.active {
+        .bar .numeral.active {
           color: ${palette.native.blue};
         }
         .art {
@@ -727,63 +726,63 @@ in
           background-size: cover;
           background-position: center;
         }
-        .pill .art-note {
+        .bar .art-note {
           font-size: 11px;
           min-width: 20px;
           color: ${palette.native.overlay0};
         }
-        .pill .track {
+        .bar .track {
           font-weight: 600;
         }
-        .pill .dot {
+        .bar .dot {
           color: ${palette.native.overlay0};
         }
-        .pill .artist {
+        .bar .artist {
           font-size: 11px;
           font-style: italic;
           font-weight: 500;
           color: ${palette.native.subtext0};
         }
-        .pill .play {
+        .bar .play {
           font-size: 13px;
           min-width: 16px;
           color: ${palette.native.blue};
         }
-        .pill .chevron {
+        .bar .chevron {
           font-size: 16px;
           min-width: 16px;
           color: ${palette.native.subtext0};
           transition: color 200ms;
         }
-        .pill .chevron.expanded {
+        .bar .chevron.expanded {
           color: ${palette.native.text};
           -gtk-icon-transform: rotate(180deg);
         }
-        .pill .wifi {
+        .bar .wifi {
           font-size: 18px;
           min-width: 22px;
         }
-        .pill .wifi.off {
+        .bar .wifi.off {
           color: ${palette.native.overlay0};
         }
-        .pill .arrow {
+        .bar .arrow {
           font-family: sans-serif;
           font-size: 8px;
           min-height: 7px;
           margin: -1px 0;
           color: ${palette.native.surface1};
         }
-        .pill .arrow.on {
+        .bar .arrow.on {
           color: ${palette.native.text};
         }
-        .pill .volume-icon {
+        .bar .volume-icon {
           font-size: 15px;
           min-width: 18px;
         }
-        .pill .value {
+        .bar .value {
           font-weight: 600;
         }
-        .pill .volume.muted label {
+        .bar .volume.muted label {
           color: ${palette.native.overlay0};
         }
         .cell {
@@ -801,7 +800,7 @@ in
         .battery.charging .fill {
           background-color: ${palette.native.green};
         }
-        .pill .bolt {
+        .bar .bolt {
           font-size: 9px;
           color: ${palette.native.mantle};
         }
@@ -809,7 +808,7 @@ in
           border-radius: 1.5px;
           background-color: ${palette.native.subtext0};
         }
-        .pill .clock {
+        .bar .clock {
           font-weight: 600;
           letter-spacing: 0.4px;
         }
@@ -984,33 +983,34 @@ in
           font-size: 19px;
         }
 
-        // The overlay, as a bar pill (.pill above).
-        .osd {
-          margin: 0;
-          padding: 0 14px;
+        // The overlay: the lambda card in Catppuccin's mantle, over river's blur.
+        .osd-card {
+          padding: 14px 18px;
+          border-radius: 7px;
+          background-color: rgba(${palette.native.mantle}, 0.92);
         }
-        .pill .osd-icon {
+        .osd-card label {
+          font-family: "Maple Mono NF CN";
           font-size: 15px;
-          min-width: 18px;
+          font-weight: 600;
+          color: ${palette.native.text};
+        }
+        .osd-card .osd-value {
+          color: ${palette.native.overlay1};
         }
         .osd-level {
-          min-height: 4px;
+          margin-top: 10px;
+          min-height: 6px;
           border-radius: 99px;
-          background-color: ${palette.native.surface1};
+          background-color: ${palette.native.surface0};
         }
         .osd-fill {
-          min-height: 4px;
+          min-height: 6px;
           border-radius: 99px;
-          background-color: ${palette.native.blue};
+          background-color: $accent;
         }
-        .pill .osd-value {
-          min-width: 36px;
-        }
-        .osd.muted .osd-fill {
+        .osd-card.muted .osd-fill {
           background-color: ${palette.native.overlay0};
-        }
-        .pill.osd.muted label {
-          color: ${palette.native.overlay0};
         }
       '';
 
