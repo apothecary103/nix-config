@@ -1,7 +1,14 @@
 {
-  # F6 (the moon key) reaches Linux as KEY_SLEEP, which logind would treat as
-  # "suspend now"; on macOS it is Do Not Disturb, which river binds instead.
-  flake.modules.nixos.base.services.logind.settings.Login.HandleSuspendKey = "ignore";
+  flake.modules.nixos.base.services.logind.settings.Login = {
+    # F6 (the moon key) reaches Linux as KEY_SLEEP, which logind would treat as
+    # "suspend now"; on macOS it is Do Not Disturb, which river binds instead.
+    HandleSuspendKey = "ignore";
+
+    # The Touch ID key as on macOS: a press puts the Mac to sleep (locking
+    # first, see before-sleep below), and only holding it shuts down.
+    HandlePowerKey = "suspend";
+    HandlePowerKeyLongPress = "poweroff";
+  };
 
   flake.modules.hjem.linux =
     {
