@@ -34,36 +34,6 @@
         '';
       };
 
-      # Volume, battery and the clock, the way the rice's yambar showed them;
-      # kwm's bar reads it from stdin, ^#RRGGBBAA switching colour.
-      statusCommand = pkgs.writeShellApplication {
-        name = "river-status";
-        runtimeInputs = [
-          pkgs.coreutils
-          pkgs.gawk
-          pkgs.wireplumber
-        ];
-        text = ''
-          label() { printf '^#%sff%s^#! ' "${lib.removePrefix "#" palette.surface.neutral4}" "$1"; }
-          while :; do
-            volume=$(wpctl get-volume @DEFAULT_AUDIO_SINK@ 2>/dev/null || true)
-            case "$volume" in
-              *MUTED*) vol="muted" ;;
-              *) vol="$(printf '%s' "$volume" | awk '{ printf "%d", $2 * 100 + 0.5 }')%" ;;
-            esac
-
-            bat=""
-            for supply in /sys/class/power_supply/*; do
-              [ "$(cat "$supply/type" 2>/dev/null)" = Battery ] || continue
-              bat="$(cat "$supply/capacity")%"
-            done
-
-            printf '%s%s  %s%s  %s\n' "$(label vol)" "$vol" "$(label bat)" "$bat" "$(date '+%m/%d/%Y %I:%M %p')"
-            sleep 5
-          done
-        '';
-      };
-
       # Mirrors macOS's Cmd+Shift+3/4 (whole screen / selected area), saving to
       # ~/Pictures/Screenshots and copying to the clipboard.
       screenshot = pkgs.writeShellApplication {
@@ -100,7 +70,6 @@
           pkgs.dbus
           pkgs.systemd
           kwm
-          statusCommand
         ];
         text = ''
           trap 'systemctl --user stop river-session.target' EXIT
@@ -110,7 +79,7 @@
             WAYLAND_DISPLAY DISPLAY XDG_CURRENT_DESKTOP WLR_RENDERER
           systemctl --user start river-session.target
 
-          river-status | kwm
+          kwm
         '';
       };
 
@@ -150,7 +119,10 @@
         (key [ "mod4" ] "q" (enum "close"))
         (key [ "mod4" "shift" ] "r" (enum "reload_config"))
         # Ctrl+Cmd+Q, as on macOS; swayidle answers the lock request.
-        (key [ "mod4" "ctrl" ] "q" (spawn [ "loginctl" "lock-session" ]))
+        (key [ "mod4" "ctrl" ] "q" (spawn [
+          "loginctl"
+          "lock-session"
+        ]))
         (key [ "mod4" "shift" ] "e" {
           quit = {
             exit_session = true;
@@ -161,8 +133,17 @@
             ];
           };
         })
-        (key [ "mod4" "shift" ] "p" (spawn [ "wlopm" "--toggle" "*" ]))
-        (key [ "mod4" ] "b" (enum "toggle_bar"))
+        (key [ "mod4" "shift" ] "p" (spawn [
+          "wlopm"
+          "--toggle"
+          "*"
+        ]))
+        (key [ "mod4" ] "b" (spawn [
+          "eww"
+          "open"
+          "--toggle"
+          "bar"
+        ]))
 
         (key [ "mod4" ] "j" { focus_iter.direction = enum "forward"; })
         (key [ "mod4" ] "k" { focus_iter.direction = enum "reverse"; })
@@ -190,12 +171,26 @@
         (key [ "mod4" ] "Page_Down" { set_output_tag.tag.occupied = enum "forward"; })
         (key [ "mod4" ] "0" { set_output_tag.tag.tag = tagMask 9 - 1; })
 
-        (key [ "mod4" "shift" ] "3" (spawn [ "river-screenshot" "screen" ]))
-        (key [ "mod4" "shift" ] "4" (spawn [ "river-screenshot" "area" ]))
-        (key [ ] "Print" (spawn [ "river-screenshot" "area" ]))
+        (key [ "mod4" "shift" ] "3" (spawn [
+          "river-screenshot"
+          "screen"
+        ]))
+        (key [ "mod4" "shift" ] "4" (spawn [
+          "river-screenshot"
+          "area"
+        ]))
+        (key [ ] "Print" (spawn [
+          "river-screenshot"
+          "area"
+        ]))
 
         # F6, the moon key: Do Not Disturb as on macOS (see idle.nix).
-        (key [ ] "XF86Sleep" (spawn [ "makoctl" "mode" "-t" "do-not-disturb" ]))
+        (key [ ] "XF86Sleep" (spawn [
+          "makoctl"
+          "mode"
+          "-t"
+          "do-not-disturb"
+        ]))
       ]
       ++ lib.concatLists (
         lib.imap0 (i: name: [
@@ -214,41 +209,15 @@
           size = 24;
         };
 
-        # As tall as the rice's 42 px yambar, which also clears the 32 pt notch.
+        # eww draws the bar (see bar.nix); kwm's own stays hidden, but its ten
+        # tags are what the bar is told about.
         bar = {
-          position = enum "top";
-          font = "azuki_font:size=15";
-          height = 42;
-          scheme = {
-            normal = {
-              fg = colour palette.surface.text;
-              bg = colour palette.surface.panel;
-            };
-            select = {
-              fg = colour palette.ui.accent;
-              bg = colour palette.surface.panel;
-            };
-          };
-          tags = {
-            tags = lib.replicate 9 "♡" ++ [ "♫" ];
-            click.middle = null;
-          };
+          show_default = false;
+          tags.tags = lib.replicate 9 "┻" ++ [ "┯" ];
           mode = null;
           layout = null;
-          title.click.left.zoom.swap = false;
-          status = {
-            data = enum "stdin";
-            click.middle = null;
-          };
-          override_colors = [
-            {
-              area = enum "title";
-              scheme.select = {
-                fg = colour palette.surface.text;
-                bg = colour palette.surface.panel;
-              };
-            }
-          ];
+          title = null;
+          status = null;
         };
 
         sloppy_focus = true;
