@@ -32,8 +32,9 @@
 
         settings = {
           # The river rice's foot: azuki at 14 pt, padded 18 px all round with
-          # the slack balanced, a beam cursor, opaque.
-          font-family = "azuki_font";
+          # the slack balanced, a beam cursor, opaque. Its bold cut, since the
+          # regular reads thin here and stem darkening adds under a pixel.
+          font-family = "azukifontB";
           # Ghostty turns points into pixels at 72 dpi on macOS and 96 on Linux,
           # so this is the same 18.7 logical px on both.
           font-size = if pkgs.stdenv.hostPlatform.isDarwin then 14 * 96 / 72.0 else 14;
