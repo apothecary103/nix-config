@@ -1,4 +1,4 @@
-{ lib, ... }:
+{ lib, username, ... }:
 let
   # Lucide, the open icon set closest to SF Symbols: 2 px rounded strokes on
   # a 24 grid. Its glyphs are named after the icons, so the codepoints are
@@ -19,6 +19,14 @@ let
     lib.mapAttrs (_: code: builtins.fromJSON ''"\u${lib.toLower (lib.toHexString code)}"'') (
       builtins.fromJSON (builtins.readFile json)
     );
+
+  # The panel's notch, in logical pixels at the default 1512 x 982: about 185
+  # wide and 32 deep. Asahi gives back the 37 rows beside it (show_notch=1),
+  # which the bar fills.
+  notch = {
+    width = 185;
+    height = 32;
+  };
 in
 {
   flake.modules.nixos.base =
@@ -27,10 +35,11 @@ in
       fonts.packages = [ pkgs.lucide ];
     };
 
-  # The desktop shell, in eww: a menubar flush with the notch, a control
-  # centre and a calendar that drop from it, and the volume and brightness
-  # overlay. Square throughout, on a 4 px grid, in Maple Mono with Lucide
-  # icons, coloured by the matugen theme's Material roles.
+  # The desktop shell, in eww, after Tail-R's xmonad rice: a strip of square
+  # tiles along the top, each edged in the accent, with the notch framed as
+  # one of them; a dashboard, a player and a power column that drop from it
+  # under title bands; and the volume and brightness overlay. On a 4 px grid,
+  # in Maple Mono with Lucide icons, coloured by the matugen theme's roles.
   flake.modules.hjem.linux =
     { pkgs, palette, ... }:
     let
@@ -38,13 +47,21 @@ in
       m = palette.native;
       eww = lib.getExe pkgs.eww;
 
-      # Until river blurs what is behind them, the materials stay nearly
-      # opaque; with blur they drop to Material's translucent values.
-      material = "0.88";
+      # Until river blurs what is behind them, surfaces stay nearly opaque.
+      material = "0.94";
+
+      strip = 37;
+      tile = 29;
+      frame = {
+        width = notch.width + 12;
+        height = strip - (strip - tile) / 2;
+      };
 
       script =
         name: runtimeInputs: text:
         lib.getExe (pkgs.writeShellApplication { inherit name runtimeInputs text; });
+
+      bat = "EWW_BATTERY['macsmc-battery']";
 
       # kwm's tags and focused window, every time kwm replaces its state file.
       tags = script "shell-tags" [ pkgs.coreutils pkgs.inotify-tools ] ''
@@ -108,24 +125,87 @@ in
             nmcli monitor | while read -r _; do emit; done
           '';
 
-      # The playing track, as playerctl follows it.
-      media = script "shell-media" [ pkgs.jq pkgs.playerctl ] ''
-        playerctl -F metadata --format '{{status}}	{{title}}	{{artist}}' 2>/dev/null |
-          jq -R --unbuffered -c 'split("\t") | {status: .[0], title: (.[1] // ""), artist: (.[2] // "")}'
+      bluetooth =
+        script "shell-bluetooth"
+          [
+            pkgs.bluez
+            pkgs.coreutils
+            pkgs.gnugrep
+            pkgs.jq
+          ]
+          ''
+            powered=false
+            if bluetoothctl show 2>/dev/null | grep -q 'Powered: yes'; then powered=true; fi
+            device=""
+            if $powered; then
+              device=$(bluetoothctl devices Connected 2>/dev/null | head -1 | cut -d' ' -f3- || true)
+            fi
+            jq -cn --argjson powered "$powered" --arg device "$device" '{powered: $powered, device: $device}'
+          '';
+
+      # The playing track, as playerctl follows it, with its cover as a local
+      # file: file:// art as is, remote art fetched once into the cache.
+      media =
+        script "shell-media"
+          [
+            pkgs.coreutils
+            pkgs.curl
+            pkgs.jq
+            pkgs.playerctl
+          ]
+          ''
+            cache="''${XDG_CACHE_HOME:-$HOME/.cache}/shell/art"
+            mkdir -p "$cache"
+            sep=$'\x1f'
+            playerctl -F metadata --format "{{status}}$sep{{title}}$sep{{artist}}$sep{{mpris:artUrl}}$sep{{mpris:length}}$sep{{playerName}}" 2>/dev/null |
+              while IFS=$sep read -r status title artist url length player; do
+                case "$url" in
+                  file://*) path=''${url#file://}; art=$(printf '%b' "''${path//%/\\x}") ;;
+                  http://* | https://*)
+                    art="$cache/$(printf %s "$url" | sha1sum | cut -c1-16)"
+                    [ -s "$art" ] || curl -sfL --max-time 5 -o "$art" "$url" || art="" ;;
+                  *) art="" ;;
+                esac
+                jq -nc --arg status "$status" --arg title "$title" --arg artist "$artist" --arg art "$art" \
+                  --arg length "''${length:-0}" --arg player "$player" \
+                  '{status: $status, title: $title, artist: $artist, art: $art, length: ($length | tonumber? // 0), player: $player}'
+              done
+          '';
+
+      # Seconds into the track, while the player is open.
+      position = script "shell-position" [ pkgs.playerctl ] ''
+        playerctl position 2>/dev/null || echo 0
+      '';
+
+      repeat = script "shell-repeat" [ pkgs.playerctl ] ''
+        if [ "$(playerctl loop 2>/dev/null)" = None ]; then playerctl loop Playlist; else playerctl loop None; fi
+      '';
+
+      clock = script "shell-clock" [ pkgs.coreutils ] ''
+        date '+{"hour":"%H","minute":"%M","hour12":%-I,"weekday":"%A","date":"%-d, %B"}'
+      '';
+
+      brightness = script "shell-brightness" [ pkgs.brightnessctl pkgs.coreutils ] ''
+        brightnessctl -d apple-panel-bl -m | cut -d, -f4 | tr -d %
       '';
 
       # Popovers: one open at a time, over a clear scrim that closes them on
       # any click outside. Content slides in with a revealer, and out before
       # the window closes, so the exit animates too.
-      popover = script "shell-popover" [ pkgs.coreutils pkgs.eww ] ''
+      popovers = [
+        "dashboard"
+        "player"
+        "power"
+      ];
+      popover = script "shell-popover" [ pkgs.coreutils pkgs.eww pkgs.gnugrep ] ''
         want=''${1:-}
         open=$(eww active-windows 2>/dev/null | cut -d: -f1)
         close_all() {
-          eww update control_open=false calendar_open=false
-          sleep 0.15
-          eww close control calendar scrim >/dev/null 2>&1 || true
+          eww update ${lib.concatMapStringsSep " " (p: "${p}_open=false") popovers} power_armed=""
+          sleep 0.2
+          eww close ${lib.concatStringsSep " " popovers} scrim >/dev/null 2>&1 || true
         }
-        if grep -qx "$want" <<< "$open" || [ -z "$want" ]; then
+        if [ -z "$want" ] || grep -qx "$want" <<< "$open"; then
           close_all
           exit 0
         fi
@@ -135,7 +215,7 @@ in
         eww update "''${want}_open=true"
       '';
 
-      # The control centre's switches.
+      # The dashboard's switches.
       toggle =
         script "shell-toggle"
           [
@@ -161,25 +241,48 @@ in
       state =
         script "shell-state"
           [
-            pkgs.bluez
-            pkgs.brightnessctl
-            pkgs.coreutils
             pkgs.gnugrep
             pkgs.mako
             pkgs.systemd
           ]
           ''
             case "''${1:-}" in
-              bluetooth) if bluetoothctl show | grep -q 'Powered: yes'; then echo true; else echo false; fi ;;
               dnd) if makoctl mode | grep -qx do-not-disturb; then echo true; else echo false; fi ;;
               awake) if systemctl --user is-active -q swayidle; then echo false; else echo true; fi ;;
-              brightness) brightnessctl -d apple-panel-bl -m | cut -d, -f4 | tr -d % ;;
             esac
           '';
 
-      clock = script "shell-clock" [ pkgs.coreutils ] ''
-        date '+{"date":"%a %-d %b","time":"%H:%M"}'
-      '';
+      # Lock and sleep act at once; the rest ask for a second click within
+      # three seconds, as the button turns to say.
+      power =
+        script "shell-power"
+          [
+            pkgs.coreutils
+            pkgs.eww
+            pkgs.systemd
+          ]
+          ''
+            act() {
+              ${popover}
+              case "$1" in
+                lock) loginctl lock-session ;;
+                sleep) systemctl suspend ;;
+                logout) loginctl terminate-session "$(loginctl show-user "$USER" -p Display --value)" ;;
+                restart) systemctl reboot ;;
+                shutdown) systemctl poweroff ;;
+              esac
+            }
+            case "$1" in
+              lock | sleep) act "$1" ;;
+              *)
+                if [ "$(eww get power_armed)" = "$1" ]; then
+                  act "$1"
+                else
+                  eww update power_armed="$1"
+                  (sleep 3; [ "$(eww get power_armed)" = "$1" ] && eww update power_armed="") >/dev/null 2>&1 &
+                fi ;;
+            esac
+          '';
 
       # The bar, once the daemon answers.
       open = script "shell-open" [ pkgs.eww ] ''
@@ -187,28 +290,16 @@ in
         eww open bar
       '';
 
-      session = script "shell-session" [ pkgs.systemd ] ''
-        case "''${1:-}" in
-          lock) loginctl lock-session ;;
-          sleep) systemctl suspend ;;
-          restart) systemctl reboot ;;
-          shutdown) systemctl poweroff ;;
-        esac
-      '';
+      # Maple's Nerd Font hearts (Material Design Icons), filled, half and
+      # outline, as Lucide draws only outlines.
+      heart = {
+        full = builtins.fromJSON ''"\udb80\uded1"'';
+        half = builtins.fromJSON ''"\udb81\udede"'';
+        empty = builtins.fromJSON ''"\udb80\uded5"'';
+      };
 
-      numerals = [
-        "一"
-        "二"
-        "三"
-        "四"
-        "五"
-        "六"
-        "七"
-        "八"
-        "九"
-        "楽"
-      ];
-      numeral = lib.concatStringsSep ", " (map (n: ''"${n}"'') numerals);
+      json = builtins.toJSON;
+      clocks = json (map (h: icon."clock-${toString h}") (lib.range 1 12));
     in
     {
       packages = [ pkgs.eww ];
@@ -217,74 +308,108 @@ in
         (deflisten kwm :initial '{"tags":[],"app_id":"","title":""}' "${tags}")
         (deflisten volume :initial '{"level":0,"muted":false}' "${volume}")
         (deflisten network :initial '{"kind":"none","ssid":"","strength":0,"enabled":true}' "${network}")
-        (deflisten media :initial '{"status":"","title":"","artist":""}' "${media}")
-        (defpoll clock :interval "10s" :initial '{"date":"","time":""}' "${clock}")
+        (deflisten media :initial '{"status":"","title":"","artist":"","art":"","length":0,"player":""}' "${media}")
+        (defpoll bluetooth :interval "5s" :initial '{"powered":false,"device":""}' "${bluetooth}")
+        (defpoll clock :interval "5s" :initial '{"hour":"","minute":"","hour12":12,"weekday":"","date":""}' "${clock}")
+        (defpoll brightness :interval "5s" :initial "0" "${brightness}")
 
-        (defvar control_open false)
-        (defvar calendar_open false)
-        (defpoll bluetooth :interval "3s" :initial "false" :run-while control_open "${state} bluetooth")
-        (defpoll dnd :interval "3s" :initial "false" :run-while control_open "${state} dnd")
-        (defpoll awake :interval "3s" :initial "false" :run-while control_open "${state} awake")
-        (defpoll brightness :interval "1s" :initial "0" :run-while control_open "${state} brightness")
+        ${lib.concatMapStringsSep "\n" (p: "(defvar ${p}_open false)") popovers}
+        (defvar power_armed "")
+        (defpoll position :interval "1s" :initial "0" :run-while player_open "${position}")
+        (defpoll looping :interval "2s" :initial "None" :run-while player_open "playerctl loop 2>/dev/null || echo None")
+        (defpoll dnd :interval "3s" :initial "false" :run-while dashboard_open "${state} dnd")
+        (defpoll awake :interval "3s" :initial "false" :run-while dashboard_open "${state} awake")
 
-        (defvar numerals '[${numeral}]')
+        (defvar clocks '${clocks}')
+        (defvar hearts '[1, 2, 3, 4, 5, 6, 7, 8, 9, 10]')
 
         (include "./bar.yuck")
-        (include "./control.yuck")
-        (include "./calendar.yuck")
+        (include "./dashboard.yuck")
+        (include "./player.yuck")
+        (include "./power.yuck")
         (include "./osd.yuck")
       '';
 
       xdg.config.files."eww/bar.yuck".text = ''
-        ; The menubar: 32 tall like the notch, left and right halves either side
-        ; of a 224-wide dead zone around it. Every target runs the full height,
-        ; so the top edge of the screen is part of it (Fitts).
+        ; A ${toString strip}-tall strip, the height of the rows beside the notch,
+        ; holding ${toString tile}-tall tiles. The notch gets a frame of its own,
+        ; hung from the top edge and ending level with the tiles.
         (defwindow bar
           :monitor 0
           :stacking "fg"
           :exclusive true
           :focusable "none"
           :namespace "bar"
-          :geometry (geometry :x "0" :y "0" :width "100%" :height "32px" :anchor "top center")
-          (centerbox :class "menubar"
-            (box :class "half" :space-evenly false :halign "start"
-              (eventbox :class "item logo" :onclick "${popover} control"
-                (label :class "icon" :text "${icon.command}"))
-              (box :class "tags" :space-evenly false
-                (for tag in {kwm.tags}
-                  (eventbox :class "tag ''${tag.focused ? 'focused' : tag.occupied ? 'occupied' : 'empty'}"
-                            :visible {tag.focused || tag.occupied || tag.id <= 5}
-                            :cursor "pointer"
-                            :onclick "echo set_output_tag ''${tag.id} > $XDG_RUNTIME_DIR/kwm/control"
-                            :onrightclick "echo toggle_output_tag ''${tag.id} > $XDG_RUNTIME_DIR/kwm/control"
-                    (overlay
-                      (label :class "numeral" :text {numerals[tag.id - 1]})
-                      (box :class "underline" :valign "end" :halign "center")))))
-              (label :class "title" :limit-width 48 :text {kwm.title ?: kwm.app_id}))
-            (box :class "notch" :width 224)
-            (box :class "half" :space-evenly false :halign "end"
-              (eventbox :class "item media" :visible {media.status == "Playing"} :onclick "playerctl play-pause"
-                (box :space-evenly false :spacing 8
-                  (label :class "icon accent" :text "${icon.music}")
-                  (label :class "secondary" :limit-width 28 :text {media.title})))
-              (box :class "tray" (systray :icon-size 16 :spacing 8 :prepend-new true))
-              (eventbox :class "item status ''${control_open ? 'open' : '''}" :onclick "${popover} control"
-                        :onscroll "osd volume-{}"
-                (box :space-evenly false :spacing 12
-                  (label :class "icon ''${network.kind == 'none' ? 'off' : '''}"
-                         :text {network.kind == "wired" ? "${icon.ethernet-port}" : network.kind == "wifi" ? (network.strength > 66 ? "${icon.wifi}" : network.strength > 33 ? "${icon.wifi-high}" : "${icon.wifi-low}") : "${icon.wifi-off}"})
-                  (box :space-evenly false :spacing 4
-                    (label :class "icon ''${volume.muted ? 'off' : '''}"
-                           :text {volume.muted ? "${icon.volume-x}" : volume.level > 50 ? "${icon.volume-2}" : volume.level > 0 ? "${icon.volume-1}" : "${icon.volume}"})
-                    (label :class "small" :text "''${volume.level}%"))
-                  (box :space-evenly false :spacing 4 :visible {EWW_BATTERY != ""}
-                    (label :class "icon ''${EWW_BATTERY['macsmc-battery'].capacity <= 20 && EWW_BATTERY['macsmc-battery'].status != 'Charging' ? 'low' : '''}"
-                           :text {EWW_BATTERY['macsmc-battery'].status == "Charging" ? "${icon.battery-charging}" : EWW_BATTERY['macsmc-battery'].capacity > 80 ? "${icon.battery-full}" : EWW_BATTERY['macsmc-battery'].capacity > 40 ? "${icon.battery-medium}" : EWW_BATTERY['macsmc-battery'].capacity > 20 ? "${icon.battery-low}" : "${icon.battery-warning}"})
-                    (label :class "small" :text "''${round(EWW_BATTERY['macsmc-battery'].capacity, 0)}%"))))
-              (eventbox :class "item clock ''${calendar_open ? 'open' : '''}" :onclick "${popover} calendar"
-                (box :space-evenly false :spacing 8
-                  (label :class "secondary" :text {clock.date})
-                  (label :class "time" :text {clock.time}))))))
+          :geometry (geometry :x "0" :y "0" :width "100%" :height "${toString strip}px" :anchor "top center")
+          (centerbox :class "strip"
+            (box :class "group" :halign "start" :valign "start" :space-evenly false :spacing 6
+              (eventbox :class "hit" :onclick "${popover} dashboard" :cursor "pointer" :tooltip "${username}"
+                (box :class "tile avatar" :width ${toString tile} :height ${toString tile}))
+              (box :class "tile workspaces" :width 150 :space-evenly false :halign "start"
+                (box :hexpand true :halign "center" :space-evenly false :spacing 10
+                  (for tag in {kwm.tags}
+                    (eventbox :class "tag ''${tag.focused ? 'focused' : tag.occupied ? 'occupied' : 'empty'}"
+                              :visible {tag.focused || tag.occupied || tag.id <= 5}
+                              :cursor "pointer"
+                              :tooltip "''${tag.id}"
+                              :onclick "echo set_output_tag ''${tag.id} > $XDG_RUNTIME_DIR/kwm/control"
+                              :onrightclick "echo toggle_output_tag ''${tag.id} > $XDG_RUNTIME_DIR/kwm/control"
+                      (label :class "icon"
+                             :text {tag.focused ? "${icon.cherry}" : tag.occupied ? "${icon.ghost}" : "${icon.dot}"})))))
+              (box :class "tile title" :width 160 :space-evenly false
+                (box :hexpand true :halign "center" :space-evenly false :spacing 8
+                  (label :class "icon accent" :text "${icon.app-window}")
+                  (label :class "value" :limit-width 14
+                         :text {kwm.title != "" ? kwm.title : kwm.app_id != "" ? kwm.app_id : "desktop"})))
+              (eventbox :class "hit" :cursor "pointer" :onclick "${popover} player"
+                (box :class "tile music ''${player_open ? 'open' : '''}" :width 230 :height ${toString tile}
+                (overlay
+                  (box :class "cover"
+                       :style {media.art != "" ? "background-image: url('" + media.art + "');" : ""})
+                  (box :class "music-text" :orientation "v" :valign "center" :space-evenly false
+                       :visible {media.title != ""}
+                    (label :class "line" :halign "start" :limit-width 24 :text {media.title})
+                    (label :class "line secondary" :halign "start" :limit-width 24 :text {media.artist}))
+                  (box :class "music-text" :space-evenly false :spacing 8 :halign "center"
+                       :visible {media.title == ""}
+                    (label :class "icon faint" :text "${icon.music}")
+                    (label :class "secondary" :text "nothing playing"))))))
+            (box :class "notch" :width ${toString frame.width} :height ${toString frame.height} :valign "start")
+            (box :class "group" :halign "end" :valign "start" :space-evenly false :spacing 6
+              (eventbox :class "hit" :onclick "${popover} dashboard" :onscroll "osd volume-{}" :cursor "pointer"
+                (box :class "tile inset" :height ${toString tile} :space-evenly false :spacing 14
+                  (box :space-evenly false :spacing 6
+                    (label :class "icon ''${bluetooth.powered ? 'accent' : 'faint'}"
+                           :text {bluetooth.device != "" ? "${icon.bluetooth-connected}" : bluetooth.powered ? "${icon.bluetooth}" : "${icon.bluetooth-off}"})
+                    (label :class {bluetooth.device == "" ? "value dim" : "value"} :limit-width 10
+                           :text {bluetooth.device != "" ? bluetooth.device : bluetooth.powered ? "on" : "off"}))
+                  (box :space-evenly false :spacing 6
+                    (label :class "icon ''${network.kind == 'none' ? 'faint' : 'accent'}"
+                           :text {network.kind == "wired" ? "${icon.ethernet-port}" : network.kind == "wifi" ? "${icon.wifi}" : "${icon.wifi-off}"})
+                    (label :class "value ''${network.kind == 'none' ? 'dim' : '''}" :limit-width 12
+                           :text {network.kind == "wifi" ? network.ssid : network.kind == "wired" ? "wired" : "offline"}))
+                  (box :space-evenly false :spacing 6
+                    (label :class "icon ''${volume.muted ? 'faint' : 'accent'}"
+                           :text {volume.muted ? "${icon.volume-x}" : "${icon.volume-2}"})
+                    (label :class "value" :text "''${volume.level}%"))
+                  (box :space-evenly false :spacing 6
+                    (label :class "icon accent" :text "${icon.sun}")
+                    (label :class "value" :text "''${brightness}%"))))
+              (eventbox :class "hit" :onclick "${popover} dashboard" :cursor "pointer"
+                        :tooltip "''${${bat}.capacity}% ''${${bat}.status}"
+                (box :class "tile inset hearts ''${${bat}.capacity <= 20 && ${bat}.status != 'Charging' ? 'low' : '''}"
+                     :height ${toString tile} :space-evenly false :spacing 3
+                  (label :class "icon accent charging" :visible {${bat}.status == "Charging"} :text "${icon.zap}")
+                  (for i in hearts
+                    (label :class {${bat}.capacity >= i * 10 - 5 ? "heart full" : "heart"}
+                           :text {${bat}.capacity >= i * 10 ? "${heart.full}" : ${bat}.capacity >= i * 10 - 5 ? "${heart.half}" : "${heart.empty}"}))))
+              (eventbox :class "hit" :onclick "${popover} dashboard" :cursor "pointer"
+                (box :class "tile inset" :height ${toString tile} :space-evenly false :spacing 10
+                  (label :class "icon accent" :text {clocks[clock.hour12 - 1]})
+                  (label :class "value" :text "''${clock.hour} : ''${clock.minute}")))
+              (eventbox :class "hit" :onclick "${popover} power" :cursor "pointer"
+                (box :class "tile ''${power_open ? 'open' : '''}" :width ${toString tile} :height ${toString tile}
+                  (label :class "icon accent" :hexpand true :text "${icon.power}"))))))
 
         ; A clear surface under any open popover: a click outside closes it.
         (defwindow scrim
@@ -295,82 +420,132 @@ in
           :namespace "scrim"
           :geometry (geometry :x "0" :y "0" :width "100%" :height "100%" :anchor "top left")
           (eventbox :class "scrim" :onclick "${popover}"))
+
+        ; A panel: square, edged in the accent, under a title band.
+        (defwidget panel [title ?aside]
+          (box :class "panel" :orientation "v" :space-evenly false
+            (box :class "band" :space-evenly false
+              (label :class "band-title" :hexpand true :halign "start" :text title)
+              (label :class "band-aside" :visible {aside != ""} :text aside))
+            (box :class "panel-body" :orientation "v" :space-evenly false
+              (children))))
       '';
 
-      xdg.config.files."eww/control.yuck".text = ''
-        (defwidget tile [icon title state on action]
-          (eventbox :class "tile ''${on ? 'on' : '''}" :onclick action :cursor "pointer"
-            (box :class "tile-body" :space-evenly false :spacing 12
-              (label :class "icon tile-icon" :text icon)
-              (box :orientation "v" :space-evenly false :valign "center"
-                (label :class "label" :halign "start" :text title)
-                (label :class "small secondary" :halign "start" :limit-width 18 :text state)))))
+      xdg.config.files."eww/dashboard.yuck".text = ''
+        (defwidget meter [label icon value ?onchange]
+          (box :class "meter" :orientation "v" :space-evenly false
+            (box :space-evenly false
+              (label :class "caption" :hexpand true :halign "start" :text label)
+              (label :class "caption" :text "''${round(value, 0)}%"))
+            (box :space-evenly false :spacing 10
+              (label :class "icon accent" :text icon)
+              (scale :class {onchange == "" ? "bar fixed" : "bar"} :hexpand true :min 0 :max 101
+                     :value value :active {onchange != ""} :onchange onchange))))
 
-        (defwidget slider [icon value onchange]
-          (box :class "slider-row" :space-evenly false :spacing 12
-            (label :class "icon" :text icon)
-            (scale :class "slider" :hexpand true :min 0 :max 101 :value value :onchange onchange)
-            (label :class "small secondary value" :text "''${round(value, 0)}")))
+        (defwidget switch [label value on action]
+          (box :class "switch-row" :orientation "v" :space-evenly false
+            (label :class "caption" :halign "start" :text label)
+            (eventbox :class "hit" :onclick action :cursor "pointer"
+              (box :class "button ''${on ? 'on' : '''}" :height 32
+                (label :class "value" :hexpand true :limit-width 28 :text value)))))
 
-        (defwidget action [icon label command]
-          (eventbox :class "action" :onclick command :cursor "pointer" :tooltip label
-            (label :class "icon" :text icon)))
-
-        (defwindow control
+        (defwindow dashboard
           :monitor 0
           :stacking "overlay"
           :exclusive false
           :focusable "none"
           :namespace "popover"
-          :geometry (geometry :x "0px" :y "0px" :width "360px" :anchor "top right")
-          (revealer :reveal control_open :transition "slidedown" :duration "200ms"
-            (box :class "popover" :orientation "v" :space-evenly false
-              (box :class "tiles" :orientation "v" :spacing 8 :space-evenly false
-                (box :spacing 8 :homogeneous true
-                  (tile :icon {network.enabled ? "${icon.wifi}" : "${icon.wifi-off}"} :title "Wi-Fi"
-                        :state {network.enabled ? (network.ssid != "" ? network.ssid : "Not connected") : "Off"}
-                        :on {network.enabled} :action "${toggle} wifi")
-                  (tile :icon "${icon.bluetooth}" :title "Bluetooth" :state {bluetooth ? "On" : "Off"}
-                        :on bluetooth :action "${toggle} bluetooth"))
-                (box :spacing 8 :homogeneous true
-                  (tile :icon "${icon.bell-off}" :title "Do Not Disturb" :state {dnd ? "On" : "Off"}
-                        :on dnd :action "${toggle} dnd")
-                  (tile :icon "${icon.coffee}" :title "Keep Awake" :state {awake ? "On" : "Off"}
-                        :on awake :action "${toggle} awake")))
-              (box :class "divider")
-              (slider :icon "${icon.sun}" :value brightness :onchange "brightnessctl -q -d apple-panel-bl --min-value=6 set {}%")
-              (slider :icon {volume.muted ? "${icon.volume-x}" : "${icon.volume-2}"} :value {volume.level}
-                      :onchange "wpctl set-volume @DEFAULT_AUDIO_SINK@ {}%")
-              (box :class "divider" :visible {media.title != ""})
-              (box :class "media-row" :visible {media.title != ""} :space-evenly false :spacing 12
-                (box :orientation "v" :hexpand true :space-evenly false :valign "center"
-                  (label :class "label" :halign "start" :limit-width 30 :text {media.title})
-                  (label :class "small secondary" :halign "start" :limit-width 34 :text {media.artist}))
-                (action :icon "${icon.skip-back}" :label "Previous" :command "playerctl previous")
-                (action :icon {media.status == "Playing" ? "${icon.pause}" : "${icon.play}"} :label "Play or pause" :command "playerctl play-pause")
-                (action :icon "${icon.skip-forward}" :label "Next" :command "playerctl next"))
-              (box :class "divider")
-              (box :class "footer" :space-evenly false
-                (label :class "small secondary" :hexpand true :halign "start"
-                       :text "Battery ''${round(EWW_BATTERY['macsmc-battery'].capacity, 0)}%")
-                (action :icon "${icon.lock}" :label "Lock" :command "${popover}; ${session} lock")
-                (action :icon "${icon.moon}" :label "Sleep" :command "${popover}; ${session} sleep")
-                (action :icon "${icon.rotate-ccw}" :label "Restart" :command "${session} restart")
-                (action :icon "${icon.power}" :label "Shut Down" :command "${session} shutdown")))))
+          :geometry (geometry :x "6px" :y "6px" :width "300px" :anchor "top left")
+          (revealer :reveal dashboard_open :transition "slidedown" :duration "200ms"
+            (panel :title "welcome, ${username}"
+              (box :class "clock" :orientation "v" :space-evenly false
+                (label :class "big" :text "''${clock.hour} : ''${clock.minute}")
+                (box :space-evenly false
+                  (label :class "caption" :hexpand true :halign "start" :text {clock.weekday})
+                  (label :class "caption" :text {clock.date})))
+              (box :class "profile" :orientation "v" :space-evenly false :spacing 10
+                (box :class "portrait" :halign "center" :width 72 :height 72)
+                (label :class "name" :text "${username}")
+                (label :class "caption" :text "frieren · asahi linux"))
+              (meter :label "battery" :icon {${bat}.status == "Charging" ? "${icon.battery-charging}" : "${icon.battery-full}"}
+                     :value {${bat}.capacity})
+              (meter :label "brightness" :icon "${icon.sun}" :value brightness
+                     :onchange "brightnessctl -q -d apple-panel-bl --min-value=6 set {}%; eww update brightness={}")
+              (meter :label "volume" :icon {volume.muted ? "${icon.volume-x}" : "${icon.volume-2}"} :value {volume.level}
+                     :onchange "wpctl set-volume @DEFAULT_AUDIO_SINK@ {}%")
+              (switch :label "network" :on {network.enabled}
+                      :value {network.kind == "wifi" ? network.ssid : network.kind == "wired" ? "wired" : network.enabled ? "not connected" : "wi-fi off"}
+                      :action "${toggle} wifi")
+              (switch :label "bluetooth" :on {bluetooth.powered}
+                      :value {bluetooth.device != "" ? bluetooth.device : bluetooth.powered ? "on" : "off"}
+                      :action "${toggle} bluetooth")
+              (box :class "pair" :spacing 8 :homogeneous true
+                (eventbox :class "hit" :onclick "${toggle} dnd" :cursor "pointer"
+                  (box :class "button ''${dnd ? 'on' : '''}" :height 32
+                    (box :space-evenly false :spacing 8 :hexpand true :halign "center"
+                    (label :class "icon" :text "${icon.bell-off}")
+                    (label :class "value" :text "quiet"))))
+                (eventbox :class "hit" :onclick "${toggle} awake" :cursor "pointer"
+                  (box :class "button ''${awake ? 'on' : '''}" :height 32
+                    (box :space-evenly false :spacing 8 :hexpand true :halign "center"
+                    (label :class "icon" :text "${icon.coffee}")
+                    (label :class "value" :text "awake"))))))))
       '';
 
-      xdg.config.files."eww/calendar.yuck".text = ''
-        (defwindow calendar
+      xdg.config.files."eww/player.yuck".text = ''
+        (defwidget control [icon action ?on]
+          (eventbox :class "hit" :onclick action :cursor "pointer"
+            (box :class "control ''${on == true ? 'on' : '''}" :width 40 :height 32
+              (label :class "icon" :hexpand true :text icon))))
+
+        ; Under the music tile.
+        (defwindow player
           :monitor 0
           :stacking "overlay"
           :exclusive false
           :focusable "none"
           :namespace "popover"
-          :geometry (geometry :x "0px" :y "0px" :width "312px" :anchor "top right")
-          (revealer :reveal calendar_open :transition "slidedown" :duration "200ms"
-            (box :class "popover" :orientation "v" :space-evenly false
-              (label :class "heading" :halign "start" :text {clock.date})
-              (calendar :class "month" :show-heading true :show-day-names true :show-week-numbers false))))
+          :geometry (geometry :x "${toString (6 + tile + 6 + 150 + 6 + 160 + 6)}px" :y "6px" :width "300px" :anchor "top left")
+          (revealer :reveal player_open :transition "slidedown" :duration "200ms"
+            (panel :title "now playing" :aside {media.player}
+              (overlay :class "stage"
+                (box :class "backdrop" :height 208 :style {media.art != "" ? "background-image: url('" + media.art + "');" : ""})
+                (box :class "art" :halign "center" :valign "center" :width 176 :height 176
+                     :style {media.art != "" ? "background-image: url('" + media.art + "');" : ""}
+                  (label :class "icon faint big-icon" :visible {media.art == ""} :text "${icon.disc-3}")))
+              (box :class "controls" :halign "center" :space-evenly false :spacing 8
+                (control :icon "${icon.skip-back}" :action "playerctl previous")
+                (control :icon {media.status == "Playing" ? "${icon.pause}" : "${icon.play}"} :action "playerctl play-pause")
+                (control :icon "${icon.skip-forward}" :action "playerctl next")
+                (control :icon {looping == "Track" ? "${icon.repeat-1}" : "${icon.repeat}"} :on {looping != "None"} :action "${repeat}"))
+              (label :class "track" :limit-width 30 :text {media.title != "" ? media.title : "nothing playing"})
+              (label :class "caption artist" :limit-width 34 :text {media.artist})
+              (progress :class "elapsed" :value {media.length > 0 ? position * 100000000 / media.length : 0}))))
+      '';
+
+      xdg.config.files."eww/power.yuck".text = ''
+        (defwidget leave [icon action label]
+          (eventbox :class "hit" :cursor "pointer"
+                    :onclick "${power} ''${action}"
+                    :tooltip {power_armed == action ? "click again to ''${label}" : label}
+            (box :class "control ''${power_armed == action ? 'armed' : '''}" :width 40 :height 40
+              (label :class "icon" :hexpand true :text {power_armed == action ? "${icon.check}" : icon}))))
+
+        ; Halfway down the right edge, as in the reference.
+        (defwindow power
+          :monitor 0
+          :stacking "overlay"
+          :exclusive false
+          :focusable "none"
+          :namespace "popover"
+          :geometry (geometry :x "6px" :y "0" :anchor "center right")
+          (revealer :reveal power_open :transition "slideleft" :duration "200ms"
+            (box :class "column" :orientation "v" :space-evenly false :spacing 6
+              (leave :icon "${icon.lock}" :action "lock" :label "lock")
+              (leave :icon "${icon.moon}" :action "sleep" :label "sleep")
+              (leave :icon "${icon.log-out}" :action "logout" :label "log out")
+              (leave :icon "${icon.rotate-ccw}" :action "restart" :label "restart")
+              (leave :icon "${icon.power}" :action "shutdown" :label "shut down"))))
       '';
 
       xdg.config.files."eww/osd.yuck".text = ''
@@ -388,272 +563,331 @@ in
           :namespace "osd"
           :geometry (geometry :x "0" :y "96px" :width "280px" :anchor "bottom center")
           (revealer :reveal osd_open :transition "crossfade" :duration "150ms"
-            (box :class "osd-card ''${osd_label == 'muted' || osd_label == 'microphone muted' ? 'muted' : '''}" :space-evenly false :spacing 12
-              (label :class "icon osd-icon"
-                     :text {osd_kind == "brightness" ? "${icon.sun}" : osd_kind == "microphone" ? (osd_label == "microphone muted" ? "${icon.mic-off}" : "${icon.mic}") : osd_label == "muted" ? "${icon.volume-x}" : osd_value > 50 ? "${icon.volume-2}" : "${icon.volume-1}"})
-              (box :class "track" :valign "center" :space-evenly false
-                (box :class "fill" :style "min-width: ''${osd_value * 1.6}px;"))
-              (label :class "osd-value" :width 32 :halign "end" :text osd_value))))
+            (box :class "card ''${osd_label == 'muted' || osd_label == 'microphone muted' ? 'muted' : '''}" :space-evenly false :spacing 12
+              (label :class "icon accent"
+                     :text {osd_kind == "brightness" ? "${icon.sun}" : osd_kind == "microphone" ? (osd_label == "microphone muted" ? "${icon.mic-off}" : "${icon.mic}") : osd_label == "muted" ? "${icon.volume-x}" : "${icon.volume-2}"})
+              (progress :class "elapsed" :hexpand true :valign "center" :value osd_value)
+              (label :class "value" :width 32 :halign "end" :text "''${osd_value}"))))
       '';
 
       xdg.config.files."eww/eww.scss".text = ''
         // Material roles from the matugen theme (see theme.nix).
-        $surface: ${m.surface};
-        $container-lowest: ${m.surface_container_lowest};
-        $container: ${m.surface_container};
-        $container-high: ${m.surface_container_high};
-        $container-highest: ${m.surface_container_highest};
-        $on-surface: ${m.on_surface};
-        $on-surface-variant: ${m.on_surface_variant};
-        $outline: ${m.outline};
-        $outline-variant: ${m.outline_variant};
-        $primary: ${m.primary};
-        $on-primary: ${m.on_primary};
-        $primary-container: ${m.primary_container};
-        $on-primary-container: ${m.on_primary_container};
+        $strip: ${m.surface_container_lowest};
+        $surface: ${m.surface_container};
+        $well: ${m.surface_container_highest};
+        $ink: ${m.on_surface};
+        $muted: ${m.on_surface_variant};
+        $faint: ${m.outline};
+        $hairline: ${m.outline_variant};
+        $accent: ${m.primary};
+        $on-accent: ${m.on_primary};
         $error: ${m.error};
+        $on-error: ${m.on_error};
         $material: ${material};
 
-        // Motion (Material 3): standard for state, emphasized in and out.
+        // Motion (Material 3): the standard curve, short.
         $standard: cubic-bezier(0.2, 0, 0, 1);
         $fast: 100ms;
 
-        // 4 px grid; Maple Mono throughout, Lucide for icons.
         * {
           all: unset;
           border-radius: 0;
           font-family: "Maple Mono NF CN";
-          font-size: 13px;
-          color: $on-surface;
+          font-size: 12px;
+          color: $ink;
+        }
+
+        tooltip {
+          background-color: $surface;
+          border: 1px solid $accent;
+          padding: 4px 8px;
         }
 
         .icon {
           font-family: "lucide";
-          font-size: 16px;
+          font-size: 14px;
         }
-        .icon.off,
-        .small.off {
-          color: rgba($on-surface, 0.38);
+        .accent {
+          color: $accent;
         }
-        .icon.low {
-          color: $error;
+        .faint {
+          color: $faint;
         }
-        .icon.accent {
-          color: $primary;
+        .value {
+          font-weight: bold;
         }
-        .small {
+        .dim {
+          color: $muted;
+        }
+        .secondary,
+        .caption {
+          color: $muted;
+        }
+        .caption {
           font-size: 11px;
-          color: $on-surface-variant;
-        }
-        .secondary {
-          color: $on-surface-variant;
         }
 
-        // A state layer in the content colour: 8 % on hover, 10 % pressed.
-        @mixin interactive {
+        // A state layer in the content colour: 8 % on hover, 12 % pressed. GTK 3
+        // eventboxes take no size or padding, so they only catch the pointer
+        // ("hit") and the box inside carries the look.
+        @mixin interactive($base) {
           transition: background-color $fast $standard;
-          &:hover {
-            background-color: rgba($on-surface, 0.08);
+          .hit:hover > & {
+            background-color: mix($ink, $base, 8%);
           }
-          &:active {
-            background-color: rgba($on-surface, 0.1);
+          .hit:active > & {
+            background-color: mix($ink, $base, 12%);
           }
         }
 
-        .menubar {
-          background-color: rgba($container-lowest, $material);
-          border-bottom: 1px solid rgba($outline-variant, 0.5);
+        // The strip and its tiles.
+        .strip {
+          background-color: rgba($strip, $material);
         }
-        .half {
-          padding: 0 4px;
+        .group {
+          margin: 0 6px;
         }
-        // Eventboxes take no padding in GTK 3, so their content carries it.
-        .item {
-          min-height: 32px;
-          @include interactive;
-          > * {
-            padding: 0 8px;
-          }
+        .tile {
+          min-height: ${toString (tile - 2)}px;
+          margin-top: ${toString ((strip - tile) / 2)}px;
+          background-color: rgba($surface, $material);
+          border: 1px solid $accent;
+          @include interactive($surface);
         }
-        .item.open {
-          background-color: rgba($on-surface, 0.1);
+        .tile.open {
+          background-color: mix($ink, $surface, 12%);
         }
-        .logo .icon {
-          font-size: 15px;
+        .inset {
+          padding: 0 12px;
+        }
+        .avatar {
+          background-image: url("${../../../assets/avatar.jpg}");
+          background-size: cover;
+          background-position: center;
+        }
+        .hit:hover > .avatar {
+          opacity: 0.85;
+        }
+        .notch {
+          border: 1px solid $accent;
+          border-top: none;
+          background-color: #000000;
         }
 
-        .tags {
-          margin: 0 8px;
-        }
-        .tag {
-          min-width: 28px;
-          min-height: 32px;
-          @include interactive;
-        }
-        .tag .numeral {
-          color: rgba($on-surface, 0.38);
+        .tag .icon {
+          color: $faint;
           transition: color $fast $standard;
         }
-        .tag.occupied .numeral {
-          color: $on-surface;
+        .tag.occupied .icon {
+          color: $ink;
         }
-        .tag.focused .numeral {
-          color: $on-surface;
-          font-weight: bold;
+        .tag.focused .icon {
+          color: $accent;
         }
-        .tag .underline {
-          min-width: 16px;
-          min-height: 2px;
-          background-color: transparent;
-          transition: background-color $fast $standard;
-        }
-        .tag.focused .underline {
-          background-color: $primary;
+        .tag:hover .icon {
+          color: $accent;
         }
 
-        .title {
-          margin-left: 8px;
-          color: $on-surface-variant;
+        .music .cover {
+          background-size: cover;
+          background-position: center;
+          opacity: 0.35;
         }
-        .time {
+        .music-text {
+          padding: 0 12px;
+        }
+        .music .line {
+          font-size: 10px;
           font-weight: bold;
         }
-        .clock > * {
-          padding-right: 12px;
+
+        .heart {
+          font-size: 13px;
+          color: $faint;
         }
-        .tray {
-          padding: 0 8px;
+        .heart.full {
+          color: $accent;
+        }
+        .hearts.low .heart.full {
+          color: $error;
+        }
+        .charging {
+          font-size: 12px;
+          margin-right: 4px;
         }
 
         .scrim {
           background-color: transparent;
         }
 
-        // Popovers hang from the bar's hairline: no gap, no shadow, a 1 px
-        // edge and tonal steps inside.
-        .popover {
-          background-color: rgba($container, $material);
-          border: 1px solid rgba($outline-variant, 0.6);
-          border-top: none;
+        // Panels: the tile's edge, a title band in the accent.
+        .panel {
+          background-color: rgba($surface, $material);
+          border: 1px solid $accent;
+        }
+        .band {
+          background-color: $accent;
+          padding: 6px 12px;
+        }
+        .band-title {
+          color: $on-accent;
+          font-weight: bold;
+          font-style: italic;
+        }
+        .band-aside {
+          color: rgba($on-accent, 0.7);
+          font-size: 11px;
+        }
+        .panel-body {
           padding: 16px;
         }
-        .divider {
-          min-height: 1px;
-          margin: 16px 0;
-          background-color: rgba($outline-variant, 0.6);
+
+        .clock {
+          margin-bottom: 16px;
         }
-        .label {
-          font-size: 13px;
+        .big {
+          font-size: 40px;
+          font-weight: bold;
+          margin-bottom: 4px;
         }
-        .heading {
+        .profile {
+          border: 1px solid $hairline;
+          padding: 16px;
+          margin-bottom: 16px;
+        }
+        .portrait {
+          background-image: url("${../../../assets/avatar.jpg}");
+          background-size: cover;
+          background-position: center;
+          border: 1px solid $accent;
+        }
+        .name {
           font-size: 15px;
           font-weight: bold;
+        }
+
+        .meter {
+          margin-bottom: 12px;
+        }
+        scale.bar {
+          margin: 4px 0;
+        }
+        scale.bar trough,
+        progressbar trough {
+          min-height: 4px;
+          background-color: $well;
+        }
+        scale.bar highlight,
+        progressbar progress {
+          min-height: 4px;
+          background-color: $accent;
+        }
+        scale.bar slider {
+          min-width: 4px;
+          min-height: 12px;
+          margin: -4px 0;
+          background-color: $accent;
+          opacity: 0;
+          transition: opacity $fast $standard;
+        }
+        scale.bar:hover slider {
+          opacity: 1;
+        }
+        scale.bar.fixed slider {
+          min-width: 0;
+        }
+
+        .switch-row {
+          margin-top: 4px;
+          margin-bottom: 8px;
+        }
+        .switch-row .caption {
+          margin-bottom: 4px;
+        }
+        // Switches: grey wells; on, the text comes up to full ink and an
+        // accent edge marks the left side.
+        .button {
+          background-color: $well;
+          border-left: 3px solid transparent;
+          @include interactive($well);
+        }
+        .button .value {
+          padding: 0 12px;
+        }
+        .button .value,
+        .button .icon {
+          color: $muted;
+        }
+        .button.on {
+          border-left-color: $accent;
+        }
+        .button.on .value,
+        .button.on .icon {
+          color: $ink;
+        }
+        .pair {
+          margin-top: 8px;
+        }
+
+        .stage {
+          min-height: 208px;
+          margin-bottom: 16px;
+          border: 1px solid $hairline;
+        }
+        .backdrop {
+          background-size: cover;
+          background-position: center;
+          opacity: 0.25;
+        }
+        .art {
+          background-size: cover;
+          background-position: center;
+          border: 1px solid $accent;
+          background-color: $well;
+        }
+        .big-icon {
+          font-size: 48px;
+        }
+        .controls {
+          margin-bottom: 16px;
+        }
+        .control {
+          background-color: $well;
+          @include interactive($well);
+        }
+        .control.on {
+          background-color: $accent;
+        }
+        .control.on .icon {
+          color: $on-accent;
+        }
+        .track {
+          font-weight: bold;
+        }
+        .artist {
           margin-bottom: 12px;
         }
 
-        .tile {
-          background-color: rgba($container-highest, 0.6);
-          min-height: 48px;
-          @include interactive;
+        .column {
+          background-color: rgba($surface, $material);
+          border: 1px solid $accent;
+          padding: 6px;
         }
-        .tile-body {
-          padding: 0 12px;
+        .control.armed {
+          background-color: $error;
         }
-        .tile.on {
-          background-color: $primary-container;
-        }
-        .tile.on .tile-icon,
-        .tile.on .label,
-        .tile.on .small {
-          color: $on-primary-container;
+        .control.armed .icon {
+          color: $on-error;
         }
 
-        .slider-row {
-          min-height: 32px;
-          margin-top: 4px;
-        }
-        .slider .value {
-          min-width: 28px;
-        }
-        scale trough {
-          min-height: 4px;
-          min-width: 100px;
-          background-color: $container-highest;
-        }
-        scale highlight {
-          background-color: $primary;
-        }
-        scale slider {
-          min-width: 12px;
-          min-height: 12px;
-          margin: -4px 0;
-          background-color: $primary;
-          transition: box-shadow $fast $standard;
-        }
-        scale slider:hover {
-          box-shadow: 0 0 0 4px rgba($primary, 0.16);
-        }
-        .value {
-          min-width: 28px;
-        }
-
-        .media-row {
-          min-height: 40px;
-        }
-        .action {
-          min-width: 32px;
-          min-height: 32px;
-          @include interactive;
-        }
-        .action .icon {
-          margin: 0 8px;
-        }
-
-        .month {
-          padding: 4px 0;
-        }
-        calendar {
-          font-size: 13px;
-          background-color: transparent;
-        }
-        calendar.header {
-          font-weight: bold;
-        }
-        calendar.button {
-          color: $on-surface-variant;
-        }
-        calendar:selected {
-          background-color: $primary;
-          color: $on-primary;
-        }
-        calendar:indeterminate {
-          color: rgba($on-surface, 0.38);
-        }
-
-        .osd-card {
-          background-color: rgba($container, $material);
-          border: 1px solid rgba($outline-variant, 0.6);
+        .card {
+          background-color: rgba($surface, $material);
+          border: 1px solid $accent;
           padding: 0 16px;
-          min-height: 56px;
+          min-height: 48px;
         }
-        .osd-icon {
-          font-size: 20px;
-        }
-        .track {
-          min-height: 4px;
-          min-width: 160px;
-          background-color: $container-highest;
-        }
-        .fill {
-          min-height: 4px;
-          background-color: $primary;
-          transition: min-width $fast $standard;
-        }
-        .osd-card.muted .fill {
-          background-color: rgba($on-surface, 0.38);
-        }
-        .osd-value {
-          font-weight: bold;
+        .card.muted progressbar progress {
+          background-color: $faint;
         }
       '';
 
@@ -667,6 +901,7 @@ in
           pkgs.bash
           pkgs.brightnessctl
           pkgs.coreutils
+          pkgs.eww
           pkgs.playerctl
           pkgs.wireplumber
         ];
