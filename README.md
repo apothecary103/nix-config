@@ -15,7 +15,7 @@
 
 ## The Setup
 
-- **frieren** (NixOS): river + kwm, greetd + tuigreet
+- **frieren** (NixOS): river + kwm, eww bar, awww wallpaper, greetd + tuigreet
 - **fern** (nix-darwin): yabai + skhd
 
 **Shared Stack:**
