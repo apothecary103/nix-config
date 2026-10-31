@@ -253,11 +253,13 @@
         cursor_warp = enum "on_focus_changed";
         default_window_decoration = enum "ssd";
 
+        # A hairline, as the shell's tiles have: the accent on the focused
+        # window, the outline on the rest.
         border = {
-          width = 0;
+          width = 1;
           color = {
-            focus = colour palette.ui.accent;
-            unfocus = colour palette.surface.neutral2;
+            focus = colour palette.native.primary;
+            unfocus = colour palette.native.outline_variant;
             swallowing = colour palette.hue.aqua;
           };
         };
