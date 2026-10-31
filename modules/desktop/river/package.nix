@@ -24,6 +24,21 @@
         extraPackages = [ ];
       };
 
+      # A way in when Vulkan does not come up: the same river on GLES, without
+      # the P3 transform, as its own entry in the greeter.
+      services.displayManager.sessionPackages = [
+        (
+          (pkgs.writeTextDir "share/wayland-sessions/river-gles.desktop" ''
+            [Desktop Entry]
+            Name=River (GLES)
+            Comment=river on the GLES renderer, without the Display P3 transform
+            Exec=env WLR_RENDERER=gles2 river
+            Type=Application
+          '').overrideAttrs
+            { passthru.providedSessions = [ "river-gles" ]; }
+        )
+      ];
+
       # libadwaita apps read light/dark from the portal Settings backend, and
       # river has no gnome-settings-daemon to answer it (see gtk.nix).
       xdg.portal.config.river."org.freedesktop.impl.portal.Settings" = "gtk";
