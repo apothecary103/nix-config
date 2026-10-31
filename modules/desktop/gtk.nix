@@ -50,23 +50,8 @@
     };
 
   flake.modules.hjem.linux =
+    { pkgs, palette, ... }:
     {
-      lib,
-      pkgs,
-      palette,
-      ...
-    }:
-    {
-      # Square corners in GTK apps too, as the shell, the launcher and the
-      # banners have them.
-      xdg.config.files = lib.genAttrs [ "gtk-3.0/gtk.css" "gtk-4.0/gtk.css" ] (_: {
-        text = ''
-          * {
-            border-radius: 0;
-          }
-        '';
-      });
-
       rum.misc.gtk = {
         enable = true;
 
