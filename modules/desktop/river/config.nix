@@ -107,7 +107,8 @@
           kwm
         ];
         text = ''
-          export RIVER_SESSION="$$-$(date +%s%N)"
+          RIVER_SESSION="$$-$(date +%s%N)"
+          export RIVER_SESSION
 
           stop() {
             if systemctl --user show-environment | grep -qx "RIVER_SESSION=$RIVER_SESSION"; then
