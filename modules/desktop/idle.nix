@@ -41,7 +41,7 @@
       packages = [ pkgs.swaylock ];
 
       xdg.config.files."swaylock/config".text = ''
-        font=azuki_font
+        font=Maple Mono NF CN
         font-size=18
         indicator-radius=65
         indicator-thickness=16
