@@ -10,6 +10,9 @@ let
     AutofillAddressEnabled = false;
     AutofillCreditCardEnabled = false;
     BlockThirdPartyCookies = true;
+    # Keep cookies across restarts, and clear nothing on exit.
+    DefaultCookiesSetting = 1;
+    ClearBrowsingDataOnExitList = [ ];
     BrowserSignin = 0;
     HttpsOnlyMode = "force_enabled";
     MetricsReportingEnabled = false;
@@ -42,13 +45,15 @@ in
   # On Wayland (NIXOS_OZONE_WL), with colour management so pages and video
   # tagged wider than sRGB reach river's Display P3 instead of being clipped.
   # Chromium keeps only the last --enable-features, so this repeats the
-  # window decorations the wrapper already asks for.
+  # window decorations the wrapper already asks for. Cookies stay encrypted
+  # with the fixed key they were written with: a keyring turning up in one
+  # session and not the next would otherwise lock them out.
   flake.modules.hjem.linux =
     { pkgs, ... }:
     {
       packages = [
         (inputs.helium.packages.${pkgs.stdenv.hostPlatform.system}.helium.override {
-          commandLineArgs = "--enable-features=WaylandWindowDecorations,WaylandWpColorManagerV1";
+          commandLineArgs = "--password-store=basic --enable-features=WaylandWindowDecorations,WaylandWpColorManagerV1";
         })
       ];
     };
