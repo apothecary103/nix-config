@@ -65,6 +65,9 @@ in
       eww = lib.getExe pkgs.eww;
 
       band = 37;
+      # The quickshell bar's Theme.
+      barHeight = 38;
+      barMargin = 10;
       edge = 10;
       gap = 6;
 
@@ -228,11 +231,11 @@ in
         if [ "$(playerctl loop 2>/dev/null)" = None ]; then playerctl loop Playlist; else playerctl loop None; fi
       '';
 
-      # The time every second, on the second.
+      # The time once a minute, on the minute.
       clock = script "shell-clock" [ pkgs.coreutils ] ''
         while :; do
-          date '+{"hour":"%H","minute":"%M","weekday":"%A","date":"%-d, %B","stamp":"%d/%m/%Y %H:%M:%S"}'
-          sleep "$(printf '0.%09d' $(( 999999999 - 10#$(date +%N) )))"
+          date '+{"hour":"%H","minute":"%M","weekday":"%A","date":"%-d, %B","bar":"%a %-d %b  %H:%M"}'
+          sleep $((60 - 10#$(date +%S)))
         done
       '';
 
@@ -359,7 +362,7 @@ in
         (deflisten traffic :initial '{"rx":false,"tx":false,"signal":0}' "${traffic}")
         (deflisten media :initial '{"status":"","title":"","artist":"","art":"","tint":"","length":0,"player":""}' "${media}")
         (defpoll bluetooth :interval "5s" :initial '{"powered":false,"device":""}' "${bluetooth}")
-        (deflisten clock :initial '{"hour":"","minute":"","weekday":"","date":"","stamp":""}' "${clock}")
+        (deflisten clock :initial '{"hour":"","minute":"","weekday":"","date":"","bar":""}' "${clock}")
         (defpoll brightness :interval "5s" :initial "0" "${brightness}")
 
         ${lib.concatMapStringsSep "\n" (p: "(defvar ${p}_open false)") popovers}
@@ -394,15 +397,12 @@ in
       '';
 
       xdg.config.files."eww/bar.yuck".text = ''
-        ; After the quickshell bar on main: two mantle pills, here hung from the
-        ; top corners at the notch's height (the ${toString band} rows Asahi
-        ; gives back beside it) with the notch between them, square and over
-        ; river's blur, which takes only the pills (the window between them is
-        ; clear). All azuki, but for a witch's hat on the tag shown (Witch Hat's
-        ; Q, a personal-use font installed by hand in ~/.local/share/fonts).
-        ; Left: the avatar, the tags in kanji from 零 (five always, more as
-        ; occupied), and the track; right: the tray, the network, the volume
-        ; (a note), the battery (a seashell) and the date and time.
+        ; The quickshell bar on main (quickshell/qml/bar), ported one to one: two
+        ; mantle pills ${toString barHeight} tall, ${toString barMargin} in from the top
+        ; and sides, the edge reserved under them by the strip they sit in.
+        ; Left: the avatar, the workspaces in kanji from 零 (five always), the
+        ; track; right: the tray behind a chevron, the network with its
+        ; traffic arrows, the volume, the battery drawn as a cell, the clock.
         (defwidget separator [?visible]
           (box :class "separator" :valign "center" :width 1 :height 14
                :visible {visible == "" ? true : visible}))
@@ -412,10 +412,9 @@ in
             :visible {tag.focused || tag.occupied || tag.id <= 5}
             :cursor "pointer"
             :onclick "echo set_output_tag ''${tag.id} > $XDG_RUNTIME_DIR/kwm/control"
-            :onrightclick "echo toggle_output_tag ''${tag.id} > $XDG_RUNTIME_DIR/kwm/control"
-            (label
-              :class {tag.focused ? "tag focused" : tag.occupied ? "tag occupied" : "tag"}
-              :text {tag.focused ? "Q" : numerals[tag.id - 1]})))
+            (label :class {tag.focused ? "numeral active" : "numeral"} :text {numerals[tag.id - 1]})))
+
+        (defvar tray_expanded false)
 
         (defwindow bar
           :monitor 0
@@ -423,52 +422,61 @@ in
           :exclusive true
           :focusable "none"
           :namespace "bar"
-          :geometry (geometry :x "0" :y "0" :width "100%" :height "${toString band}px" :anchor "top center")
-          (centerbox :class "bar"
-            (box :class "pill" :halign "start" :space-evenly false :spacing 10
-              (eventbox :cursor "pointer" :onclick "${popover} dashboard" :tooltip "${username}" :valign "center"
-                (box :class "avatar" :width 20 :height 20))
+          :geometry (geometry :x "0" :y "0" :width "100%" :height "${toString (barMargin + barHeight)}px" :anchor "top center")
+          (centerbox :class "strut"
+            (box :class "pill" :halign "start" :valign "end" :height ${toString barHeight} :space-evenly false :spacing 10
+              (box :class "avatar" :valign "center" :width 20 :height 20)
               ; Its own box: eww appends a for's children after their siblings.
-              (box :space-evenly false :spacing 12
+              (box :space-evenly false :spacing 12 :valign "center"
                 (for tag in {kwm.tags}
                   (kwm-tag :tag tag)))
               (separator :visible {media.title != ""})
-              (box :class "now-playing" :space-evenly false :spacing 8 :visible {media.title != ""}
-                (eventbox :cursor "pointer" :onclick "${popover} player"
-                  (box :space-evenly false :spacing 8
-                    (box :class "cover" :width 20 :height 20 :valign "center" :style ${art})
-                    (label :class "title" :limit-width 18 :text {media.title})
-                    (label :class "dot" :visible {media.artist != ""} :text "・")
-                    (label :class "artist" :limit-width 12 :visible {media.artist != ""} :text {media.artist})))
-                (eventbox :cursor "pointer" :onclick "playerctl play-pause"
+              (box :class "now-playing" :space-evenly false :spacing 8 :valign "center"
+                   :visible {media.title != ""}
+                (box :class "art" :width 20 :height 20 :valign "center" :style ${art}
+                  (label :class "art-note" :hexpand true :visible {media.art == ""} :text "${nf.fa-music}"))
+                (box :space-evenly false :spacing 6
+                  (label :class "track" :limit-width 18 :text {media.title != "" ? media.title : "Unknown"})
+                  (label :class "dot" :visible {media.artist != ""} :text "·")
+                  (label :class "artist" :limit-width 13 :visible {media.artist != ""} :text {media.artist}))
+                (eventbox :cursor "pointer" :onclick "playerctl play-pause" :width 16
                   (label :class "play" :text {media.status == "Playing" ? "${nf.fa-pause}" : "${nf.fa-play}"}))))
             (box)
-            (box :class "pill" :halign "end" :space-evenly false :spacing 12
-              (systray :class "tray" :icon-size 16 :spacing 8 :prepend-new true)
-              (eventbox :cursor "pointer" :onclick "${popover} control"
-                (box :class {network.kind == "none" ? "network off" : "network"} :space-evenly false
-                  (label :class "wifi"
-                         :text {network.kind == "none" ? "${nf.md-wifi_strength_off_outline}"
-                           : network.kind == "wired" || traffic.signal > 75 ? "${nf.md-wifi_strength_4}"
-                           : traffic.signal > 50 ? "${nf.md-wifi_strength_3}"
-                           : traffic.signal > 25 ? "${nf.md-wifi_strength_2}" : "${nf.md-wifi_strength_1}"})
-                  (box :class "arrows" :orientation "v" :valign "center" :visible {network.kind != "none"}
-                    (label :class {traffic.tx ? "arrow on" : "arrow"} :text "▴")
-                    (label :class {traffic.rx ? "arrow on" : "arrow"} :text "▾"))))
-              (eventbox :cursor "pointer" :onclick "wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle"
-                        :onrightclick "${popover} control" :onscroll "osd volume-{}"
-                (box :class {volume.muted ? "volume muted" : "volume"} :space-evenly false :spacing 6
-                  (label :class "glyph" :text "┯")
-                  (label :text {volume.muted ? "mute" : "''${volume.level}%"})))
-              (eventbox :cursor "pointer" :onclick "${popover} control" :tooltip "''${${bat}.status}"
-                (box :class {${bat}.status == "Charging" ? "battery charging"
-                       : ${bat}.capacity < 20 ? "battery low" : "battery"}
-                     :space-evenly false :spacing 6
-                  (label :class "glyph" :text "┓")
-                  (label :text "''${${bat}.capacity}%")))
+            (box :class "pill" :halign "end" :valign "end" :height ${toString barHeight} :space-evenly false :spacing 12
+              (box :space-evenly false :spacing 6 :valign "center"
+                (eventbox :cursor "pointer" :onclick "eww update tray_expanded=''${!tray_expanded}"
+                  (label :class {tray_expanded ? "chevron expanded" : "chevron"} :text "${nf.md-chevron_left}"))
+                (revealer :reveal tray_expanded :transition "slideleft" :duration "250ms"
+                  (systray :class "tray" :icon-size 16 :spacing 8 :prepend-new true)))
               (separator)
-              (eventbox :cursor "pointer" :onclick "${popover} control"
-                (label :class "clock" :text {clock.stamp})))))
+              (box :class "network" :space-evenly false :valign "center"
+                (label :class {network.kind == "none" ? "wifi off" : "wifi"}
+                       :text {network.kind == "none" ? "${nf.md-wifi_strength_outline}"
+                         : network.kind == "wired" || traffic.signal > 75 ? "${nf.md-wifi_strength_4}"
+                         : traffic.signal > 50 ? "${nf.md-wifi_strength_3}"
+                         : traffic.signal > 25 ? "${nf.md-wifi_strength_2}" : "${nf.md-wifi_strength_1}"})
+                (box :class "arrows" :orientation "v" :valign "center" :width 7 :visible {network.kind != "none"}
+                  (label :class {traffic.tx ? "arrow on" : "arrow"} :text "▴")
+                  (label :class {traffic.rx ? "arrow on" : "arrow"} :text "▾")))
+              (eventbox :cursor "pointer" :onclick "wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle"
+                        :onscroll "osd volume-{}" :valign "center"
+                (box :class {volume.muted ? "volume muted" : "volume"} :space-evenly false :spacing 6
+                  (label :class "volume-icon"
+                         :text {volume.muted ? "${nf.fa-volume_off}" : volume.level >= 50 ? "${nf.fa-volume_up}" : "${nf.fa-volume_down}"})
+                  (label :class "value" :text {volume.muted ? "Mute" : "''${volume.level}%"})))
+              (box :class {${bat}.status == "Charging" ? "battery charging" : ${bat}.capacity < 20 ? "battery low" : "battery"}
+                   :space-evenly false :spacing 6 :valign "center"
+                (box :space-evenly false :valign "center" :width 23 :height 12
+                  ; GTK overlays draw no border, so the cell's outline is a box around it.
+                  (box :class "cell" :width 20 :height 12
+                    (overlay :hexpand true
+                      (box :space-evenly false
+                        (box :class "fill" :width {max(2, round(16 * ${bat}.capacity / 100, 0))}))
+                      (label :class "bolt" :visible {${bat}.status == "Charging"} :text "${nf.md-lightning_bolt}")))
+                  (box :class "tip" :valign "center" :width 3 :height 6))
+                (label :class "value" :text "''${${bat}.capacity}%"))
+              (separator)
+              (label :class "clock" :valign "center" :text {clock.bar}))))
 
         ; A clear surface under any open popover: a click outside closes it.
         (defwindow scrim
@@ -673,85 +681,124 @@ in
           color: $error;
         }
 
-        // The pills: Catppuccin's mantle, clear enough for river's blur, square;
-        // azuki throughout, at the quickshell bar's spacing.
-        .bar {
+        // The quickshell bar's Theme: Maple Mono, radius 7, mantle pills; its
+        // Colors are Catppuccin Macchiato.
+        .strut {
           background-color: transparent;
         }
         .pill {
-          background-color: rgba(${palette.surface.panel}, 0.75);
-          padding: 0 14px;
+          margin: 0 ${toString barMargin}px;
+          padding: 0 9px;
+          background-color: ${palette.native.mantle};
+          border-radius: 7px;
         }
         .pill label {
-          font-family: "azuki_font";
-          font-size: 16px;
-          color: $text;
+          font-family: "Maple Mono NF CN";
+          font-size: 12px;
+          color: ${palette.native.text};
         }
         .separator {
           background-color: ${palette.native.surface1};
         }
         .avatar {
+          border-radius: 10px;
+          background-color: ${palette.native.surface0};
           background-image: url("${../../../assets/avatar.jpg}");
           background-size: cover;
           background-position: center;
         }
-        .pill .tag {
+        .pill .numeral {
+          font-size: 13px;
+          font-weight: bold;
           color: ${palette.native.overlay0};
         }
-        .pill .tag.occupied {
-          color: ${palette.native.subtext0};
+        .pill .numeral.active {
+          color: ${palette.native.blue};
         }
-        .pill .tag.focused {
-          font-family: "Witch Hat";
-          font-size: 24px;
-          color: $accent;
-        }
-        .pill eventbox:hover .tag:not(.focused) {
-          color: $text;
-        }
-        .now-playing .cover {
+        .art {
+          border-radius: 6px;
           background-color: ${palette.native.surface0};
           background-size: cover;
           background-position: center;
         }
-        .now-playing .dot {
+        .pill .art-note {
+          font-size: 11px;
           color: ${palette.native.overlay0};
         }
-        .now-playing .artist {
-          color: ${palette.native.subtext0};
+        .pill .track {
+          font-weight: 600;
+        }
+        .pill .dot {
+          color: ${palette.native.overlay0};
+        }
+        .pill .artist {
+          font-size: 11px;
           font-style: italic;
+          font-weight: 500;
+          color: ${palette.native.subtext0};
         }
         .pill .play {
-          font-family: "Maple Mono NF CN";
           font-size: 13px;
           color: ${palette.native.blue};
         }
-        .pill .wifi {
-          font-family: "Maple Mono NF CN";
-          font-size: 17px;
+        .pill .chevron {
+          font-size: 16px;
+          color: ${palette.native.subtext0};
+          transition: color 200ms;
         }
-        .network.off .wifi {
+        .pill .chevron.expanded {
+          color: ${palette.native.text};
+          -gtk-icon-transform: rotate(180deg);
+        }
+        .pill .wifi {
+          font-size: 18px;
+        }
+        .pill .wifi.off {
           color: ${palette.native.overlay0};
         }
         .pill .arrow {
-          font-family: "Maple Mono NF CN";
+          font-family: sans-serif;
           font-size: 8px;
           color: ${palette.native.surface1};
         }
         .pill .arrow.on {
-          color: $text;
+          color: ${palette.native.text};
         }
-        .pill .glyph {
-          color: $accent;
+        .pill .volume-icon {
+          font-size: 15px;
         }
-        .volume.muted label {
+        .pill .value {
+          font-weight: 600;
+        }
+        .pill .volume.muted label {
           color: ${palette.native.overlay0};
         }
-        .battery.charging label {
-          color: ${palette.native.green};
+        .cell {
+          border: 1px solid ${palette.native.subtext0};
+          border-radius: 3px;
         }
-        .battery.low label {
-          color: ${palette.native.red};
+        .fill {
+          margin: 2px;
+          border-radius: 1px;
+          background-color: ${palette.native.text};
+        }
+        .battery.low .fill {
+          background-color: ${palette.native.red};
+        }
+        .battery.charging .fill {
+          background-color: ${palette.native.green};
+        }
+        .pill .bolt {
+          font-size: 9px;
+          color: ${palette.native.mantle};
+        }
+        .tip {
+          border-radius: 1.5px;
+          background-color: ${palette.native.subtext0};
+        }
+        .pill .clock {
+          font-weight: 600;
+          letter-spacing: 0.4px;
         }
 
         .scrim {
