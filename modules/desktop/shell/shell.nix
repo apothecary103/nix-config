@@ -653,7 +653,7 @@ in
         tooltip {
           background-color: $raised;
           border: $hairline;
-          border-radius: 0;
+          border-radius: 7px;
           padding: 4px 10px;
         }
 
@@ -683,6 +683,8 @@ in
 
         // The quickshell bar's Theme: Maple Mono, radius 7, mantle pills; its
         // Colors are Catppuccin Macchiato.
+        // Nerd glyphs are wider than the monospace cell they sit in, so each icon
+        // gets a box its own size, as the quickshell bar gave them Items.
         .strut {
           background-color: transparent;
         }
@@ -723,6 +725,7 @@ in
         }
         .pill .art-note {
           font-size: 11px;
+          min-width: 20px;
           color: ${palette.native.overlay0};
         }
         .pill .track {
@@ -739,10 +742,12 @@ in
         }
         .pill .play {
           font-size: 13px;
+          min-width: 16px;
           color: ${palette.native.blue};
         }
         .pill .chevron {
           font-size: 16px;
+          min-width: 16px;
           color: ${palette.native.subtext0};
           transition: color 200ms;
         }
@@ -752,6 +757,7 @@ in
         }
         .pill .wifi {
           font-size: 18px;
+          min-width: 22px;
         }
         .pill .wifi.off {
           color: ${palette.native.overlay0};
@@ -759,6 +765,8 @@ in
         .pill .arrow {
           font-family: sans-serif;
           font-size: 8px;
+          min-height: 7px;
+          margin: -1px 0;
           color: ${palette.native.surface1};
         }
         .pill .arrow.on {
@@ -766,6 +774,7 @@ in
         }
         .pill .volume-icon {
           font-size: 15px;
+          min-width: 18px;
         }
         .pill .value {
           font-weight: 600;
@@ -805,11 +814,11 @@ in
           background-color: transparent;
         }
 
-        // Panels: lifted greys over river's blur, a hairline, square.
+        // Panels: lifted greys over river's blur, a hairline, rounded corners.
         .panel {
           background-color: rgba($raised, 0.75);
           border: $hairline;
-          border-radius: 0;
+          border-radius: 12px;
           padding: 16px;
         }
         // Groups inside a panel sit on the panel itself, parted by space.
@@ -818,7 +827,7 @@ in
         }
         .key {
           background-color: $key;
-          border-radius: 0;
+          border-radius: 8px;
           transition: background-color $fast $standard;
         }
         .hit:hover > .key {
@@ -831,7 +840,7 @@ in
           color: $base;
         }
         .key.round {
-          border-radius: 0;
+          border-radius: 50%;
           background-color: transparent;
         }
         .hit:hover > .key.round {
@@ -867,7 +876,7 @@ in
           background-image: url("${../../../assets/avatar.jpg}");
           background-size: cover;
           background-position: center;
-          border-radius: 0;
+          border-radius: 50%;
           box-shadow: inset 0 0 0 1px rgba($text, 0.12);
           margin-bottom: 6px;
         }
@@ -890,7 +899,7 @@ in
         }
         .badge {
           background-color: $well;
-          border-radius: 0;
+          border-radius: 50%;
         }
         .tile.on .badge {
           background-color: $accent;
@@ -908,20 +917,20 @@ in
         scale.bar trough,
         progressbar trough {
           min-height: 6px;
-          border-radius: 0;
+          border-radius: 99px;
           background-color: $well;
         }
         scale.bar highlight,
         progressbar progress {
           min-height: 6px;
-          border-radius: 0;
+          border-radius: 99px;
           background-color: $accent;
         }
         scale.bar slider {
           min-width: 14px;
           min-height: 14px;
           margin: -4px 0;
-          border-radius: 0;
+          border-radius: 50%;
           background-color: $text;
           opacity: 0;
           transition: opacity $fast $standard;
@@ -938,14 +947,14 @@ in
           margin-bottom: 14px;
         }
         .stage-ground {
-          border-radius: 0;
+          border-radius: 8px;
           background-color: $well;
         }
         .cover {
           background-size: cover;
           background-position: center;
           background-color: $key;
-          border-radius: 0;
+          border-radius: 6px;
           box-shadow: 0 0 22px 2px rgba(#ffffff, 0.22);
         }
         .cover-icon {
@@ -973,6 +982,7 @@ in
 
         .osd-card {
           padding: 14px 18px;
+          border-radius: 7px;
           background-color: rgba(${palette.surface.panel}, 0.92);
         }
         .osd-card label {
