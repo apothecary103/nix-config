@@ -72,10 +72,6 @@
           kwm
         ];
         text = ''
-          # river renders without GPU compression (see package.nix); nothing it
-          # starts should inherit that.
-          unset ASAHI_MESA_DEBUG
-
           trap 'systemctl --user stop river-session.target' EXIT
           trap 'exit' TERM INT HUP
 
