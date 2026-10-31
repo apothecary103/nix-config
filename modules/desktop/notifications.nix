@@ -15,7 +15,7 @@
         pkgs.libnotify
       ];
 
-      # Banners in the shell's material (shell/shell.nix): square, a hairline
+      # Banners like the shell's modules (shell/shell.nix): rounded, an accent
       # edge, the title over the body in Maple Mono, on the 4 px grid and in
       # from the corner under the menubar. Gone after five seconds unless critical.
       xdg.config.files."mako/config".text = ''
@@ -25,8 +25,8 @@
         padding=16
         width=344
         height=160
-        border-size=1
-        border-radius=0
+        border-size=2
+        border-radius=12
         icon-location=left
         max-icon-size=32
         default-timeout=5000
