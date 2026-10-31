@@ -689,6 +689,7 @@ in
 
         // The quickshell bar's Theme, as one strip: Maple Mono on Catppuccin's
         // mantle, a touch clear over river's blur.
+        // Its blue highlights take the accent the wallpaper suggests (theme.nix).
         // Nerd glyphs are wider than the monospace cell they sit in, so each icon
         // gets a box its own size, as the quickshell bar gave them Items.
         .bar {
@@ -718,7 +719,7 @@ in
           color: ${palette.native.overlay0};
         }
         .bar .numeral.active {
-          color: ${palette.native.blue};
+          color: $accent;
         }
         .art {
           border-radius: 6px;
@@ -746,7 +747,7 @@ in
         .bar .play {
           font-size: 13px;
           min-width: 16px;
-          color: ${palette.native.blue};
+          color: $accent;
         }
         .bar .chevron {
           font-size: 16px;
