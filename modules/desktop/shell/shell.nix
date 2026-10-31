@@ -41,59 +41,6 @@ let
     lib.mapAttrs (_: g: char (lib.fromHexString g.code)) (
       lib.filterAttrs (_: g: lib.isAttrs g && g ? code) names
     );
-
-  # The shell's accent, from the wallpaper river shows (see river/config.nix):
-  # matugen's source colour lends only its hue, and the lightness and chroma
-  # are sakura's own accent's (OKLCH 0.80, 0.09), pulled into sRGB by chroma
-  # alone, so the bar always reads as the theme meant whatever the picture.
-  wallpaperAccent =
-    pkgs: image:
-    let
-      python = pkgs.python3;
-      config = pkgs.writeText "matugen.toml" ''
-        [config]
-
-        [templates]
-      '';
-      hex = pkgs.runCommand "wallpaper-accent" { nativeBuildInputs = [ pkgs.matugen pkgs.jq ]; } ''
-        source=$(matugen image ${image} --config ${config} --type scheme-tonal-spot --prefer saturation \
-          --include-image-in-json false --json hex --dry-run | jq -r '.colors.source_color.dark.color')
-        ${python}/bin/python3 -I - "$source" > $out <<'PY'
-        import math, sys
-
-        def to_linear(c):
-            return c / 12.92 if c <= 0.04045 else ((c + 0.055) / 1.055) ** 2.4
-
-        def to_srgb(c):
-            return 12.92 * c if c <= 0.0031308 else 1.055 * c ** (1 / 2.4) - 0.055
-
-        def oklab(r, g, b):
-            l = (0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b) ** (1 / 3)
-            m = (0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b) ** (1 / 3)
-            s = (0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b) ** (1 / 3)
-            return (0.2104542553 * l + 0.7936177850 * m - 0.0040720468 * s,
-                    1.9779984951 * l - 2.4285922050 * m + 0.4505937099 * s,
-                    0.0259040371 * l + 0.7827717662 * m - 0.8086757660 * s)
-
-        def rgb(L, C, h):
-            a, b = C * math.cos(h), C * math.sin(h)
-            l = (L + 0.3963377774 * a + 0.2158037573 * b) ** 3
-            m = (L - 0.1055613458 * a - 0.0638541728 * b) ** 3
-            s = (L - 0.0894841775 * a - 1.2914855480 * b) ** 3
-            return (4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s,
-                    -1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s,
-                    -0.0041960863 * l - 0.7034186147 * m + 1.7076147010 * s)
-
-        source = sys.argv[1].lstrip("#")
-        _, a, b = oklab(*(to_linear(int(source[i:i + 2], 16) / 255) for i in (0, 2, 4)))
-        hue, chroma = math.atan2(b, a), 0.09
-        while chroma > 0 and not all(-1e-4 <= c <= 1 + 1e-4 for c in rgb(0.80, chroma, hue)):
-            chroma -= 0.002
-        print("#" + "".join(f"{round(to_srgb(min(max(c, 0), 1)) * 255):02x}" for c in rgb(0.80, chroma, hue)), end="")
-        PY
-      '';
-    in
-    builtins.readFile hex;
 in
 {
   flake.modules.nixos.base =
@@ -363,6 +310,29 @@ in
         "九"
       ];
 
+      # Maple's Nerd Font battery, in tens, charging or not, and the volume.
+      batteryGlyph =
+        let
+          step =
+            charging: i:
+            if charging then
+              nf."md-battery_charging_${toString (lib.max 10 (i * 10))}"
+            else if i == 0 then
+              nf.md-battery_outline
+            else if i == 10 then
+              nf.md-battery
+            else
+              nf."md-battery_${toString (i * 10)}";
+          levels =
+            charging:
+            lib.concatMapStrings (
+              i: "${bat}.capacity < ${toString (i * 10 + 5)} ? \"${step charging i}\" : "
+            ) (lib.range 0 9)
+            + "\"${step charging 10}\"";
+        in
+        "{${bat}.status == \"Charging\" ? (${levels true}) : (${levels false})}";
+      volumeGlyph = ''{volume.muted || volume.level == 0 ? "${nf.md-volume_off}" : volume.level > 66 ? "${nf.md-volume_high}" : volume.level > 33 ? "${nf.md-volume_medium}" : "${nf.md-volume_low}"}'';
+
       batteryIcon = ''
         {${bat}.status == "Charging" ? "${icon.battery-charging}"
           : ${bat}.capacity > 80 ? "${icon.battery-full}"
@@ -454,7 +424,14 @@ in
             (box :space-evenly false :halign "end"
               (eventbox :cursor "pointer" :onclick "${popover} control" :onscroll "osd volume-{}"
                         :onrightclick "${popover} player"
-                (label :class "volume" :text "''${volume.level}%"))
+                (box :class "volume" :space-evenly false :spacing 6
+                  (label :class "glyph" :text ${volumeGlyph})
+                  (label :text "''${volume.level}%")))
+              (eventbox :cursor "pointer" :onclick "${popover} control" :tooltip "''${${bat}.status}"
+                (box :class {${bat}.capacity <= 15 && ${bat}.status != "Charging" ? "battery low" : "battery"}
+                     :space-evenly false :spacing 6
+                  (label :class "glyph" :text ${batteryGlyph})
+                  (label :text "''${${bat}.capacity}%")))
               (eventbox :cursor "pointer" :onclick "${popover} control"
                 (label :class "clock" :text {clock.stamp})))))
 
@@ -585,30 +562,30 @@ in
       xdg.config.files."eww/osd.yuck".text = ''
         (defvar osd_kind "volume")
         (defvar osd_value 0)
-        (defvar osd_label "")
+        (defvar osd_label "volume")
         (defvar osd_open false)
 
-        ; A slim capsule low in the middle, as macOS has it, over river's blur;
-        ; not interactive.
+        ; As the lambda branch drew it: a flat panel low in the middle, where
+        ; macOS has long put it, the word and the level in azuki over a thin
+        ; bar; square, not interactive.
         (defwindow osd
           :monitor 0
           :stacking "overlay"
           :exclusive false
           :focusable "none"
           :namespace "osd"
-          :geometry (geometry :x "0" :y "72px" :width "220px" :anchor "bottom center")
-          (revealer :reveal osd_open :transition "crossfade" :duration "180ms"
-            (box :class {osd_label == "muted" || osd_label == "microphone muted" ? "capsule muted" : "capsule"}
-                 :height 38 :space-evenly false :spacing 12
-              (label :class "icon"
-                     :text {osd_kind == "brightness" ? "${icon.sun}" : osd_kind == "microphone" ? (osd_label == "microphone muted" ? "${icon.mic-off}" : "${icon.mic}") : osd_label == "muted" ? "${icon.volume-x}" : "${icon.volume-2}"})
-              (box :class "level" :width 124 :height 4 :valign "center" :space-evenly false
-                (box :class "fill" :width {round(osd_value * 1.24, 0)}))
-              (label :class "osd-value" :width 24 :halign "end" :text "''${osd_value}"))))
+          :geometry (geometry :x "0" :y "96px" :width "280px" :anchor "bottom center")
+          (box :class {matches(osd_label, "muted$") ? "osd-card muted" : "osd-card"}
+               :orientation "v" :space-evenly false
+            (box :space-evenly false
+              (label :class "osd-label" :halign "start" :hexpand true :text {osd_label})
+              (label :class "osd-value" :halign "end" :text "''${osd_value}%"))
+            (box :class "osd-level" :width 244 :height 6 :space-evenly false
+              (box :class "osd-fill" :width {round(osd_value * 2.44, 0)}))))
       '';
 
       xdg.config.files."eww/eww.scss".text = ''
-        // Sakura's greys (see theme.nix), and an accent from the wallpaper.
+        // Catppuccin Macchiato (see theme.nix), in the accent the wallpaper suggests.
         $text: ${palette.surface.text};
         $dim: ${palette.surface.textDim};
         $faint: ${palette.surface.neutral4};
@@ -616,7 +593,7 @@ in
         $raised: ${palette.surface.neutral0};
         $key: ${palette.surface.neutral1};
         $well: ${palette.surface.neutral2};
-        $accent: ${wallpaperAccent pkgs ../../../assets/botanical-shop.png};
+        $accent: ${palette.ui.accent};
         $error: ${palette.status.error};
 
         $standard: cubic-bezier(0.2, 0, 0, 1);
@@ -633,7 +610,7 @@ in
         tooltip {
           background-color: $raised;
           border: $hairline;
-          border-radius: 8px;
+          border-radius: 0;
           padding: 4px 10px;
         }
 
@@ -661,10 +638,10 @@ in
           color: $error;
         }
 
-        // The yambar: panel-coloured, a touch clear over river's slight blur,
+        // The yambar: panel-coloured, clear enough to show river's blur,
         // azuki for the tags and Maple Mono for the words.
         .bar {
-          background-color: rgba(${palette.surface.panel}, 0.9);
+          background-color: rgba(${palette.surface.panel}, 0.75);
         }
         .bar label {
           font-size: 14px;
@@ -687,6 +664,15 @@ in
         .volume {
           margin: 0 18px;
         }
+        .battery {
+          margin-right: 18px;
+        }
+        .bar .glyph {
+          font-size: 15px;
+        }
+        .bar .battery.low label {
+          color: $error;
+        }
         .clock {
           margin-right: 14px;
         }
@@ -695,11 +681,11 @@ in
           background-color: transparent;
         }
 
-        // Panels: lifted greys over river's blur, a hairline, generous corners.
+        // Panels: lifted greys over river's blur, a hairline, square.
         .panel {
           background-color: rgba($raised, 0.75);
           border: $hairline;
-          border-radius: 18px;
+          border-radius: 0;
           padding: 16px;
         }
         // Groups inside a panel sit on the panel itself, parted by space.
@@ -708,7 +694,7 @@ in
         }
         .key {
           background-color: $key;
-          border-radius: 12px;
+          border-radius: 0;
           transition: background-color $fast $standard;
         }
         .hit:hover > .key {
@@ -721,7 +707,7 @@ in
           color: $base;
         }
         .key.round {
-          border-radius: 50%;
+          border-radius: 0;
           background-color: transparent;
         }
         .hit:hover > .key.round {
@@ -757,7 +743,7 @@ in
           background-image: url("${../../../assets/avatar.jpg}");
           background-size: cover;
           background-position: center;
-          border-radius: 50%;
+          border-radius: 0;
           box-shadow: inset 0 0 0 1px rgba($text, 0.12);
           margin-bottom: 6px;
         }
@@ -780,7 +766,7 @@ in
         }
         .badge {
           background-color: $well;
-          border-radius: 50%;
+          border-radius: 0;
         }
         .tile.on .badge {
           background-color: $accent;
@@ -798,20 +784,20 @@ in
         scale.bar trough,
         progressbar trough {
           min-height: 6px;
-          border-radius: 99px;
+          border-radius: 0;
           background-color: $well;
         }
         scale.bar highlight,
         progressbar progress {
           min-height: 6px;
-          border-radius: 99px;
+          border-radius: 0;
           background-color: $accent;
         }
         scale.bar slider {
           min-width: 14px;
           min-height: 14px;
           margin: -4px 0;
-          border-radius: 50%;
+          border-radius: 0;
           background-color: $text;
           opacity: 0;
           transition: opacity $fast $standard;
@@ -828,14 +814,14 @@ in
           margin-bottom: 14px;
         }
         .stage-ground {
-          border-radius: 12px;
+          border-radius: 0;
           background-color: $well;
         }
         .cover {
           background-size: cover;
           background-position: center;
           background-color: $key;
-          border-radius: 8px;
+          border-radius: 0;
           box-shadow: 0 0 22px 2px rgba(#ffffff, 0.22);
         }
         .cover-icon {
@@ -861,29 +847,29 @@ in
           font-size: 19px;
         }
 
-        .capsule {
-          background-color: rgba(#000000, 0.55);
-          border: 1px solid rgba($text, 0.1);
-          border-radius: 19px;
-          padding: 0 16px;
+        .osd-card {
+          padding: 14px 18px;
+          background-color: rgba(${palette.surface.panel}, 0.92);
         }
-        .capsule .icon {
-          font-size: 15px;
+        .osd-card label {
+          font-family: "azuki_font";
+          font-size: 20px;
+          color: $text;
         }
-        .level {
-          border-radius: 99px;
-          background-color: rgba($text, 0.18);
+        .osd-card .osd-value {
+          color: $faint;
         }
-        .fill {
-          border-radius: 99px;
+        .osd-level {
+          margin-top: 10px;
+          min-height: 6px;
+          background-color: ${palette.surface.neutral1};
+        }
+        .osd-fill {
+          min-height: 6px;
           background-color: $accent;
         }
-        .capsule.muted .fill {
+        .osd-card.muted .osd-fill {
           background-color: $faint;
-        }
-        .osd-value {
-          font-size: 11px;
-          color: $dim;
         }
       '';
 
