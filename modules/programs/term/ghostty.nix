@@ -52,7 +52,7 @@
           macos-titlebar-style = "hidden";
           macos-option-as-alt = true;
 
-          window-decoration = "server";
+          window-decoration = "none";
           alpha-blending = "linear";
 
           window-padding-x = 18;
