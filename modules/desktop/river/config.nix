@@ -401,6 +401,18 @@
         screenshot
       ];
 
+      # Screen sharing (xdg-desktop-portal-wlr): it asks which screen through a
+      # menu, here fuzzel styled as the launcher, where its default is a slurp
+      # crosshair that gives up silently, as "no output found", on Escape or a
+      # stray click. Sixty frames a second is enough for any call and spares
+      # half the copying at 120 Hz.
+      xdg.config.files."xdg-desktop-portal-wlr/config".text = ''
+        [screencast]
+        chooser_type = dmenu
+        chooser_cmd = ${lib.getExe pkgs.fuzzel} --dmenu --prompt "share  " --lines 6
+        max_fps = 60
+      '';
+
       systemd.targets.river-session = {
         description = "river session";
         documentation = [ "man:systemd.special(7)" ];
