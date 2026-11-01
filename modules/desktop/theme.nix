@@ -31,64 +31,176 @@ in
     let
       palette = inputs.orchard.palettes.catppuccin.${flavour}.native;
 
-      # The accent the wallpaper river shows (see river/config.nix) suggests:
-      # matugen's source colour, matched by hue alone to the nearest of
-      # Catppuccin's accents, so the picture picks the colour and Catppuccin
-      # keeps its own.
+      matugenConfig = pkgs.writeText "matugen.toml" ''
+        [config]
+
+        [templates]
+      '';
+      candidates = pkgs.writeText "accents" (
+        lib.concatMapStrings (name: "${name} ${palette.${name}}\n") accents
+      );
+      # matugen's source colour for an image, then the Catppuccin accent
+      # nearest it in hue (accent.py).
+      pick = image: ''
+        source=$(matugen image ${image} --config ${matugenConfig} --type scheme-tonal-spot --prefer saturation \
+          --include-image-in-json false --json hex --dry-run | jq -r '.colors.source_color.dark.color')
+        python3 -I ${./accent.py} "$source" ${candidates}
+      '';
+
+      # The accent the wallpaper river starts with (see river/config.nix)
+      # suggests, for everything themed when the system is built.
       wallpaperAccent =
         image:
-        let
-          config = pkgs.writeText "matugen.toml" ''
-            [config]
-
-            [templates]
-          '';
-          candidates = pkgs.writeText "accents" (
-            lib.concatMapStrings (name: "${name} ${palette.${name}}\n") accents
-          );
-        in
         builtins.readFile (
-          pkgs.runCommand "wallpaper-accent" { nativeBuildInputs = [ pkgs.matugen pkgs.jq ]; } ''
-            source=$(matugen image ${image} --config ${config} --type scheme-tonal-spot --prefer saturation \
-              --include-image-in-json false --json hex --dry-run | jq -r '.colors.source_color.dark.color')
-            ${pkgs.python3}/bin/python3 -I - "$source" ${candidates} > $out <<'PY'
-            import math, sys
-
-            def hue(hex):
-                r, g, b = (int(hex.lstrip("#")[i:i + 2], 16) / 255 for i in (0, 2, 4))
-                r, g, b = (c / 12.92 if c <= 0.04045 else ((c + 0.055) / 1.055) ** 2.4 for c in (r, g, b))
-                l = (0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b) ** (1 / 3)
-                m = (0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b) ** (1 / 3)
-                s = (0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b) ** (1 / 3)
-                a = 1.9779984951 * l - 2.4285922050 * m + 0.4505937099 * s
-                b = 0.0259040371 * l + 0.7827717662 * m - 0.8086757660 * s
-                return math.atan2(b, a)
-
-            def distance(x, y):
-                d = abs(x - y) % (2 * math.pi)
-                return min(d, 2 * math.pi - d)
-
-            source = hue(sys.argv[1])
-            names = [line.split() for line in open(sys.argv[2]) if line.strip()]
-            print(min(names, key=lambda n: distance(hue(n[1]), source))[0], end="")
-            PY
-          ''
+          pkgs.runCommand "wallpaper-accent" {
+            nativeBuildInputs = [
+              pkgs.matugen
+              pkgs.jq
+              pkgs.python3
+            ];
+          } "{ ${pick image}} > $out"
         );
+      fallback = wallpaperAccent ../../assets/botanical-shop.png;
+
+      live = config.accent.live;
+      state = "${config.directory}/.local/state/accent";
+
+      # The accent of whatever awww shows, written into every template in
+      # accent.live: once (before the programs that read them start), or on
+      # every change of wallpaper, telling each program to reload.
+      accent = pkgs.writeShellApplication {
+        name = "accent";
+        runtimeInputs = [
+          pkgs.awww
+          pkgs.coreutils
+          pkgs.gawk
+          pkgs.gnused
+          pkgs.jq
+          pkgs.matugen
+          pkgs.python3
+        ];
+        text = ''
+          state=${state}
+          mkdir -p "$state/cache"
+
+          image() { awww query 2>/dev/null | sed -n 's/.*image: //p' | head -1; }
+
+          # The accent for an image, remembered by path and modification time.
+          name_for() {
+            local key
+            key=$(printf '%s %s' "$1" "$(stat -c %Y "$1" 2>/dev/null)" | sha256sum | cut -c1-32)
+            if [ ! -s "$state/cache/$key" ]; then
+              { ${pick ''"$1"''}} > "$state/cache/$key.tmp" 2>/dev/null || return 1
+              mv -f "$state/cache/$key.tmp" "$state/cache/$key"
+            fi
+            cat "$state/cache/$key"
+          }
+
+          render() {
+            local hex
+            hex=$(awk -v n="$1" '$1 == n { print substr($2, 2) }' ${candidates})
+            [ -n "$hex" ] || return 1
+            ${lib.concatMapStrings (file: ''
+              mkdir -p "$(dirname ${lib.escapeShellArg file.path})"
+              sed "s/@accent@/$hex/g" ${pkgs.writeText "accent-template" file.template} \
+                > ${lib.escapeShellArg file.path}.tmp
+              mv -f ${lib.escapeShellArg file.path}.tmp ${lib.escapeShellArg file.path}
+            '') (lib.attrValues live)}
+            printf '%s\n' "$1" > "$state/name"
+          }
+
+          reload() {
+            ${lib.concatMapStrings (file: lib.optionalString (file.reload != null) ''
+              timeout 5 ${pkgs.writeShellScript "accent-reload" file.reload} >/dev/null 2>&1 || true
+            '') (lib.attrValues live)}
+          }
+
+          current=$(cat "$state/name" 2>/dev/null || echo ${fallback})
+          case "''${1:-watch}" in
+            once)
+              picture=$(image)
+              if [ -n "$picture" ]; then current=$(name_for "$picture" || echo "$current"); fi
+              render "$current"
+              ;;
+            watch)
+              shown=""
+              while :; do
+                picture=$(image)
+                if [ -n "$picture" ] && [ "$picture" != "$shown" ]; then
+                  shown=$picture
+                  if name=$(name_for "$picture") && [ "$name" != "$current" ]; then
+                    current=$name
+                    render "$current" && reload
+                  fi
+                fi
+                sleep 2
+              done
+              ;;
+          esac
+        '';
+      };
     in
     {
       imports = [ inputs.orchard.hjemModules.default ];
 
-      # Catppuccin Macchiato for every program orchard themes and the shell,
-      # in the accent the wallpaper suggests.
-      orchard = {
-        enable = true;
-        theme = "catppuccin";
-        inherit flavour;
-        accent = wallpaperAccent ../../assets/botanical-shop.png;
+      # Files that follow the wallpaper's accent while the session runs: each
+      # template with @accent@ for its hex (no #), written to path, and reload
+      # run after a change. The programs' own configs keep the accent the
+      # system was built with, for before the first wallpaper.
+      options.accent.live = lib.mkOption {
+        type = lib.types.attrsOf (
+          lib.types.submodule {
+            options = {
+              template = lib.mkOption { type = lib.types.lines; };
+              path = lib.mkOption { type = lib.types.str; };
+              reload = lib.mkOption {
+                type = lib.types.nullOr lib.types.str;
+                default = null;
+              };
+            };
+          }
+        );
+        default = { };
       };
 
-      # Shorter names for the hand-styled configs orchard covers no port for.
-      _module.args.palette = config.orchard.palette;
-      _module.args.theme = config.orchard;
+      config = {
+        # Catppuccin Macchiato for every program orchard themes and the shell,
+        # in the accent the wallpaper suggests: the build's picks from the
+        # wallpaper river starts with, the session's from whatever awww shows.
+        orchard = {
+          enable = true;
+          theme = "catppuccin";
+          inherit flavour;
+          accent = fallback;
+        };
+
+        # Shorter names for the hand-styled configs orchard covers no port for,
+        # and the live accent's renderer and state for the files that use it.
+        _module.args.palette = config.orchard.palette;
+        _module.args.theme = config.orchard;
+        _module.args.accent = {
+          bin = lib.getExe accent;
+          render = "${lib.getExe accent} once";
+          inherit state;
+        };
+      };
+    };
+
+  flake.modules.hjem.linux =
+    { accent, ... }:
+    {
+      # Every two seconds awww is asked what it shows: cheap, and awww says
+      # nothing on its own when the wallpaper changes.
+      systemd.services.accent = {
+        description = "Accent from the wallpaper";
+        wantedBy = [ "river-session.target" ];
+        partOf = [ "graphical-session.target" ];
+        after = [ "graphical-session.target" ];
+        serviceConfig = {
+          ExecStartPre = accent.render;
+          ExecStart = "${accent.bin} watch";
+          Restart = "on-failure";
+        };
+      };
     };
 }
