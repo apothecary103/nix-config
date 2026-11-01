@@ -1,0 +1,33 @@
+diff --git a/types/ext_image_capture_source_v1/base.c b/types/ext_image_capture_source_v1/base.c
+index eccbb28..e7098fe 100644
+--- a/types/ext_image_capture_source_v1/base.c
++++ b/types/ext_image_capture_source_v1/base.c
+@@ -110,14 +110,25 @@ bool wlr_ext_image_capture_source_v1_set_constraints_from_swapchain(struct wlr_e
+ 
+ 	uint32_t shm_format = get_swapchain_shm_format(swapchain, renderer);
+ 	if (shm_format != DRM_FORMAT_INVALID) {
+-		uint32_t *shm_formats = calloc(1, sizeof(shm_formats[0]));
++		// The output's own format first, then the 8-bit ones every client
++		// reads: a 10-bit output would otherwise offer only XRGB2101010,
++		// which most screen sharing cannot take. Reads convert as they copy.
++		const uint32_t fallbacks[] = { DRM_FORMAT_XRGB8888, DRM_FORMAT_ARGB8888 };
++		uint32_t *shm_formats = calloc(1 + sizeof(fallbacks) / sizeof(fallbacks[0]),
++			sizeof(shm_formats[0]));
+ 		if (shm_formats == NULL) {
+ 			wlr_log(WLR_ERROR, "Allocation failed");
+ 			return false;
+ 		}
+-		shm_formats[0] = shm_format;
++		size_t len = 0;
++		shm_formats[len++] = shm_format;
++		for (size_t i = 0; i < sizeof(fallbacks) / sizeof(fallbacks[0]); i++) {
++			if (fallbacks[i] != shm_format) {
++				shm_formats[len++] = fallbacks[i];
++			}
++		}
+ 
+-		source->shm_formats_len = 1;
++		source->shm_formats_len = len;
+ 		free(source->shm_formats);
+ 		source->shm_formats = shm_formats;
+ 	}
