@@ -60,5 +60,17 @@
       # libadwaita apps read light/dark from the portal Settings backend, and
       # river has no gnome-settings-daemon to answer it (see gtk.nix).
       xdg.portal.config.river."org.freedesktop.impl.portal.Settings" = "gtk";
+
+      # Screen sharing (xdg-desktop-portal-wlr): it asks which screen through a
+      # menu, here fuzzel styled as the launcher, where its default is a slurp
+      # crosshair that gives up silently, as "no output found", on Escape or a
+      # stray click. The service reads only this file (--config), never
+      # ~/.config. Sixty frames a second is enough for any call and spares
+      # half the copying at 120 Hz.
+      xdg.portal.wlr.settings.screencast = {
+        chooser_type = "dmenu";
+        chooser_cmd = "${lib.getExe pkgs.fuzzel} --dmenu --prompt 'share  ' --lines 6";
+        max_fps = 60;
+      };
     };
 }
