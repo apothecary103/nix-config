@@ -7,6 +7,7 @@
       lib,
       pkgs,
       palette,
+      accent,
       ...
     }:
     let
@@ -63,6 +64,8 @@
 
           geometry=""
           if [ "$mode" != screen ]; then
+            # The selection in the wallpaper's accent (theme.nix).
+            hl=$(cat ${accent.state}/hex 2>/dev/null || echo ${bare palette.ui.accent})
             ready=$(mktemp -u)
             wayfreeze --hide-cursor --after-freeze-cmd "touch $ready" &
             freeze=$!
@@ -70,8 +73,8 @@
             for _ in $(seq 50); do [ -e "$ready" ] && break; sleep 0.02; done
             geometry=$(slurp -d -w 2 \
               -b '#${bare palette.surface.text}33' \
-              -c '#${bare palette.ui.accent}ff' \
-              -s '#${bare palette.ui.accent}22') || exit 0
+              -c "#''${hl}ff" \
+              -s "#''${hl}22") || exit 0
           fi
 
           if [ -n "$geometry" ]; then
@@ -125,7 +128,7 @@
             WAYLAND_DISPLAY DISPLAY XDG_CURRENT_DESKTOP WLR_RENDERER RIVER_SESSION
           systemctl --user start river-session.target
 
-          kwm
+          if [ -r ${kwmLive} ]; then kwm -c ${kwmLive}; else kwm; fi
         '';
       };
 
@@ -252,7 +255,9 @@
       ++ media
       ++ map (b: b // { mode = "lock"; }) media;
 
-      kwmConfig = {
+      # The focused border takes the accent: the build's in config.zon, the
+      # wallpaper's in the copy the session renders (theme.nix) and kwm runs on.
+      kwmConfigWith = focused: {
         background = null;
         xcursor_theme = {
           name = "WhiteSur-cursors";
@@ -279,7 +284,7 @@
         border = {
           width = 1;
           color = {
-            focus = colour palette.ui.accent;
+            focus = colour focused;
             unfocus = colour palette.surface.neutral2;
             swallowing = colour palette.hue.aqua;
           };
@@ -348,6 +353,9 @@
 
       # The trackpad's macOS acceleration, rebuilt from its IORegistry curves.
       macosAccel = import ./_macos-accel.nix { };
+
+      kwmConfig = kwmConfigWith palette.ui.accent;
+      kwmLive = "${accent.state}/kwm.zon";
 
       kwimConfig = {
         input_device_rules = [
@@ -440,6 +448,16 @@
           ExecStart = lib.getExe pkgs.kanshi;
           Restart = "on-failure";
         };
+      };
+
+      accent.live.kwm = {
+        path = kwmLive;
+        template = zon.render (kwmConfigWith "#@accent@");
+        reload = "echo reload_config > $XDG_RUNTIME_DIR/kwm/control";
+      };
+      accent.live.hex = {
+        path = "${accent.state}/hex";
+        template = "@accent@";
       };
 
       xdg.config.files = {
