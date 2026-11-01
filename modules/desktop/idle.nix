@@ -15,17 +15,73 @@
       lib,
       pkgs,
       palette,
+      accent,
       ...
     }:
     let
-      swaylock = "${lib.getExe pkgs.swaylock} -f";
       bare = lib.removePrefix "#";
+
+      # The lock screen in the wallpaper's accent (theme.nix) once the session
+      # has worked it out, and in the build's until then: a lock must never
+      # wait on it.
+      live = "${accent.state}/swaylock.conf";
+      swaylock = toString (
+        pkgs.writeShellScript "lock" ''
+          if [ -r ${live} ]; then
+            exec ${lib.getExe pkgs.swaylock} -f -C ${live}
+          fi
+          exec ${lib.getExe pkgs.swaylock} -f
+        ''
+      );
 
       # The river rice's lock screen: its own wallpaper behind a Dawn ring.
       lockscreen = pkgs.fetchurl {
         url = "https://raw.githubusercontent.com/CelestialCrafter/dotfiles/9091d63a0dd389fc5aa74eb08d833f93027e3199/assets/wallpapers/lockscreen.png";
         hash = "sha256-nsnrEYfg4wGZVaFmU8z8LOjjURAQqskAYPGk7SWAIIw=";
       };
+      swaylockConfig =
+        hl:
+        ''
+          font=Maple Mono NF CN
+          font-size=18
+          indicator-radius=65
+          indicator-thickness=16
+
+          color=${bare palette.surface.background}
+          image=${lockscreen}
+          scaling=fill
+
+          inside-color=${bare palette.surface.panel}
+          inside-clear-color=${bare palette.surface.panel}
+          inside-caps-lock-color=${bare palette.surface.panel}
+          inside-ver-color=${bare palette.surface.panel}
+          inside-wrong-color=${bare palette.surface.panel}
+
+          ring-color=${bare palette.surface.neutral2}
+          ring-clear-color=${bare palette.surface.neutral2}
+          ring-caps-lock-color=${bare palette.surface.neutral2}
+          ring-ver-color=${bare palette.surface.neutral2}
+          ring-wrong-color=${bare palette.surface.neutral2}
+          line-color=${bare palette.surface.neutral2}
+          line-clear-color=${bare palette.surface.neutral2}
+          line-caps-lock-color=${bare palette.surface.neutral2}
+          line-ver-color=${bare palette.surface.neutral2}
+          line-wrong-color=${bare palette.surface.neutral2}
+          separator-color=00000000
+
+          key-hl-color=${hl}
+          bs-hl-color=${hl}
+          caps-lock-key-hl-color=${hl}
+          caps-lock-bs-hl-color=${hl}
+
+          text-color=${bare palette.surface.text}
+          text-clear-color=${bare palette.surface.text}
+          text-caps-lock-color=${bare palette.hue.yellow}
+          text-ver-color=${bare palette.hue.aqua}
+          text-wrong-color=${bare palette.status.error}
+          layout-text-color=${bare palette.surface.text}
+        '';
+
       brightnessctl = lib.getExe pkgs.brightnessctl;
       wlopm = lib.getExe pkgs.wlopm;
 
@@ -40,46 +96,12 @@
     {
       packages = [ pkgs.swaylock ];
 
-      xdg.config.files."swaylock/config".text = ''
-        font=Maple Mono NF CN
-        font-size=18
-        indicator-radius=65
-        indicator-thickness=16
+      accent.live.swaylock = {
+        path = live;
+        template = swaylockConfig "@accent@";
+      };
 
-        color=${bare palette.surface.background}
-        image=${lockscreen}
-        scaling=fill
-
-        inside-color=${bare palette.surface.panel}
-        inside-clear-color=${bare palette.surface.panel}
-        inside-caps-lock-color=${bare palette.surface.panel}
-        inside-ver-color=${bare palette.surface.panel}
-        inside-wrong-color=${bare palette.surface.panel}
-
-        ring-color=${bare palette.surface.neutral2}
-        ring-clear-color=${bare palette.surface.neutral2}
-        ring-caps-lock-color=${bare palette.surface.neutral2}
-        ring-ver-color=${bare palette.surface.neutral2}
-        ring-wrong-color=${bare palette.surface.neutral2}
-        line-color=${bare palette.surface.neutral2}
-        line-clear-color=${bare palette.surface.neutral2}
-        line-caps-lock-color=${bare palette.surface.neutral2}
-        line-ver-color=${bare palette.surface.neutral2}
-        line-wrong-color=${bare palette.surface.neutral2}
-        separator-color=00000000
-
-        key-hl-color=${bare palette.ui.accent}
-        bs-hl-color=${bare palette.ui.accent}
-        caps-lock-key-hl-color=${bare palette.ui.accent}
-        caps-lock-bs-hl-color=${bare palette.ui.accent}
-
-        text-color=${bare palette.surface.text}
-        text-clear-color=${bare palette.surface.text}
-        text-caps-lock-color=${bare palette.hue.yellow}
-        text-ver-color=${bare palette.hue.aqua}
-        text-wrong-color=${bare palette.status.error}
-        layout-text-color=${bare palette.surface.text}
-      '';
+      xdg.config.files."swaylock/config".text = swaylockConfig (bare palette.ui.accent);
 
       # macOS here: the display sleeps after 10 minutes (pmset displaysleep 10),
       # dimming a few seconds first, and asks for the password as it goes dark.
