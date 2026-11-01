@@ -60,7 +60,6 @@ in
   flake.modules.hjem.linux =
     {
       config,
-      osConfig,
       pkgs,
       palette,
       accent,
@@ -1048,11 +1047,31 @@ in
         }
       '';
 
+      # GTK reads the fonts once, when eww starts, so a new or redrawn font
+      # (azuki's, its Wi-Fi) means starting it again or its glyphs fall back.
+      # hjem does not restart units on a switch, so this watches the system
+      # itself and restarts eww only when the installed fonts changed.
+      systemd.paths.eww-fonts = {
+        wantedBy = [ "river-session.target" ];
+        partOf = [ "graphical-session.target" ];
+        pathConfig.PathChanged = "/run/current-system";
+      };
+      systemd.services.eww-fonts = {
+        description = "Restart the shell when fonts change";
+        serviceConfig.Type = "oneshot";
+        script = ''
+          seen="''${XDG_STATE_HOME:-$HOME/.local/state}/shell/fonts"
+          now=$(${pkgs.coreutils}/bin/readlink -f /etc/fonts/conf.d/00-nixos-cache.conf)
+          if [ "$(${pkgs.coreutils}/bin/cat "$seen" 2>/dev/null)" != "$now" ]; then
+            ${pkgs.coreutils}/bin/mkdir -p "$(${pkgs.coreutils}/bin/dirname "$seen")"
+            printf '%s\n' "$now" > "$seen"
+            ${pkgs.systemd}/bin/systemctl --user try-restart eww.service
+          fi
+        '';
+      };
+
       systemd.services.eww = {
         description = "Desktop shell";
-        # GTK reads the fonts once, when eww starts: a new or redrawn font
-        # (azuki's, its Wi-Fi) means starting it again, or its glyphs fall back.
-        restartTriggers = osConfig.fonts.packages;
         wantedBy = [ "river-session.target" ];
         partOf = [ "graphical-session.target" ];
         after = [ "graphical-session.target" ];
