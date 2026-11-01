@@ -35,6 +35,16 @@ let
         done
       '';
 
+  # A Wi-Fi symbol in azuki's hand, in four strengths (azuki-wifi.py).
+  azukiWifi =
+    pkgs:
+    pkgs.runCommand "azuki-wifi"
+      { nativeBuildInputs = [ (pkgs.python3.withPackages (p: [ p.fonttools ])) ]; }
+      ''
+        mkdir -p $out/share/fonts/truetype
+        python3 -I ${./azuki-wifi.py} $out/share/fonts/truetype/azuki-wifi.ttf
+      '';
+
   fonts = { pkgs, ... }: {
     fonts.packages = with pkgs; [
       material-design-icons
@@ -60,6 +70,7 @@ let
       adwaita-fonts
 
       (azuki pkgs)
+      (azukiWifi pkgs)
       aporetic
     ];
   };
