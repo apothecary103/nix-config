@@ -35,14 +35,23 @@ let
         done
       '';
 
-  # A Wi-Fi symbol in azuki's hand, in four strengths (azuki-wifi.py).
+  # A Wi-Fi symbol from azuki's own strokes, in four strengths (azuki-wifi.py).
   azukiWifi =
     pkgs:
     pkgs.runCommand "azuki-wifi"
-      { nativeBuildInputs = [ (pkgs.python3.withPackages (p: [ p.fonttools ])) ]; }
+      {
+        nativeBuildInputs = [
+          (pkgs.python3.withPackages (p: [
+            p.fonttools
+            p.numpy
+            p.pillow
+          ]))
+        ];
+      }
       ''
         mkdir -p $out/share/fonts/truetype
-        python3 -I ${./azuki-wifi.py} $out/share/fonts/truetype/azuki-wifi.ttf
+        python3 -I ${./azuki-wifi.py} ${azuki pkgs}/share/fonts/truetype/azuki.ttf \
+          $out/share/fonts/truetype/azuki-wifi.ttf
       '';
 
   fonts = { pkgs, ... }: {
