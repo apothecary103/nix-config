@@ -1,0 +1,108 @@
+Disable-while-typing as macOS does it: typing makes palm rejection stricter
+rather than switching the touchpad off.
+
+Upstream, any key held down keeps the keyboard "active" (so a game's W turns
+the touchpad off for as long as it is held), every touch that begins while
+typing is a palm whatever it is, and the pointer, scrolling and gestures stop
+outright until typing ends. Here only key presses count as typing; a touch that
+begins while typing is a palm only if it looks like one, landing in the outer
+16 % of the pad either side (where the heels of the hands brush) or wider than
+three quarters of the palm size threshold; and fingers already down keep
+moving, scrolling and gesturing. Taps stay suspended while typing.
+
+diff --git a/src/evdev-mt-touchpad.c b/src/evdev-mt-touchpad.c
+index e60ced9..317009b 100644
+--- a/src/evdev-mt-touchpad.c
++++ b/src/evdev-mt-touchpad.c
+@@ -828,10 +828,25 @@ tp_palm_in_edge(const struct tp_dispatch *tp, const struct tp_touch *t)
+ 	return tp_palm_in_side_edge(tp, t) || tp_palm_in_top_edge(tp, t);
+ }
+ 
++/* Whether a touch starting while typing looks like a palm rather than a
++ * deliberate finger: it lands in the outer strips, or it is wider than
++ * three quarters of the palm size threshold. */
++static bool
++tp_palm_looks_like_typing_palm(const struct tp_dispatch *tp, const struct tp_touch *t)
++{
++	if (t->point.x < tp->dwt.typing_left_edge ||
++	    t->point.x > tp->dwt.typing_right_edge)
++		return true;
++
++	return tp->palm.use_size &&
++	       t->major > tp->palm.size_threshold / 4 * 3;
++}
++
+ static bool
+ tp_palm_detect_dwt_triggered(struct tp_dispatch *tp, struct tp_touch *t, usec_t time)
+ {
+-	if (tp->dwt.dwt_enabled && tp->dwt.keyboard_active && t->state == TOUCH_BEGIN) {
++	if (tp->dwt.dwt_enabled && tp->dwt.keyboard_active && t->state == TOUCH_BEGIN &&
++	    tp_palm_looks_like_typing_palm(tp, t)) {
+ 		t->palm.state = PALM_TYPING;
+ 		t->palm.first = t->point;
+ 		return true;
+@@ -1784,7 +1799,9 @@ tp_post_events(struct tp_dispatch *tp, usec_t time)
+ 	ignore_motion |= tp_tap_handle_state(tp, time);
+ 	ignore_motion |= tp_post_button_events(tp, time);
+ 
+-	if (tp->palm.trackpoint_active || tp->dwt.keyboard_active) {
++	/* Typing no longer stops the pointer: palms are told apart touch by
++	 * touch (tp_palm_detect_dwt_triggered), and fingers keep working. */
++	if (tp->palm.trackpoint_active) {
+ 		tp_edge_scroll_stop_events(tp, time);
+ 		tp_gesture_cancel(tp, time);
+ 		return;
+@@ -2161,15 +2178,8 @@ tp_keyboard_timeout(usec_t now, void *data)
+ {
+ 	struct tp_dispatch *tp = data;
+ 
+-	if (tp->dwt.dwt_enabled &&
+-	    long_any_bit_set(tp->dwt.key_mask, ARRAY_LENGTH(tp->dwt.key_mask))) {
+-		libinput_timer_set(&tp->dwt.keyboard_timer,
+-				   usec_add(now, tp->dwt.timeout));
+-		tp->dwt.keyboard_last_press_time = now;
+-		evdev_log_debug(tp->device, "palm: keyboard timeout refresh\n");
+-		return;
+-	}
+-
++	/* A key held down (a game's W, a shortcut) is not typing: only presses
++	 * keep the keyboard active. */
+ 	tp_tap_resume(tp, now);
+ 
+ 	tp->dwt.keyboard_active = false;
+@@ -3363,6 +3373,18 @@ tp_init_dwt(struct tp_dispatch *tp, struct evdev_device *device)
+ 	tp->dwt.config.get_default_timeout = tp_dwt_config_get_default_timeout;
+ 	tp->dwt.dwt_enabled = tp_dwt_default_enabled(tp);
+ 	tp->dwt.timeout = tp_dwt_config_get_default_timeout(&device->base);
++
++	double width, height;
++	struct phys_coords mm = { 0.0, 0.0 };
++	struct device_coords edges;
++
++	evdev_device_get_size(device, &width, &height);
++	mm.x = width * 0.16;
++	edges = evdev_device_mm_to_units(device, &mm);
++	tp->dwt.typing_left_edge = edges.x;
++	mm.x = width * 0.84;
++	edges = evdev_device_mm_to_units(device, &mm);
++	tp->dwt.typing_right_edge = edges.x;
+ 	device->base.config.dwt = &tp->dwt.config;
+ }
+ 
+diff --git a/src/evdev-mt-touchpad.h b/src/evdev-mt-touchpad.h
+index 7e85baf..33ff0d2 100644
+--- a/src/evdev-mt-touchpad.h
++++ b/src/evdev-mt-touchpad.h
+@@ -507,6 +507,12 @@ struct tp_dispatch {
+ 		bool keyboard_active;
+ 		struct libinput_timer keyboard_timer;
+ 		usec_t keyboard_last_press_time;
++
++		/* While typing, only touches that look like a palm are
++		 * ignored: those starting in the outer strips, where the
++		 * heels of the hands brush, or larger than a fingertip. */
++		int typing_left_edge;
++		int typing_right_edge;
+ 	} dwt;
+ 
+ 	struct {

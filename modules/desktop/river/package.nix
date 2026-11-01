@@ -6,7 +6,13 @@
   flake.modules.nixos.base =
     { lib, pkgs, ... }:
     let
-      wlroots = pkgs.wlroots_0_20.overrideAttrs (old: {
+      # libinput with typing that tightens palm rejection rather than turning
+      # the touchpad off (patches/libinput); its own tests assert the old way.
+      libinput = pkgs.libinput.overrideAttrs (old: {
+        patches = (old.patches or [ ]) ++ lib.filesystem.listFilesRecursive ./patches/libinput;
+        doCheck = false;
+      });
+      wlroots = (pkgs.wlroots_0_20.override { inherit libinput; }).overrideAttrs (old: {
         patches = (old.patches or [ ]) ++ lib.filesystem.listFilesRecursive ./patches/wlroots;
       });
     in
@@ -15,7 +21,7 @@
         enable = true;
         # wlroots with backdrop blur (patches/wlroots), which river's layer
         # surfaces ask for by namespace (patches/river/0003-blur.patch).
-        package = (pkgs.river.override { wlroots_0_20 = wlroots; }).overrideAttrs (old: {
+        package = (pkgs.river.override { wlroots_0_20 = wlroots; inherit libinput; }).overrideAttrs (old: {
           patches = (old.patches or [ ]) ++ lib.filesystem.listFilesRecursive ./patches/river;
           nativeBuildInputs = old.nativeBuildInputs ++ [ pkgs.makeWrapper ];
           # Vulkan is the only wlroots renderer that applies an output colour
