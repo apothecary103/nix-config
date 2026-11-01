@@ -485,7 +485,7 @@ index 3ec9742..cebd7ec 100644
  	out_color = vec4(rgb * alpha, alpha);
  
 diff --git a/types/scene/wlr_scene.c b/types/scene/wlr_scene.c
-index 7bc8b76..4118e7d 100644
+index 7bc8b76..5bb8427 100644
 --- a/types/scene/wlr_scene.c
 +++ b/types/scene/wlr_scene.c
 @@ -1,7 +1,11 @@
@@ -757,7 +757,7 @@ index 7bc8b76..4118e7d 100644
  void wlr_scene_node_set_position(struct wlr_scene_node *node, int x, int y) {
  	if (node->x == x && node->y == y) {
  		return;
-@@ -2310,6 +2536,514 @@ cleanup_transforms:
+@@ -2310,6 +2536,526 @@ cleanup_transforms:
  	return result;
  }
  
@@ -837,8 +837,20 @@ index 7bc8b76..4118e7d 100644
 +		if (format == NULL) {
 +			continue;
 +		}
-+		struct wlr_buffer *buffer =
-+			wlr_allocator_create_buffer(output->allocator, width, height, format);
++		// Uncompressed: Honeykrisp (Apple GPUs) garbles the colour of a
++		// compressed 10-bit image drawn through an output colour transform.
++		struct wlr_drm_format plain = { .format = fourccs[i] };
++		for (size_t j = 0; j < format->len; j++) {
++#ifdef DRM_FORMAT_MOD_APPLE_GPU_TILED_COMPRESSED
++			if (format->modifiers[j] == DRM_FORMAT_MOD_APPLE_GPU_TILED_COMPRESSED) {
++				continue;
++			}
++#endif
++			wlr_drm_format_add(&plain, format->modifiers[j]);
++		}
++		struct wlr_buffer *buffer = plain.len == 0 ? NULL :
++			wlr_allocator_create_buffer(output->allocator, width, height, &plain);
++		wlr_drm_format_finish(&plain);
 +		if (buffer != NULL) {
 +			return buffer;
 +		}
@@ -1272,7 +1284,7 @@ index 7bc8b76..4118e7d 100644
  bool wlr_scene_output_build_state(struct wlr_scene_output *scene_output,
  		struct wlr_output_state *state, const struct wlr_scene_output_state_options *options) {
  	struct wlr_scene_output_state_options default_options = {0};
-@@ -2516,6 +3250,13 @@ bool wlr_scene_output_build_state(struct wlr_scene_output *scene_output,
+@@ -2516,6 +3262,13 @@ bool wlr_scene_output_build_state(struct wlr_scene_output *scene_output,
  		}
  	}
  
@@ -1286,7 +1298,7 @@ index 7bc8b76..4118e7d 100644
  	scene_output->in_point++;
  	struct wlr_render_pass *render_pass = wlr_renderer_begin_buffer_pass(output->renderer, buffer,
  			&(struct wlr_buffer_pass_options){
-@@ -2525,16 +3266,13 @@ bool wlr_scene_output_build_state(struct wlr_scene_output *scene_output,
+@@ -2525,16 +3278,13 @@ bool wlr_scene_output_build_state(struct wlr_scene_output *scene_output,
  		.signal_point = scene_output->in_point,
  	});
  	if (render_pass == NULL) {
@@ -1304,7 +1316,7 @@ index 7bc8b76..4118e7d 100644
  	pixman_region32_t background;
  	pixman_region32_init(&background);
  	pixman_region32_copy(&background, &render_data.damage);
-@@ -2580,6 +3318,7 @@ bool wlr_scene_output_build_state(struct wlr_scene_output *scene_output,
+@@ -2580,6 +3330,7 @@ bool wlr_scene_output_build_state(struct wlr_scene_output *scene_output,
  
  	for (int i = list_len - 1; i >= 0; i--) {
  		struct render_list_entry *entry = &list_data[i];
