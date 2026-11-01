@@ -19,6 +19,9 @@
       # Catppuccin's own yazi highlights in blue; the accent the wallpaper
       # suggests (theme.nix) does not suit a file manager's every border.
       orchard.yazi.accent = "blue";
+      # No background of its own: the terminal's shows through, translucent
+      # as ghostty and foot are.
+      orchard.yazi.transparent = true;
 
       rum.programs.yazi = {
         enable = true;
