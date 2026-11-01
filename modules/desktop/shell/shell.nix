@@ -481,10 +481,18 @@ in
                    :visible {media.title != ""}
                 (box :class "art" :width 20 :height 20 :valign "center" :style ${art}
                   (label :class "art-note" :hexpand true :visible {media.art == ""} :text "${glyph.quaver}"))
+                ; Title and artist share one budget, so the side never runs into
+                ; the notch: the title takes up to 26 characters, the first
+                ; artist credited what is left, and only if there is room for
+                ; a name. The whole credit is on hover.
                 (box :space-evenly false :spacing 6
-                  (label :class "track" :limit-width 18 :text {media.title != "" ? media.title : "Unknown"})
-                  (label :class "dot" :visible {media.artist != ""} :text "${glyph.dot}")
-                  (label :class "artist" :limit-width 13 :visible {media.artist != ""} :text {media.artist}))
+                     :tooltip {media.artist != "" ? "''${media.title} — ''${media.artist}" : media.title}
+                  (label :class "track" :limit-width 26 :text {media.title != "" ? media.title : "Unknown"})
+                  (label :class "dot" :visible {media.artist != "" && 34 - min(26, strlength(media.title)) >= 6}
+                         :text "${glyph.dot}")
+                  (label :class "artist" :limit-width {max(1, 34 - min(26, strlength(media.title)))}
+                         :visible {media.artist != "" && 34 - min(26, strlength(media.title)) >= 6}
+                         :text {replace(media.artist, "( & |, | feat\\.? | ft\\. | x | / ).*$", "")}))
                 (eventbox :cursor "pointer" :onclick "playerctl play-pause" :width 16
                   (label :class "play" :text {media.status == "Playing" ? "${glyph.pause}" : "${glyph.play}"}))))
             ; Nothing under the notch.
@@ -777,11 +785,21 @@ in
           min-width: 20px;
           color: ${palette.native.overlay0};
         }
+        // azuki sets its capitals and figures above the middle of the line:
+        // padding above each kind of text brings it onto the bar's centre,
+        // where the icons and kanji already sit (measured on a 2x render).
+        .strip .track,
+        .strip .artist {
+          padding-top: 4px;
+        }
+        .strip .value,
+        .strip .dot {
+          padding-top: 2px;
+        }
         .strip .dot {
           color: ${palette.native.overlay0};
         }
         .strip .artist {
-          font-size: 14px;
           color: ${palette.native.subtext0};
         }
         .strip .play {
@@ -825,6 +843,7 @@ in
           color: ${palette.native.green};
         }
         .strip .clock {
+          padding-top: 2px;
           letter-spacing: 0.4px;
         }
 
