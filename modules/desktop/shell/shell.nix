@@ -761,7 +761,7 @@ in
         .avatar {
           border-radius: 10px;
           background-color: ${palette.native.surface0};
-          background-image: url("${../../../assets/avatar.jpg}");
+          background-image: url("${../../../assets/avatar.jpeg}");
           background-size: cover;
           background-position: center;
         }
@@ -909,7 +909,7 @@ in
           margin-bottom: 12px;
         }
         .portrait {
-          background-image: url("${../../../assets/avatar.jpg}");
+          background-image: url("${../../../assets/avatar.jpeg}");
           background-size: cover;
           background-position: center;
           border-radius: 50%;
