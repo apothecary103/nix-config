@@ -1,6 +1,7 @@
 """A Wi-Fi symbol made of azuki's own pen strokes.
 
-Usage: azuki-wifi.py AZUKI.ttf OUT.ttf. The arcs are azuki's ⌒ (U+2312): its
+Usage: azuki-wifi.py AZUKI.ttf OUT.ttf. The arcs are azuki's full-width
+parenthesis （ (U+FF08) turned on its side, an arch drawn with its pen: its
 centre line and the width of its stroke along it are traced from the font,
 then the line is drawn again at three sizes about one centre, each with
 azuki's own stroke, so the small arcs keep the pen's weight rather than
@@ -24,18 +25,17 @@ from PIL import Image, ImageDraw, ImageFont
 
 AZUKI, OUT = sys.argv[1], sys.argv[2]
 UPM = 1024
-SCALES = (1.0, 0.63, 0.28)  # the arcs, outermost first, with room between
-PEN = 0.8  # the arcs' stroke against ⌒'s, light enough to leave the gaps open
-DOT = 0.7  # the dot against ・
-BOX = (85, 940)  # the drawing's width on the em, about the note's
-BASE = 0  # where the dot's foot would sit before centring
+SCALES = (1.0, 0.65, 0.31)  # the arcs, outermost first, with room between
+PEN = 1.0  # the arcs' stroke against the parenthesis's: azuki's own weight
+DOT = 0.85  # the dot against ・
+BASE = 0  # where the dot's foot would sit before fitting
 
 azuki = TTFont(AZUKI)
 cmap = azuki.getBestCmap()
 glyphs = azuki.getGlyphSet()
 
 
-def trace(char, size=2000):
+def trace(char, size=2000, turn=0):
     """The centre line of a single-stroke glyph and its stroke's width, in
     font units: the middle of the ink down each column, and the ink's depth
     there turned across the stroke by its slope."""
@@ -43,6 +43,7 @@ def trace(char, size=2000):
     left, top, right, bottom = font.getbbox(char)
     image = Image.new("L", (right - left + 4, bottom - top + 4), 0)
     ImageDraw.Draw(image).text((2 - left, 2 - top), char, font=font, fill=255)
+    image = image.rotate(turn, expand=True)
     ink = np.asarray(image) > 127
     xs, ys, depth = [], [], []
     for x in range(ink.shape[1]):
@@ -55,7 +56,7 @@ def trace(char, size=2000):
     ys = np.convolve(np.pad(ys, 4, mode="edge"), np.ones(9) / 9, mode="valid")
     width = depth * np.cos(np.arctan(np.gradient(ys, xs)))
     # The outermost columns catch the round ends, not the stroke.
-    trim = max(1, int(len(xs) * 0.05))
+    trim = max(1, int(len(xs) * 0.08))
     xs, ys, width = xs[trim:-trim], ys[trim:-trim], width[trim:-trim]
     width = np.convolve(np.pad(width, 6, mode="edge"), np.ones(13) / 13, mode="valid")
     unit = UPM / size
@@ -92,12 +93,10 @@ def stroke(xs, ys, width):
     return contour if area < 0 else contour[::-1]
 
 
-xs, ys, width = trace("⌒")
+# Turned a quarter clockwise, the parenthesis opens downwards: an arch.
+xs, ys, width = trace("（", turn=-90)
 cx, cy = centre_of(xs, ys)
-
-# Lay the drawing out on the em: the outer arc spans the box, the shared
-# centre sits on the dot.
-fit = (BOX[1] - BOX[0]) / (xs.max() - xs.min())
+fit = 1.0
 bounds = BoundsPen(glyphs)
 glyphs[cmap[0x30FB]].draw(bounds)
 dot_left, dot_bottom, dot_right, dot_top = bounds.bounds
@@ -106,7 +105,10 @@ centre_y = BASE + dot_height / 2
 
 
 def place(x, y):
-    return BOX[0] + (x - xs.min()) * fit, centre_y + (y - cy) * fit
+    return (x - xs.min()) * fit, centre_y + (y - cy) * fit
+
+
+shift = 0.0
 
 
 def outline(arcs, lift=0.0):
@@ -114,7 +116,7 @@ def outline(arcs, lift=0.0):
     for scale in SCALES[len(SCALES) - arcs:]:
         px, py = np.array([place(cx + (x - cx) * scale, cy + (y - cy) * scale) for x, y in zip(xs, ys)]).T
         # Smaller about the shared centre, still with azuki's pen.
-        contour = stroke(px, py + lift, width * PEN)
+        contour = stroke(px + shift, py + lift, width * PEN)
         pen.moveTo(tuple(map(round, contour[0])))
         for point in contour[1:]:
             pen.lineTo(tuple(map(round, point)))
@@ -124,17 +126,26 @@ def outline(arcs, lift=0.0):
     shift_x = place(cx, cy)[0] - (dot_left + dot_right) / 2
     # Scaled about its own centre, which stays where the full-size dot's was.
     mid_x, mid_y = (dot_left + dot_right) / 2, (dot_bottom + dot_top) / 2
-    to_x, to_y = mid_x + shift_x, mid_y + BASE - dot_bottom + lift
+    to_x, to_y = mid_x + shift_x + shift, mid_y + BASE - dot_bottom + lift
     dot.replay(TransformPen(pen, (DOT, 0, 0, DOT, to_x - DOT * mid_x, to_y - DOT * mid_y)))
     return pen.glyph()
 
 
-# Centred on the same height as azuki's note, so the bar's icons line up.
+# Sized to azuki's note: as tall as it, or a fifth wider than it (the symbol
+# is wider than tall), whichever comes first,
+# then centred on it, so the bar's icons stand the same height on one line.
+# The pen and the dot keep their size, so the fit settles in a few rounds.
 note = BoundsPen(glyphs)
 glyphs[cmap[0x252F]].draw(note)
+nx0, ny0, nx1, ny1 = note.bounds
+for _ in range(6):
+    full = outline(3)
+    full.recalcBounds(None)
+    fit *= min((nx1 - nx0) * 1.2 / (full.xMax - full.xMin), (ny1 - ny0) / (full.yMax - full.yMin))
 full = outline(3)
 full.recalcBounds(None)
-lift = (note.bounds[1] + note.bounds[3]) / 2 - (full.yMin + full.yMax) / 2
+shift = (nx0 + nx1) / 2 - (full.xMin + full.xMax) / 2
+lift = (ny0 + ny1) / 2 - (full.yMin + full.yMax) / 2
 
 names = [".notdef", "space"] + [f"wifi{n}" for n in range(4)]
 built = {".notdef": TTGlyphPen(None).glyph(), "space": TTGlyphPen(None).glyph()}
