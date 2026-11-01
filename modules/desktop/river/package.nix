@@ -32,7 +32,7 @@
             wrapProgram $out/bin/river \
               --set-default WLR_RENDERER vulkan \
               --set-default RIVER_RENDER_BIT_DEPTH 10 \
-              --set-default RIVER_BLUR "bar:3,launcher:3,popover:3,osd:3" \
+              --set-default RIVER_BLUR "bar:5,launcher:4,popover:3,osd:3" \
               --set-default XDG_CURRENT_DESKTOP river
             # Its log goes to the journal as `river`, where nothing else keeps it.
             substituteInPlace $out/share/wayland-sessions/river.desktop \
