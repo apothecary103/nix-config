@@ -472,7 +472,7 @@ in
             (box :class "side left" :halign "start" :space-evenly false :spacing 16
               (box :class "avatar" :valign "center" :width 20 :height 20)
               ; Its own box: eww appends a for's children after their siblings.
-              (box :space-evenly false :spacing 20 :valign "center"
+              (box :space-evenly false :spacing 14 :valign "center"
                 (for tag in {kwm.tags}
                   (kwm-tag :tag tag)))
               (separator :visible {media.title != ""})
