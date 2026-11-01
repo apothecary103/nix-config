@@ -74,7 +74,8 @@ in
         note = "┯"; # U+252F, a pair of quavers
         shell = "┓"; # U+2513, a seashell
         house = "┰"; # U+2530, a house
-        sparkle = "┨"; # U+2528, a sparkle, radiating
+        # and a Wi-Fi symbol in its hand, the dot to three arcs (fonts.nix)
+        wifi = map (n: builtins.fromJSON ''"\ue00${toString n}"'') [ 0 1 2 3 ];
         # and the rest from the symbols it draws (fonts.nix keeps only those)
         left = "〈";
         right = "〉";
@@ -468,10 +469,10 @@ in
           :namespace "bar"
           :geometry (geometry :x "0" :y "0" :width "100%" :height "${toString band}px" :anchor "top center")
           (centerbox :class "strip"
-            (box :class "side left" :halign "start" :space-evenly false :spacing 10
+            (box :class "side left" :halign "start" :space-evenly false :spacing 16
               (box :class "avatar" :valign "center" :width 20 :height 20)
               ; Its own box: eww appends a for's children after their siblings.
-              (box :space-evenly false :spacing 12 :valign "center"
+              (box :space-evenly false :spacing 20 :valign "center"
                 (for tag in {kwm.tags}
                   (kwm-tag :tag tag)))
               (separator :visible {media.title != ""})
@@ -487,30 +488,38 @@ in
                   (label :class "play" :text {media.status == "Playing" ? "${glyph.pause}" : "${glyph.play}"}))))
             ; Nothing under the notch.
             (box :class "notch" :width ${toString notchZone})
-            (box :class "side right" :halign "end" :space-evenly false :spacing 12
+            (box :class "side right" :halign "end" :space-evenly false :spacing 22
               (box :space-evenly false :spacing 6 :valign "center"
                 (eventbox :cursor "pointer" :onclick "eww update tray_expanded=''${!tray_expanded}"
                   (label :class {tray_expanded ? "chevron expanded" : "chevron"} :text {tray_expanded ? "${glyph.right}" : "${glyph.left}"}))
                 (revealer :reveal tray_expanded :transition "slideleft" :duration "250ms"
                   (systray :class "tray" :icon-size 16 :spacing 8 :prepend-new true)))
               (separator)
-              ; azuki's sparkle on Wi-Fi, faint as the signal fades, its house on
-              ; a cable; the connection and its rates up and down on hover.
-              (box :class {network.kind == "none" ? "network off"
-                           : network.kind == "wifi" && traffic.signal < 40 ? "network weak" : "network"}
+              ; Wi-Fi drawn as azuki would, its arcs lit to the signal over the
+              ; whole symbol drawn faint, as macOS shows it; azuki's house on a
+              ; cable. The connection and its rates up and down on hover.
+              (box :class {network.kind == "none" ? "network off" : "network"}
                    :valign "center"
                    :tooltip {network.kind == "none" ? "offline"
                              : (network.kind == "wifi" ? "''${network.ssid} · ''${traffic.signal}%" : "ethernet")
                                + "  ↑ ''${traffic.up}  ↓ ''${traffic.down}"}
-                (label :class "glyph" :text {network.kind == "wired" ? "${glyph.house}" : "${glyph.sparkle}"}))
+                (label :class "glyph" :visible {network.kind == "wired"} :text "${glyph.house}")
+                (overlay :visible {network.kind != "wired"}
+                  (label :class "wifi unlit" :text "${builtins.elemAt glyph.wifi 3}")
+                  (label :class "wifi"
+                         :text {network.kind == "none" ? ""
+                           : traffic.signal > 66 ? "${builtins.elemAt glyph.wifi 3}"
+                           : traffic.signal > 33 ? "${builtins.elemAt glyph.wifi 2}"
+                           : traffic.signal > 0 ? "${builtins.elemAt glyph.wifi 1}"
+                           : "${builtins.elemAt glyph.wifi 0}"})))
               (eventbox :cursor "pointer" :onclick "wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle"
                         :onscroll "osd volume-{}" :valign "center"
-                (box :class {volume.muted ? "volume muted" : "volume"} :space-evenly false :spacing 5
+                (box :class {volume.muted ? "volume muted" : "volume"} :space-evenly false :spacing 7
                   (label :class "glyph" :text "${glyph.note}")
                   (label :class "value" :text {volume.muted ? "Mute" : "''${volume.level}%"})))
               ; azuki's seashell: green while charging, red when low.
               (box :class {${bat}.status == "Charging" ? "battery charging" : ${bat}.capacity < 20 ? "battery low" : "battery"}
-                   :space-evenly false :spacing 5 :valign "center"
+                   :space-evenly false :spacing 7 :valign "center"
                 (label :class "glyph" :text "${glyph.shell}")
                 (label :class "value" :text "''${${bat}.capacity}%"))
               (separator)
@@ -794,10 +803,15 @@ in
           font-size: 19px;
           min-width: 20px;
         }
-        .strip .network.weak .glyph {
-          color: ${palette.native.subtext0};
+        .strip .wifi {
+          font-family: "azuki_wifi";
+          font-size: 21px;
+          min-width: 22px;
         }
-        .strip .network.off .glyph {
+        .strip .wifi.unlit {
+          color: ${palette.native.surface1};
+        }
+        .strip .network.off .wifi.unlit {
           color: ${palette.native.overlay0};
         }
         .strip .volume.muted label {
