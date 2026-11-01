@@ -1,0 +1,111 @@
+Pointer moves and resizes follow the window they began on, not focus.
+
+kwm looked the window up through focus on every op_delta and op_release and
+treated a focused window without an operation as unreachable, so a window
+opening or closing mid-drag, or a tag switch, aborted kwm and took the session
+down with it. A release after focus moved never ended the operation either,
+and a window closed mid-drag left the seat in it.
+
+diff --git a/src/kwm/seat.zig b/src/kwm/seat.zig
+index 0950d99..3588a4a 100644
+--- a/src/kwm/seat.zig
++++ b/src/kwm/seat.zig
+@@ -183,6 +183,19 @@ pub fn op_start(self: *Self, @"type": union(enum) { move, resize: Window.ResizeD
+ }
+ 
+ 
++/// The window this seat is moving or resizing, if any.
++pub fn operated_window(self: *Self) ?*Window {
++    var it = ctx.windows.safeIterator(.forward);
++    while (it.next()) |window| {
++        switch (window.operator) {
++            .none => {},
++            inline .move, .resize => |data| if (data.seat == self) return window,
++        }
++    }
++    return null;
++}
++
++
+ pub fn op_end(self: *Self) void {
+     log.debug("<{*}> op end", .{ self });
+ 
+@@ -904,7 +917,13 @@ fn rwm_seat_listener(rwm_seat: *river.SeatV1, event: river.SeatV1.Event, seat: *
+         .op_delta => |data| {
+             log.debug("<{*}> op delta: (dx: {}, dy: {})", .{ seat, data.dx, data.dy });
+ 
+-            const window = ctx.focused_window().?;
++            // The window this seat is moving or resizing, which focus may
++            // have left since the operation began.
++            const window = seat.operated_window() orelse {
++                log.debug("no window operated on, ending the operation", .{});
++                seat.rwm_seat.opEnd();
++                return;
++            };
+             switch (window.operator) {
+                 .none => unreachable,
+                 .move => |op_data| {
+@@ -955,22 +974,15 @@ fn rwm_seat_listener(rwm_seat: *river.SeatV1, event: river.SeatV1.Event, seat: *
+         .op_release => {
+             log.debug("<{*}> op release", .{ seat });
+ 
+-            if (ctx.focused_window()) |window| {
++            if (seat.operated_window()) |window| {
+                 switch (window.operator) {
+-                    .none => {},
+-                    .move => |data| {
+-                        if (data.seat == seat) {
+-                            window.prepare_move(.stop);
+-                        }
+-                    },
+-                    .resize => |data| {
+-                        if (data.seat == seat) {
+-                            window.prepare_resize(.stop);
+-                        }
+-                    }
++                    .none => unreachable,
++                    .move => window.prepare_move(.stop),
++                    .resize => window.prepare_resize(.stop),
+                 }
+             } else {
+-                log.debug("no window focused", .{});
++                log.debug("no window operated on, ending the operation", .{});
++                seat.rwm_seat.opEnd();
+             }
+         },
+         .pointer_enter => |data| {
+diff --git a/src/kwm/window.zig b/src/kwm/window.zig
+index e43dd44..8979be3 100644
+--- a/src/kwm/window.zig
++++ b/src/kwm/window.zig
+@@ -191,6 +191,12 @@ pub fn destroy(self: *Self) void {
+         }
+     }
+ 
++    // Closed mid-move or mid-resize: let the seat go.
++    switch (self.operator) {
++        .none => {},
++        inline .move, .resize => |data| data.seat.op_end(),
++    }
++
+     self.set_former_output(null);
+ 
+     if (self.is_terminal) {
+@@ -692,7 +698,7 @@ pub fn handle_events(self: *Self) void {
+                             .move => |op_data| {
+                                 op_data.seat.op_end();
+                             },
+-                            else => unreachable,
++                            else => {},
+                         }
+                         self.operator = .none;
+                     }
+@@ -720,7 +726,7 @@ pub fn handle_events(self: *Self) void {
+                             .resize => |op_data| {
+                                 op_data.seat.op_end();
+                             },
+-                            else => unreachable,
++                            else => {},
+                         }
+                         self.operator = .none;
+                     }
