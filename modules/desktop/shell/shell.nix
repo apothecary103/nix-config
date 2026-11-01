@@ -58,10 +58,26 @@ in
   # the power keys); the status and time open the controls, the track the
   # player. Maple Mono with Lucide icons, in the sakura theme.
   flake.modules.hjem.linux =
-    { pkgs, palette, ... }:
+    {
+      config,
+      pkgs,
+      palette,
+      accent,
+      ...
+    }:
     let
       icon = lucideMap pkgs;
       nf = nerdMap pkgs;
+
+      # azuki keeps its drawings behind box-drawing characters.
+      glyph = {
+        note = "┯"; # U+252F, a pair of quavers
+        shell = "┓"; # U+2513, a seashell
+        chick = "┗"; # U+2517, a chick
+        house = "┰"; # U+2530, a house
+        up = "▲";
+        down = "▼";
+      };
       eww = lib.getExe pkgs.eww;
 
       band = 37;
@@ -234,11 +250,11 @@ in
         if [ "$(playerctl loop 2>/dev/null)" = None ]; then playerctl loop Playlist; else playerctl loop None; fi
       '';
 
-      # The time once a minute, on the minute.
+      # The time every second, on the second.
       clock = script "shell-clock" [ pkgs.coreutils ] ''
         while :; do
-          date '+{"hour":"%H","minute":"%M","weekday":"%A","date":"%-d, %B","bar":"%a %-d %b  %H:%M"}'
-          sleep $((60 - 10#$(date +%S)))
+          date '+{"hour":"%H","minute":"%M","weekday":"%A","date":"%-d, %B","bar":"%a %-d %b  %H:%M:%S"}'
+          sleep "0.$(printf '%09d' $((1000000000 - 10#$(date +%N))))"
         done
       '';
 
@@ -358,6 +374,13 @@ in
     {
       packages = [ pkgs.eww ];
 
+      # The accent follows the wallpaper (theme.nix): eww.scss imports it.
+      accent.live.eww = {
+        path = "${config.directory}/.config/eww/accent.scss";
+        template = "$accent: #@accent@;";
+        reload = "${eww} reload";
+      };
+
       xdg.config.files."eww/eww.yuck".text = ''
         (deflisten kwm :initial '{"tags":[],"app_id":"","title":""}' "${tags}")
         (deflisten volume :initial '{"level":0,"muted":false}' "${volume}")
@@ -405,8 +428,8 @@ in
         ; flush with the top, its two halves either side of the notch with
         ; nothing under it, ${toString inset} in from the panel's rounded corners.
         ; Left: the avatar, the workspaces in kanji from 零 (five always), the
-        ; track; right: the tray behind a chevron, the network with its
-        ; traffic arrows, the volume, the battery drawn as a cell, the clock.
+        ; track; right: the tray behind a chevron, then the network, volume
+        ; and battery in azuki's drawings, and the clock to the second.
         (defwidget separator [?visible]
           (box :class "separator" :valign "center" :width 1 :height 14
                :visible {visible == "" ? true : visible}))
@@ -454,31 +477,26 @@ in
                 (revealer :reveal tray_expanded :transition "slideleft" :duration "250ms"
                   (systray :class "tray" :icon-size 16 :spacing 8 :prepend-new true)))
               (separator)
-              (box :class "network" :space-evenly false :valign "center"
-                (label :class {network.kind == "none" ? "wifi off" : "wifi"}
-                       :text {network.kind == "none" ? "${nf.md-wifi_strength_outline}"
-                         : network.kind == "wired" || traffic.signal > 75 ? "${nf.md-wifi_strength_4}"
-                         : traffic.signal > 50 ? "${nf.md-wifi_strength_3}"
-                         : traffic.signal > 25 ? "${nf.md-wifi_strength_2}" : "${nf.md-wifi_strength_1}"})
-                (box :class "arrows" :orientation "v" :valign "center" :width 7 :visible {network.kind != "none"}
-                  (label :class {traffic.tx ? "arrow on" : "arrow"} :text "▴")
-                  (label :class {traffic.rx ? "arrow on" : "arrow"} :text "▾")))
+              ; azuki's chick on Wi-Fi, faint as the signal fades, its house on a
+              ; cable, and its triangles lit while bytes go out and come in.
+              (box :class {network.kind == "none" ? "network off"
+                           : network.kind == "wifi" && traffic.signal < 40 ? "network weak" : "network"}
+                   :space-evenly false :spacing 4 :valign "center"
+                   :tooltip {network.kind == "wifi" ? "''${network.ssid} · ''${traffic.signal}%"
+                             : network.kind == "wired" ? "ethernet" : "offline"}
+                (label :class "glyph" :text {network.kind == "wired" ? "${glyph.house}" : "${glyph.chick}"})
+                (box :class "arrows" :space-evenly false :valign "center" :visible {network.kind != "none"}
+                  (label :class {traffic.tx ? "arrow on" : "arrow"} :text "${glyph.up}")
+                  (label :class {traffic.rx ? "arrow on" : "arrow"} :text "${glyph.down}")))
               (eventbox :cursor "pointer" :onclick "wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle"
                         :onscroll "osd volume-{}" :valign "center"
-                (box :class {volume.muted ? "volume muted" : "volume"} :space-evenly false :spacing 6
-                  (label :class "volume-icon"
-                         :text {volume.muted ? "${nf.fa-volume_off}" : volume.level >= 50 ? "${nf.fa-volume_up}" : "${nf.fa-volume_down}"})
+                (box :class {volume.muted ? "volume muted" : "volume"} :space-evenly false :spacing 5
+                  (label :class "glyph" :text "${glyph.note}")
                   (label :class "value" :text {volume.muted ? "Mute" : "''${volume.level}%"})))
+              ; azuki's seashell: green while charging, red when low.
               (box :class {${bat}.status == "Charging" ? "battery charging" : ${bat}.capacity < 20 ? "battery low" : "battery"}
-                   :space-evenly false :spacing 6 :valign "center"
-                (box :space-evenly false :valign "center" :width 23 :height 12
-                  ; GTK overlays draw no border, so the cell's outline is a box around it.
-                  (box :class "cell" :width 20 :height 12
-                    (overlay :hexpand true
-                      (box :space-evenly false
-                        (box :class "fill" :width {max(2, round(16 * ${bat}.capacity / 100, 0))}))
-                      (label :class "bolt" :visible {${bat}.status == "Charging"} :text "${nf.md-lightning_bolt}")))
-                  (box :class "tip" :valign "center" :width 3 :height 6))
+                   :space-evenly false :spacing 5 :valign "center"
+                (label :class "glyph" :text "${glyph.shell}")
                 (label :class "value" :text "''${${bat}.capacity}%"))
               (separator)
               (label :class "clock" :valign "center" :text {clock.bar}))))
@@ -643,6 +661,8 @@ in
         $key: ${palette.surface.neutral1};
         $well: ${palette.surface.neutral2};
         $accent: ${palette.ui.accent};
+        // The wallpaper's accent while the session runs (theme.nix).
+        @import "accent";
         $error: ${palette.status.error};
 
         $standard: cubic-bezier(0.2, 0, 0, 1);
@@ -652,7 +672,7 @@ in
         * {
           all: unset;
           font-family: "Maple Mono NF CN";
-          font-size: 12px;
+          font-size: 13px;
           color: $text;
         }
 
@@ -680,7 +700,7 @@ in
         }
         .caption {
           color: $dim;
-          font-size: 11px;
+          font-size: 12px;
         }
         .low .icon,
         .low .strong {
@@ -700,7 +720,7 @@ in
         }
         .strip label {
           font-family: "Maple Mono NF CN";
-          font-size: 12px;
+          font-size: 14px;
           color: ${palette.native.text};
         }
         .separator {
@@ -714,8 +734,8 @@ in
           background-position: center;
         }
         .strip .numeral {
-          font-size: 13px;
-          font-weight: bold;
+          font-family: "azuki_font";
+          font-size: 18px;
           color: ${palette.native.overlay0};
         }
         .strip .numeral.active {
@@ -728,7 +748,7 @@ in
           background-position: center;
         }
         .strip .art-note {
-          font-size: 11px;
+          font-size: 13px;
           min-width: 20px;
           color: ${palette.native.overlay0};
         }
@@ -739,7 +759,7 @@ in
           color: ${palette.native.overlay0};
         }
         .strip .artist {
-          font-size: 11px;
+          font-size: 13px;
           font-style: italic;
           font-weight: 500;
           color: ${palette.native.subtext0};
@@ -759,26 +779,25 @@ in
           color: ${palette.native.text};
           -gtk-icon-transform: rotate(180deg);
         }
-        .strip .wifi {
-          font-size: 18px;
-          min-width: 22px;
+        // azuki's drawings, each in a box its own size.
+        .strip .glyph {
+          font-family: "azuki_font";
+          font-size: 19px;
+          min-width: 20px;
         }
-        .strip .wifi.off {
+        .strip .network.weak .glyph {
+          color: ${palette.native.subtext0};
+        }
+        .strip .network.off .glyph {
           color: ${palette.native.overlay0};
         }
         .strip .arrow {
-          font-family: sans-serif;
-          font-size: 8px;
-          min-height: 7px;
-          margin: -1px 0;
+          font-family: "azuki_font";
+          font-size: 12px;
           color: ${palette.native.surface1};
         }
         .strip .arrow.on {
           color: ${palette.native.text};
-        }
-        .strip .volume-icon {
-          font-size: 15px;
-          min-width: 18px;
         }
         .strip .value {
           font-weight: 600;
@@ -786,28 +805,11 @@ in
         .strip .volume.muted label {
           color: ${palette.native.overlay0};
         }
-        .cell {
-          border: 1px solid ${palette.native.subtext0};
-          border-radius: 3px;
+        .strip .battery.low label {
+          color: ${palette.native.red};
         }
-        .fill {
-          margin: 2px;
-          border-radius: 1px;
-          background-color: ${palette.native.text};
-        }
-        .battery.low .fill {
-          background-color: ${palette.native.red};
-        }
-        .battery.charging .fill {
-          background-color: ${palette.native.green};
-        }
-        .strip .bolt {
-          font-size: 9px;
-          color: ${palette.native.mantle};
-        }
-        .tip {
-          border-radius: 1.5px;
-          background-color: ${palette.native.subtext0};
+        .strip .battery.charging .glyph {
+          color: ${palette.native.green};
         }
         .strip .clock {
           font-weight: 600;
@@ -1030,6 +1032,8 @@ in
           pkgs.wireplumber
         ];
         serviceConfig = {
+          # The stylesheet will not compile without its accent.
+          ExecStartPre = accent.render;
           ExecStart = "${eww} daemon --no-daemonize";
           ExecStartPost = open;
           Restart = "on-failure";
