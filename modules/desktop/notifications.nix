@@ -4,9 +4,20 @@
       lib,
       pkgs,
       palette,
+      accent,
       ...
     }:
+    let
+      makoctl = lib.getExe' pkgs.mako "makoctl";
+    in
     {
+      # The accent edge follows the wallpaper (theme.nix).
+      accent.live.mako = {
+        path = "${accent.state}/mako.conf";
+        template = "border-color=#@accent@";
+        reload = "${makoctl} reload";
+      };
+
       packages = [
         pkgs.mako
         pkgs.libnotify
@@ -16,7 +27,7 @@
       # edge, the title over the body in Maple Mono, on the 4 px grid and in
       # from the corner under the menubar. Gone after five seconds unless critical.
       xdg.config.files."mako/config".text = ''
-        font=Maple Mono NF CN 10
+        font=Maple Mono NF CN 12
         anchor=top-right
         margin=8
         padding=16
@@ -30,7 +41,7 @@
         max-history=10
         background-color=${palette.surface.neutral0}f2
         text-color=${palette.surface.textMuted}
-        border-color=${palette.ui.accent}
+        include=${accent.state}/mako.conf
         progress-color=over ${palette.surface.neutral2}
         format=<b><span foreground="${palette.surface.text}">%s</span></b>\n%b
 
@@ -58,8 +69,10 @@
         serviceConfig = {
           Type = "dbus";
           BusName = "org.freedesktop.Notifications";
+          # mako refuses a config whose include is missing.
+          ExecStartPre = accent.render;
           ExecStart = lib.getExe pkgs.mako;
-          ExecReload = "${lib.getExe' pkgs.mako "makoctl"} reload";
+          ExecReload = "${makoctl} reload";
           Restart = "on-failure";
         };
       };
