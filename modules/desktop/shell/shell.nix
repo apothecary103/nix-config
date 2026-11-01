@@ -805,8 +805,8 @@ in
         }
         .strip .wifi {
           font-family: "azuki_wifi";
-          font-size: 21px;
-          min-width: 22px;
+          font-size: 19px;
+          min-width: 20px;
         }
         .strip .wifi.unlit {
           color: ${palette.native.surface1};
