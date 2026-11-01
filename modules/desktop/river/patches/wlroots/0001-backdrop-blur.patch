@@ -774,9 +774,9 @@ index 7bc8b76..4118e7d 100644
 +// target, and the finish of the last step up.
 +#define BLUR_RADIUS 5.0f
 +#define BLUR_NOISE 0.02f
-+#define BLUR_BRIGHTNESS 0.9f
-+#define BLUR_CONTRAST 0.9f
-+#define BLUR_SATURATION 1.1f
++#define BLUR_BRIGHTNESS 1.0f
++#define BLUR_CONTRAST 1.0f
++#define BLUR_SATURATION 1.0f
 +
 +// The same offset for the fallback below, in source texels.
 +#define BLUR_OFFSET (BLUR_RADIUS / 2)
