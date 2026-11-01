@@ -74,7 +74,6 @@ in
         note = "┯"; # U+252F, a pair of quavers
         shell = "┓"; # U+2513, a seashell
         house = "┰"; # U+2530, a house
-        sparkle = "┨"; # U+2528, a sparkle, radiating
         # and the rest from the symbols it draws (fonts.nix keeps only those)
         up = "▲";
         down = "▼";
@@ -164,9 +163,9 @@ in
             nmcli monitor | while read -r _; do emit; done
           '';
 
-      # The default route's interface every two seconds: whether bytes came in
-      # or went out since the last look (a liveness hint, not a rate, as the
-      # quickshell bar had it), and its Wi-Fi link quality out of 100.
+      # The default route's interface every two seconds: how fast bytes go out
+      # and come in, in bytes a second (as 840B, 12K, 1.4M), whether either
+      # is more than a trickle, and its Wi-Fi link quality out of 100.
       traffic =
         script "shell-traffic"
           [
@@ -175,20 +174,31 @@ in
             pkgs.iproute2
           ]
           ''
+            rate() {
+              awk -v b="$1" 'BEGIN {
+                if (b < 1000) printf "%dB", b
+                else if (b < 10240) printf "%.1fK", b / 1024
+                else if (b < 1024000) printf "%dK", b / 1024
+                else if (b < 10485760) printf "%.1fM", b / 1048576
+                else printf "%dM", b / 1048576
+              }'
+            }
             last_iface="" last_rx=-1 last_tx=-1
             while :; do
               iface=$(ip route show default 2>/dev/null | awk '{ print $5; exit }')
-              rx=-1 tx=-1 signal=0 receiving=false transmitting=false
+              rx=-1 tx=-1 signal=0 receiving=false transmitting=false down=0 up=0
               if [ -n "$iface" ] && [ -r "/sys/class/net/$iface/statistics/rx_bytes" ]; then
                 rx=$(< "/sys/class/net/$iface/statistics/rx_bytes")
                 tx=$(< "/sys/class/net/$iface/statistics/tx_bytes")
                 signal=$(awk -v i="$iface:" '$1 == i { q = $3; sub(/\.$/, "", q); print int(q * 100 / 70) }' /proc/net/wireless)
               fi
               if [ "$iface" = "$last_iface" ] && [ "$last_rx" -ge 0 ]; then
-                [ $((rx - last_rx)) -gt 1024 ] && receiving=true
-                [ $((tx - last_tx)) -gt 1024 ] && transmitting=true
+                down=$(((rx - last_rx) / 2)) up=$(((tx - last_tx) / 2))
+                [ "$down" -gt 512 ] && receiving=true
+                [ "$up" -gt 512 ] && transmitting=true
               fi
-              printf '{"rx":%s,"tx":%s,"signal":%s}\n' "$receiving" "$transmitting" "''${signal:-0}"
+              printf '{"rx":%s,"tx":%s,"signal":%s,"down":"%s","up":"%s"}\n' \
+                "$receiving" "$transmitting" "''${signal:-0}" "$(rate "$down")" "$(rate "$up")"
               last_iface=$iface last_rx=$rx last_tx=$tx
               sleep 2
             done
@@ -392,7 +402,7 @@ in
         (deflisten kwm :initial '{"tags":[],"app_id":"","title":""}' "${tags}")
         (deflisten volume :initial '{"level":0,"muted":false}' "${volume}")
         (deflisten network :initial '{"kind":"none","ssid":"","enabled":true}' "${network}")
-        (deflisten traffic :initial '{"rx":false,"tx":false,"signal":0}' "${traffic}")
+        (deflisten traffic :initial '{"rx":false,"tx":false,"signal":0,"down":"0B","up":"0B"}' "${traffic}")
         (deflisten media :initial '{"status":"","title":"","artist":"","art":"","tint":"","length":0,"player":""}' "${media}")
         (defpoll bluetooth :interval "5s" :initial '{"powered":false,"device":""}' "${bluetooth}")
         (deflisten clock :initial '{"hour":"","minute":"","weekday":"","date":"","bar":""}' "${clock}")
@@ -485,17 +495,18 @@ in
                 (revealer :reveal tray_expanded :transition "slideleft" :duration "250ms"
                   (systray :class "tray" :icon-size 16 :spacing 8 :prepend-new true)))
               (separator)
-              ; azuki's sparkle on Wi-Fi, faint as the signal fades, its house on
-              ; a cable, and its triangles lit while bytes go out and come in.
-              (box :class {network.kind == "none" ? "network off"
-                           : network.kind == "wifi" && traffic.signal < 40 ? "network weak" : "network"}
-                   :space-evenly false :spacing 4 :valign "center"
+              ; Up and down a second, each behind azuki's triangle, lit while
+              ; more than a trickle moves; the connection in the tooltip.
+              (box :class {network.kind == "none" ? "network off" : "network"}
+                   :space-evenly false :spacing 10 :valign "center"
                    :tooltip {network.kind == "wifi" ? "''${network.ssid} · ''${traffic.signal}%"
                              : network.kind == "wired" ? "ethernet" : "offline"}
-                (label :class "glyph" :text {network.kind == "wired" ? "${glyph.house}" : "${glyph.sparkle}"})
-                (box :class "arrows" :space-evenly false :valign "center" :visible {network.kind != "none"}
+                (box :space-evenly false :spacing 4
                   (label :class {traffic.tx ? "arrow on" : "arrow"} :text "${glyph.up}")
-                  (label :class {traffic.rx ? "arrow on" : "arrow"} :text "${glyph.down}")))
+                  (label :class "rate" :xalign 0 :text {network.kind == "none" ? "-" : traffic.up}))
+                (box :space-evenly false :spacing 4
+                  (label :class {traffic.rx ? "arrow on" : "arrow"} :text "${glyph.down}")
+                  (label :class "rate" :xalign 0 :text {network.kind == "none" ? "-" : traffic.down})))
               (eventbox :cursor "pointer" :onclick "wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle"
                         :onscroll "osd volume-{}" :valign "center"
                 (box :class {volume.muted ? "volume muted" : "volume"} :space-evenly false :spacing 5
@@ -787,10 +798,11 @@ in
           font-size: 19px;
           min-width: 20px;
         }
-        .strip .network.weak .glyph {
-          color: ${palette.native.subtext0};
+        // Wide enough for 1.4M, so the bar holds still as the numbers change.
+        .strip .rate {
+          min-width: 42px;
         }
-        .strip .network.off .glyph {
+        .strip .network.off label {
           color: ${palette.native.overlay0};
         }
         .strip .arrow {
