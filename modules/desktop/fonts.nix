@@ -24,11 +24,14 @@ let
             return pen.bounds is None
 
         blank = {name for name in font.getGlyphOrder() if empty(name)}
+        # Its ellipsis sits mid-height, Japanese style: Latin text cut short
+        # wants one on the baseline, from the next font.
+        given_up = {0x2026}
         for table in font["cmap"].tables:
             table.cmap = {
                 code: name
                 for code, name in table.cmap.items()
-                if name not in blank or chr(code).isspace()
+                if (name not in blank or chr(code).isspace()) and code not in given_up
             }
         font.save(sys.argv[2])
         PY
