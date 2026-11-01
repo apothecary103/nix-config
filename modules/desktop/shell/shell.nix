@@ -427,7 +427,7 @@ in
           :focusable "none"
           :namespace "bar"
           :geometry (geometry :x "0" :y "0" :width "100%" :height "${toString band}px" :anchor "top center")
-          (centerbox :class "bar"
+          (centerbox :class "strip"
             (box :class "side left" :halign "start" :space-evenly false :spacing 10
               (box :class "avatar" :valign "center" :width 20 :height 20)
               ; Its own box: eww appends a for's children after their siblings.
@@ -692,13 +692,13 @@ in
         // Its blue highlights take the accent the wallpaper suggests (theme.nix).
         // Nerd glyphs are wider than the monospace cell they sit in, so each icon
         // gets a box its own size, as the quickshell bar gave them Items.
-        .bar {
+        .strip {
           background-color: rgba(${palette.native.mantle}, 0.8);
         }
         .side {
           padding: 0 ${toString inset}px;
         }
-        .bar label {
+        .strip label {
           font-family: "Maple Mono NF CN";
           font-size: 12px;
           color: ${palette.native.text};
@@ -713,12 +713,12 @@ in
           background-size: cover;
           background-position: center;
         }
-        .bar .numeral {
+        .strip .numeral {
           font-size: 13px;
           font-weight: bold;
           color: ${palette.native.overlay0};
         }
-        .bar .numeral.active {
+        .strip .numeral.active {
           color: $accent;
         }
         .art {
@@ -727,63 +727,63 @@ in
           background-size: cover;
           background-position: center;
         }
-        .bar .art-note {
+        .strip .art-note {
           font-size: 11px;
           min-width: 20px;
           color: ${palette.native.overlay0};
         }
-        .bar .track {
+        .strip .track {
           font-weight: 600;
         }
-        .bar .dot {
+        .strip .dot {
           color: ${palette.native.overlay0};
         }
-        .bar .artist {
+        .strip .artist {
           font-size: 11px;
           font-style: italic;
           font-weight: 500;
           color: ${palette.native.subtext0};
         }
-        .bar .play {
+        .strip .play {
           font-size: 13px;
           min-width: 16px;
           color: $accent;
         }
-        .bar .chevron {
+        .strip .chevron {
           font-size: 16px;
           min-width: 16px;
           color: ${palette.native.subtext0};
           transition: color 200ms;
         }
-        .bar .chevron.expanded {
+        .strip .chevron.expanded {
           color: ${palette.native.text};
           -gtk-icon-transform: rotate(180deg);
         }
-        .bar .wifi {
+        .strip .wifi {
           font-size: 18px;
           min-width: 22px;
         }
-        .bar .wifi.off {
+        .strip .wifi.off {
           color: ${palette.native.overlay0};
         }
-        .bar .arrow {
+        .strip .arrow {
           font-family: sans-serif;
           font-size: 8px;
           min-height: 7px;
           margin: -1px 0;
           color: ${palette.native.surface1};
         }
-        .bar .arrow.on {
+        .strip .arrow.on {
           color: ${palette.native.text};
         }
-        .bar .volume-icon {
+        .strip .volume-icon {
           font-size: 15px;
           min-width: 18px;
         }
-        .bar .value {
+        .strip .value {
           font-weight: 600;
         }
-        .bar .volume.muted label {
+        .strip .volume.muted label {
           color: ${palette.native.overlay0};
         }
         .cell {
@@ -801,7 +801,7 @@ in
         .battery.charging .fill {
           background-color: ${palette.native.green};
         }
-        .bar .bolt {
+        .strip .bolt {
           font-size: 9px;
           color: ${palette.native.mantle};
         }
@@ -809,7 +809,7 @@ in
           border-radius: 1.5px;
           background-color: ${palette.native.subtext0};
         }
-        .bar .clock {
+        .strip .clock {
           font-weight: 600;
           letter-spacing: 0.4px;
         }
