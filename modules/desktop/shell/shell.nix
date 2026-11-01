@@ -60,6 +60,7 @@ in
   flake.modules.hjem.linux =
     {
       config,
+      osConfig,
       pkgs,
       palette,
       accent,
@@ -1030,6 +1031,9 @@ in
 
       systemd.services.eww = {
         description = "Desktop shell";
+        # GTK reads the fonts once, when eww starts: a new or redrawn font
+        # (azuki's, its Wi-Fi) means starting it again, or its glyphs fall back.
+        restartTriggers = osConfig.fonts.packages;
         wantedBy = [ "river-session.target" ];
         partOf = [ "graphical-session.target" ];
         after = [ "graphical-session.target" ];
