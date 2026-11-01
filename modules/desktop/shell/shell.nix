@@ -73,10 +73,17 @@ in
       glyph = {
         note = "┯"; # U+252F, a pair of quavers
         shell = "┓"; # U+2513, a seashell
-        chick = "┗"; # U+2517, a chick
         house = "┰"; # U+2530, a house
+        sparkle = "┨"; # U+2528, a sparkle, radiating
+        # and the rest from the symbols it draws (fonts.nix keeps only those)
         up = "▲";
         down = "▼";
+        left = "〈";
+        right = "〉";
+        play = "＞";
+        pause = "∥";
+        quaver = "♪";
+        dot = "・";
       };
       eww = lib.getExe pkgs.eww;
 
@@ -428,8 +435,9 @@ in
         ; flush with the top, its two halves either side of the notch with
         ; nothing under it, ${toString inset} in from the panel's rounded corners.
         ; Left: the avatar, the workspaces in kanji from 零 (five always), the
-        ; track; right: the tray behind a chevron, then the network, volume
-        ; and battery in azuki's drawings, and the clock to the second.
+        ; track; right: the tray behind an arrow, then the network, volume
+        ; and battery in azuki's drawings, and the clock to the second. All
+        ; of it in azuki.
         (defwidget separator [?visible]
           (box :class "separator" :valign "center" :width 1 :height 14
                :visible {visible == "" ? true : visible}))
@@ -461,30 +469,30 @@ in
               (box :class "now-playing" :space-evenly false :spacing 8 :valign "center"
                    :visible {media.title != ""}
                 (box :class "art" :width 20 :height 20 :valign "center" :style ${art}
-                  (label :class "art-note" :hexpand true :visible {media.art == ""} :text "${nf.fa-music}"))
+                  (label :class "art-note" :hexpand true :visible {media.art == ""} :text "${glyph.quaver}"))
                 (box :space-evenly false :spacing 6
                   (label :class "track" :limit-width 18 :text {media.title != "" ? media.title : "Unknown"})
-                  (label :class "dot" :visible {media.artist != ""} :text "·")
+                  (label :class "dot" :visible {media.artist != ""} :text "${glyph.dot}")
                   (label :class "artist" :limit-width 13 :visible {media.artist != ""} :text {media.artist}))
                 (eventbox :cursor "pointer" :onclick "playerctl play-pause" :width 16
-                  (label :class "play" :text {media.status == "Playing" ? "${nf.fa-pause}" : "${nf.fa-play}"}))))
+                  (label :class "play" :text {media.status == "Playing" ? "${glyph.pause}" : "${glyph.play}"}))))
             ; Nothing under the notch.
             (box :class "notch" :width ${toString notchZone})
             (box :class "side right" :halign "end" :space-evenly false :spacing 12
               (box :space-evenly false :spacing 6 :valign "center"
                 (eventbox :cursor "pointer" :onclick "eww update tray_expanded=''${!tray_expanded}"
-                  (label :class {tray_expanded ? "chevron expanded" : "chevron"} :text "${nf.md-chevron_left}"))
+                  (label :class {tray_expanded ? "chevron expanded" : "chevron"} :text {tray_expanded ? "${glyph.right}" : "${glyph.left}"}))
                 (revealer :reveal tray_expanded :transition "slideleft" :duration "250ms"
                   (systray :class "tray" :icon-size 16 :spacing 8 :prepend-new true)))
               (separator)
-              ; azuki's chick on Wi-Fi, faint as the signal fades, its house on a
-              ; cable, and its triangles lit while bytes go out and come in.
+              ; azuki's sparkle on Wi-Fi, faint as the signal fades, its house on
+              ; a cable, and its triangles lit while bytes go out and come in.
               (box :class {network.kind == "none" ? "network off"
                            : network.kind == "wifi" && traffic.signal < 40 ? "network weak" : "network"}
                    :space-evenly false :spacing 4 :valign "center"
                    :tooltip {network.kind == "wifi" ? "''${network.ssid} · ''${traffic.signal}%"
                              : network.kind == "wired" ? "ethernet" : "offline"}
-                (label :class "glyph" :text {network.kind == "wired" ? "${glyph.house}" : "${glyph.chick}"})
+                (label :class "glyph" :text {network.kind == "wired" ? "${glyph.house}" : "${glyph.sparkle}"})
                 (box :class "arrows" :space-evenly false :valign "center" :visible {network.kind != "none"}
                   (label :class {traffic.tx ? "arrow on" : "arrow"} :text "${glyph.up}")
                   (label :class {traffic.rx ? "arrow on" : "arrow"} :text "${glyph.down}")))
@@ -719,8 +727,8 @@ in
           padding: 0 ${toString inset}px;
         }
         .strip label {
-          font-family: "Maple Mono NF CN";
-          font-size: 14px;
+          font-family: "azuki_font", "Maple Mono NF CN";
+          font-size: 15px;
           color: ${palette.native.text};
         }
         .separator {
@@ -748,36 +756,30 @@ in
           background-position: center;
         }
         .strip .art-note {
-          font-size: 13px;
+          font-size: 14px;
           min-width: 20px;
           color: ${palette.native.overlay0};
-        }
-        .strip .track {
-          font-weight: 600;
         }
         .strip .dot {
           color: ${palette.native.overlay0};
         }
         .strip .artist {
-          font-size: 13px;
-          font-style: italic;
-          font-weight: 500;
+          font-size: 14px;
           color: ${palette.native.subtext0};
         }
         .strip .play {
-          font-size: 13px;
+          font-size: 14px;
           min-width: 16px;
           color: $accent;
         }
         .strip .chevron {
-          font-size: 16px;
+          font-size: 14px;
           min-width: 16px;
           color: ${palette.native.subtext0};
           transition: color 200ms;
         }
         .strip .chevron.expanded {
           color: ${palette.native.text};
-          -gtk-icon-transform: rotate(180deg);
         }
         // azuki's drawings, each in a box its own size.
         .strip .glyph {
@@ -799,9 +801,6 @@ in
         .strip .arrow.on {
           color: ${palette.native.text};
         }
-        .strip .value {
-          font-weight: 600;
-        }
         .strip .volume.muted label {
           color: ${palette.native.overlay0};
         }
@@ -812,7 +811,6 @@ in
           color: ${palette.native.green};
         }
         .strip .clock {
-          font-weight: 600;
           letter-spacing: 0.4px;
         }
 
