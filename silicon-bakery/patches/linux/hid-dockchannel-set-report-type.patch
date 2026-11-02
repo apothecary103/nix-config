@@ -1,0 +1,42 @@
+From c9ff8adb1523d32a92ed4389d2fd105536c6f7fc Mon Sep 17 00:00:00 2001
+From: Yicong Hui <yicong@ycstuff.net>
+Date: Fri, 21 Aug 2026 20:18:49 +0200
+Subject: [PATCH] HID: dockchannel-hid: forward correct report type on
+ SET_REPORT
+
+dchid_set_report() always sends HID_OUTPUT_REPORT regardless of the
+report type requested by the caller. Inline it into its sole caller
+and forward rtype directly, so SET_REPORT works correctly for feature
+reports too, not just output reports, and to simplify function calls.
+
+Signed-off-by: Yicong Hui <yicong@ycstuff.net>
+---
+ drivers/hid/dockchannel-hid/dockchannel-hid.c | 8 +-------
+ 1 file changed, 1 insertion(+), 7 deletions(-)
+
+diff --git a/drivers/hid/dockchannel-hid/dockchannel-hid.c b/drivers/hid/dockchannel-hid/dockchannel-hid.c
+index 9cab638b30c328..68f6625313ea32 100644
+--- a/drivers/hid/dockchannel-hid/dockchannel-hid.c
++++ b/drivers/hid/dockchannel-hid/dockchannel-hid.c
+@@ -593,12 +593,6 @@ static int dchid_get_report_cmd(struct dchid_iface *iface, u8 reportnum, void *b
+ 	return ret <= 0 ? ret : ret - 1;
+ }
+ 
+-/* Note: buf includes report number! */
+-static int dchid_set_report(struct dchid_iface *iface, void *buf, size_t len)
+-{
+-	return dchid_cmd(iface, HID_OUTPUT_REPORT, REQ_SET_REPORT, buf, len, NULL, 0);
+-}
+-
+ static int dchid_raw_request(struct hid_device *hdev,
+ 				unsigned char reportnum, __u8 *buf, size_t len,
+ 				unsigned char rtype, int reqtype)
+@@ -610,7 +604,7 @@ static int dchid_raw_request(struct hid_device *hdev,
+ 		buf[0] = reportnum;
+ 		return dchid_cmd(iface, rtype, REQ_GET_REPORT, &reportnum, 1, buf + 1, len - 1);
+ 	case HID_REQ_SET_REPORT:
+-		return dchid_set_report(iface, buf, len);
++		return dchid_cmd(iface, rtype, REQ_SET_REPORT, buf, len, NULL, 0);
+ 	default:
+ 		return -EIO;
+ 	}

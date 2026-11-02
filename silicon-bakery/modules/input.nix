@@ -110,6 +110,28 @@ in
         '';
       };
 
+      click = lib.mkOption {
+        type = lib.types.enum [
+          "light"
+          "medium"
+          "firm"
+          "firmware"
+        ];
+        default = builtins.elemAt [ "light" "medium" "firm" ] (
+          profile.trackpad.preferences.FirstClickThreshold or 1
+        );
+        defaultText = lib.literalMD "the profile's Click setting (FirstClickThreshold)";
+        description = ''
+          How a click feels, as macOS's Trackpad > Click: the haptic waveforms
+          macOS gives the trackpad's firmware for its own clicks (feature
+          reports 0x22 and 0x23, patches/linux/hid-magicmouse-mtp-click-feel),
+          sent when the trackpad opens. "firmware" leaves the ones the actuator
+          holds. Where the click triggers is the firmware's own here: macOS
+          decides that in userspace from the force (125 g, times 0.8, 1 or 1.2
+          for light, medium or firm), which Linux has no counterpart for yet.
+        '';
+      };
+
       quantisation = lib.mkOption {
         type = lib.types.enum [
           "exact"
@@ -183,6 +205,18 @@ in
   config = lib.mkIf cfg.enable (
     lib.mkMerge [
       {
+        boot.kernelParams = [
+          "hid_magicmouse.fw_click_strength=${
+            toString
+              {
+                light = 0;
+                medium = 1;
+                firm = 2;
+                firmware = -1;
+              }
+              .${trackpad.click}
+          }"
+        ];
         # bakery-trackpad: the curves as numbers, and libinput's own debugger
         # running them on the trackpad, to check on the machine what the
         # compositor applies.

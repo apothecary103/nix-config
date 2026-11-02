@@ -1,0 +1,223 @@
+From: apothecary <evororentals@gmail.com>
+Date: Mon, 2 Nov 2026 12:00:00 +0100
+Subject: [PATCH] HID: magicmouse: give MTP firmware clicks macOS's Click feel
+
+The haptic actuator of the M2 MTP trackpads plays two waveforms of its
+own, one when the firmware decides the pad was pressed and one when it
+was released. That is the only click Linux has: nothing ever hands click
+control to the host (actuator feature report 0x21 = 1), so the MTP
+firmware does the click and the actuator plays what it has stored.
+
+macOS stores them. MultitouchHID (in WindowServer) calls
+MTActuatorSetFirmwareClicks() at login and when Trackpad > Click
+changes, and MultitouchSupport turns ActuationID 2 (press) and 1
+(release) of its actuator table (__TEXT,__tpad_act_plist, keyed by the
+"ActuatorRevision" AppleTopCaseDriverV2 publishes per model) into two
+"parametric waveforms", scaled by the table's Light/Medium/Firm
+multipliers, and sends them as feature reports 0x22 and 0x23 through
+AppleActuatorDeviceUserClient::setReport() -> AppleActuatorHIDEventDriver
+::setActuatorReport(type feature). Linux has never sent them.
+
+Send the same two reports when the trackpad is opened, with the bytes
+macOS 27.2 sends for actuator revision 10, the revision of Mac14,9
+(j414s) and Mac14,5 (j414c):
+
+  0x22 light  01 1e a8 03 00 22 48 49 01 00 60 17 2d 03 00 18 32 1e
+  0x22 medium 01 23 a8 03 02 22 48 49 01 04 60 17 2d 03 02 18 32 1e
+  0x22 firm   01 2c a8 03 04 22 48 49 01 05 60 17 2d 03 03 18 32 1e
+  0x23 light  01 10 90
+  0x23 medium 01 13 90
+  0x23 firm   01 13 90
+
+A waveform is a Gaussian base (type, amplitude, duration in 1/24 ms)
+followed by tones (type, amplitude in 1/255, delay, duration, period in
+1/24 ms minus one). They were computed from the table with the encoder
+decoded from MTActuationFillParametricBufferWithWaveform; the medium
+press tones are byte for byte what AsahiLinux/linux#573 captured from
+macOS with the m1n1 hypervisor.
+
+hid_magicmouse.fw_click_strength picks the waveforms like macOS's Click
+setting: 0 light, 1 medium (the macOS default, and this profile's),
+2 firm; -1 leaves the firmware's own. It is applied on the next open of
+the trackpad. Other actuator revisions get nothing, as their tables
+differ.
+
+This does not move the click threshold. macOS never sends one: with
+host click control (0x21 = 1, requested by MultitouchSupport when it
+opens the actuator) MultitouchHID decides clicks itself from the force
+in the touch reports, at 125 g x 0.8/1.0/1.2 for Light/Medium/Firm and
+300 g x the same for Force Click, and plays 0x53 output reports. In
+firmware click mode, which macOS uses before login and around sleep and
+Linux uses always, the threshold is the firmware's.
+
+The reports are feature reports, so on asahi-7.2.12-2 this needs the
+dockchannel-hid fix from #573 ("HID: dockchannel-hid: forward correct
+report type on SET_REPORT"), which otherwise turns them into output
+reports. It stacks on #573: in host mode the firmware clicks are not
+played, and when the last effect is erased and the actuator returns to
+device mode it plays these.
+
+Not yet tested on hardware.
+---
+ drivers/hid/hid-magicmouse.c | 133 +++++++++++++++++++++++++++++++++++
+ 1 file changed, 133 insertions(+)
+
+diff --git a/drivers/hid/hid-magicmouse.c b/drivers/hid/hid-magicmouse.c
+index f268380..2dd3f82 100644
+--- a/drivers/hid/hid-magicmouse.c
++++ b/drivers/hid/hid-magicmouse.c
+@@ -16,4 +16,5 @@
+ #include <linux/input/mt.h>
+ #include <linux/module.h>
++#include <linux/of.h>
+ #include <linux/slab.h>
+ #include <linux/workqueue.h>
+@@ -52,4 +53,19 @@ module_param(report_undeciphered, bool, 0644);
+ MODULE_PARM_DESC(report_undeciphered, "Report undeciphered multi-touch state field using a MSC_RAW event");
+ 
++static int fw_click_strength = 1;
++static int param_set_fw_click_strength(const char *val,
++				       const struct kernel_param *kp)
++{
++	int strength;
++
++	if (!val || kstrtoint(val, 0, &strength) || strength < -1 || strength > 2)
++		return -EINVAL;
++	WRITE_ONCE(fw_click_strength, strength);
++	return 0;
++}
++module_param_call(fw_click_strength, param_set_fw_click_strength, param_get_int,
++		  &fw_click_strength, 0644);
++MODULE_PARM_DESC(fw_click_strength, "MTP trackpads: feel of the clicks the firmware plays, as macOS's Trackpad > Click setting: 0 light, 1 medium (macOS default), 2 firm, -1 leave the firmware's own. Applied when the trackpad is opened");
++
+ #define TRACKPAD2_2021_BT_VERSION 0x110
+ #define TRACKPAD_2024_BT_VERSION 0x314
+@@ -189,4 +205,118 @@ static inline int le16_to_int(__le16 x)
+ }
+ 
++/*
++ * MTP haptic actuator: the clicks it plays by itself.
++ *
++ * Until something hands click control to the host (feature report 0x21 = 1
++ * on the actuator), the MTP firmware decides when the pad clicks and the
++ * actuator plays two stored waveforms, one on press and one on release.
++ * macOS (MultitouchSupport, MTActuatorSetFirmwareClicks) uploads them with
++ * feature reports 0x22 (press) and 0x23 (release) at login and whenever
++ * Trackpad > Click changes. They are ActuationID 2 and 1 of the
++ * MultitouchSupport actuator table for the machine's actuator revision,
++ * scaled by that table's Light/Medium/Firm multipliers. Linux never sent
++ * them, so the firmware played whatever it had.
++ *
++ * The bytes are the payloads macOS 27.2 sends for actuator revision 10
++ * (AppleTopCaseDriverV2 personalities: Mac14,9 and Mac14,5). Layout: base
++ * type (1 = Gaussian), amplitude, duration in 1/24 ms; then for each tone
++ * type (1 sine, 2 square, 3 sawtooth), amplitude in 1/255 of full scale,
++ * delay and duration in 1/24 ms, and period in 1/24 ms minus one.
++ */
++#define MTP_ACTUATOR_NAME		"Apple MTP actuator"
++#define MTP_ACT_FW_PRESS_REPORT_ID	0x22
++#define MTP_ACT_FW_RELEASE_REPORT_ID	0x23
++
++static const u8 mtp_rev10_fw_press[3][18] = {
++	/* light */
++	{ 0x01, 0x1e, 0xa8, 0x03, 0x00, 0x22, 0x48, 0x49, 0x01, 0x00,
++	  0x60, 0x17, 0x2d, 0x03, 0x00, 0x18, 0x32, 0x1e },
++	/* medium */
++	{ 0x01, 0x23, 0xa8, 0x03, 0x02, 0x22, 0x48, 0x49, 0x01, 0x04,
++	  0x60, 0x17, 0x2d, 0x03, 0x02, 0x18, 0x32, 0x1e },
++	/* firm */
++	{ 0x01, 0x2c, 0xa8, 0x03, 0x04, 0x22, 0x48, 0x49, 0x01, 0x05,
++	  0x60, 0x17, 0x2d, 0x03, 0x03, 0x18, 0x32, 0x1e },
++};
++
++static const u8 mtp_rev10_fw_release[3][3] = {
++	{ 0x01, 0x10, 0x90 },	/* light */
++	{ 0x01, 0x13, 0x90 },	/* medium */
++	{ 0x01, 0x13, 0x90 },	/* firm */
++};
++
++static const char * const mtp_rev10_machines[] = {
++	"apple,j414s",	/* Mac14,9 */
++	"apple,j414c",	/* Mac14,5 */
++	NULL
++};
++
++static int magicmouse_mtp_is_actuator(struct device *dev, const void *data)
++{
++	return dev->bus == &hid_bus_type &&
++	       !strcmp(to_hid_device(dev)->name, MTP_ACTUATOR_NAME);
++}
++
++static int magicmouse_mtp_set_feature(struct hid_device *hdev, u8 id,
++				      const u8 *data, size_t len)
++{
++	u8 *buf;
++	int ret;
++
++	buf = kmalloc(len + 1, GFP_KERNEL);
++	if (!buf)
++		return -ENOMEM;
++
++	buf[0] = id;
++	memcpy(buf + 1, data, len);
++	ret = hid_hw_raw_request(hdev, id, buf, len + 1, HID_FEATURE_REPORT,
++				 HID_REQ_SET_REPORT);
++	kfree(buf);
++
++	return ret < 0 ? ret : 0;
++}
++
++static void magicmouse_mtp_set_fw_clicks(struct hid_device *hdev)
++{
++	int strength = READ_ONCE(fw_click_strength);
++	const char * const *machine;
++	struct hid_device *actuator;
++	struct device *dev;
++	int ret;
++
++	if (strength < 0 || strength > 2)
++		return;
++
++	for (machine = mtp_rev10_machines; *machine; machine++)
++		if (of_machine_is_compatible(*machine))
++			break;
++	if (!*machine)
++		return;
++
++	dev = device_find_child(hdev->dev.parent, NULL,
++				magicmouse_mtp_is_actuator);
++	if (!dev) {
++		hid_dbg(hdev, "no actuator yet, firmware clicks left alone\n");
++		return;
++	}
++	actuator = to_hid_device(dev);
++
++	ret = magicmouse_mtp_set_feature(actuator, MTP_ACT_FW_PRESS_REPORT_ID,
++					 mtp_rev10_fw_press[strength],
++					 sizeof(mtp_rev10_fw_press[0]));
++	if (!ret)
++		ret = magicmouse_mtp_set_feature(actuator,
++						 MTP_ACT_FW_RELEASE_REPORT_ID,
++						 mtp_rev10_fw_release[strength],
++						 sizeof(mtp_rev10_fw_release[0]));
++	if (ret)
++		hid_warn(hdev, "unable to set the firmware click waveforms (%d)\n",
++			 ret);
++	else
++		hid_dbg(hdev, "firmware clicks set to strength %d\n", strength);
++
++	put_device(dev);
++}
++
+ static int magicmouse_open(struct input_dev *dev)
+ {
+@@ -269,4 +399,7 @@ static int magicmouse_open(struct input_dev *dev)
+ 	}
+ 
++	if (hdev->bus == BUS_HOST)
++		magicmouse_mtp_set_fw_clicks(hdev);
++
+ 	return 0;
+ }
+-- 
+2.47.0

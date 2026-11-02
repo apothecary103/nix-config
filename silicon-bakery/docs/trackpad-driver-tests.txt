@@ -1,0 +1,79 @@
+On-device test plan: MTP trackpad on Mac14,9 under NixOS (Asahi kernel)
+Everything here is read-only unless a step says SET. Run as root where noted.
+Tools: evtest, libinput (record/debug-events), python3, and
+trackpad-driver/tools/mtp_hidraw.py (copy it over; it only reads unless
+called with "set ... --set").
+
+0. Identify the devices
+   cat /proc/bus/input/devices | grep -A5 'Apple MTP multi-touch'
+   python3 mtp_hidraw.py list          # hidrawN for multi-touch and actuator
+   (with PR #573 the actuator has no hidraw node; steps 2-3 then need a
+    kernel without #573 or a debug print in the driver)
+   dmesg | grep -i -e dockchannel -e 'MTP' -e magicmouse
+
+1. Baseline, stock kernel (no 0001/0002)
+   1a. Dimension report:  python3 mtp_hidraw.py get multi-touch 0xd9 32
+       expect d9 c0 30 00 00 00 1e 00 00 f8 e8 5d ff 10 19 c3 1c
+       (12480 x 7680, x -5896..6416, y -163..7363; macOS IOREG value)
+   1b. Click mode:  python3 mtp_hidraw.py get actuator 0x21 8
+       expect 21 00 (firmware mode). Errors are informative too: note them.
+   1c. Stored waveforms, if the firmware answers GET for them:
+       python3 mtp_hidraw.py get actuator 0x22 64
+       python3 mtp_hidraw.py get actuator 0x23 64
+       Compare with FINDINGS 1.4 (Medium: 22 01 23 a8 03 02 22 48 49 ...,
+       23 01 13 90). Do it once after a cold boot straight into Linux and
+       once after rebooting from macOS: tells whether the actuator keeps what
+       macOS uploaded.
+
+2. Units of ABS_MT_PRESSURE (grams?)
+   Put the open laptop on a kitchen scale and tare it.
+   libinput record /dev/input/eventN > press.yml   (or: evtest /dev/input/eventN)
+   Press one finger in the middle, slowly, to about 50, 100, 150, 200 g on
+   the scale, holding each for ~1 s; repeat in a corner.
+   Compare ABS_MT_PRESSURE with the scale (subtract the scale's own reading
+   of the pad's rest). Expect pressure ~= scale grams (macOS uses the field
+   unscaled as grams). A consistent factor or per-position spread points at
+   missing force calibration (FINDINGS 2, Calibration).
+
+3. Firmware click threshold (what Linux clicks at today)
+   Same recording. For each BTN_LEFT 0 -> 1 note the ABS_MT_PRESSURE of the
+   touching finger in that frame; for 1 -> 0 the release value:
+     libinput record ... then grep the frames around BTN_LEFT, or
+     evtest | grep -E 'BTN_LEFT|ABS_MT_PRESSURE'
+   Do 10 slow presses, 10 fast. Compare with macOS host thresholds:
+   press 100 / 125 / 150 g (Light / Medium / Firm), release 75 / 93.75 /
+   112.5 g. If the firmware clicks near 125 / 94 g it matches Medium.
+
+4. 0002 patch (firmware click feel), with 0001 (or with PR #573)
+   4a. Boot with hid_magicmouse.fw_click_strength=1 (default).
+       echo 'file hid-magicmouse.c +p' > /sys/kernel/debug/dynamic_debug/control
+       restart the compositor (or run "libinput debug-events" once) so the
+       trackpad is opened, then:
+       dmesg | grep -e 'firmware clicks' -e 'firmware click waveforms'
+       expect "firmware clicks set to strength 1", no warning.
+   4b. Repeat 1c: GET 0x22/0x23 should now return the Medium bytes (if GET
+       is supported at all).
+   4c. Feel/listen: compare clicks at fw_click_strength=-1 (stock), 0, 1, 2
+       (echo N > /sys/module/hid_magicmouse/parameters/fw_click_strength,
+       then reopen as in 4a). Light should be softer with no "ring"
+       (tones off), Firm stronger. Compare with macOS at the same setting;
+       a phone recording at a fixed distance makes it comparable.
+   4d. Without 0001 (stock dockchannel), expect the reports to go out as
+       OUTPUT reports: note whether dmesg shows "failed with err" from
+       dockchannel-hid. That shows whether the report type matters.
+   4e. Suspend/resume (systemctl suspend), then click: does the feel stay?
+       If not, reopen the device and check again (macOS uploads only at
+       login/preference change, so it should stay).
+
+5. With PR #573 (host mode), for the libinput side
+   5a. While an FF effect is uploaded the pad should stop clicking by
+       itself (host mode); after the last effect is erased it should click
+       again on its own (firmware mode, now with 0002's waveforms).
+   5b. Suspend/resume while in host mode: does the pad click without
+       userspace after resume (firmware mode came back) or stay silent?
+       macOS switches to firmware mode on sleep and back on wake.
+   5c. If you experiment with #573's intensity: macOS never sends an
+       amplitude above 70 (= intensity ~27% in #573's scale); stay below.
+
+Record for each step: kernel version, which patches, the exact bytes/
+values, and for 2-3 the scale readings, so FINDINGS [H] items can be closed.
