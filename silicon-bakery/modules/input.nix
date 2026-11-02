@@ -56,6 +56,7 @@ let
     runtimeInputs = [
       pkgs.gawk
       pkgs.coreutils
+      pkgs.gnugrep
     ];
     text = ''
       device() {
@@ -64,24 +65,44 @@ let
             $1 == "Device:" { sub(/^Device: +/, ""); current = $0 }
             $1 == "Kernel:" && current == name { print $2; exit }'
       }
-      debug() {
+      trackpad() {
         dev=$(device)
         [ -n "$dev" ] || { echo "no ${profile.trackpad.name} found (libinput list-devices)" >&2; exit 1; }
+      }
+      debug() {
+        trackpad
         exec ${libinputExe} debug-events --device "$dev" --set-profile=custom \
           --set-custom-type="$1" --set-custom-step="$2" --set-custom-points="$3"
       }
       case "''${1:-}" in
         pointer) debug motion ${builtins.toJSON curves.pointer.step} ${lib.escapeShellArg (pointsArg curves.pointer)} ;;
         scroll) debug scroll ${builtins.toJSON curves.scroll.step} ${lib.escapeShellArg (pointsArg curves.scroll)} ;;
+        palms)
+          # Every palm, thumb and resting-hand decision libinput makes, as it
+          # makes it: rest a hand, type, and watch.
+          trackpad
+          ${libinputExe} debug-events --verbose --device "$dev" 2>&1 |
+            grep --line-buffered -E 'palm|thumb|resting|typing'
+          ;;
+        record)
+          # Everything the trackpad and keyboard send, for replaying a
+          # session that rejected a palm wrongly (libinput replay).
+          trackpad
+          out=''${2:-trackpad-$(date +%Y%m%d-%H%M%S).yml}
+          echo "recording to $out; Ctrl-C to stop" >&2
+          exec ${libinputExe} record --output-file "$out" "$dev"
+          ;;
         curves) cat <<'EOF'
       ${table}
       EOF
           ;;
         *)
-          echo "usage: bakery-trackpad curves | pointer | scroll" >&2
+          echo "usage: bakery-trackpad curves | pointer | scroll | palms | record [file]" >&2
           echo "  curves   what the trackpad's macOS curves do to finger speeds" >&2
           echo "  pointer  libinput debug-events with the pointer curve (needs input access)" >&2
           echo "  scroll   the same with the scroll curve" >&2
+          echo "  palms    libinput's palm, thumb and typing decisions as they happen" >&2
+          echo "  record   a libinput recording of the trackpad, to replay" >&2
           exit 2
           ;;
       esac
