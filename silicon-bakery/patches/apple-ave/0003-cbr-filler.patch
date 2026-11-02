@@ -1,0 +1,408 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: "Silicon Bakery (t6020 port)" <noreply@localhost>
+Date: Mon, 2 Nov 2026 12:42:42 +0200
+Subject: [PATCH] CBR with filler NALs; fix the DRL/static-areas labels
+
+V4L2_MPEG_VIDEO_BITRATE_MODE_CBR (with FRAME_RC_ENABLE) selects the 13.5
+firmware's CBR arm; the filler NAL units it pads with are written by the
+driver after the frame's last slice (enc_cbr_filler=1, default).
+
+Wire fields [FW: AVC IEP 0x5c964, HEVC IEP 0x82e40, VP = wire - 0x60]:
+- 0xFF50 ui32RCFlag = 1 (rate control on), as VBR;
+- 0xFF54 (VP+0xFEF4) _E_AVE_RC mode = 2: kept at ctrl+0x24F18; the
+  sCRCInitParams CBR flag (+0xD4) is (mode == 2), and
+  CRateControl::ProcessInit (0x3faa0) then reads the target from
+  +0xE0 = 0xFF58 instead of +0x10 = 0xFF30;
+- 0xFF58 (VP+0xFEF8) the CBR target, bits/s (0xFF30 still carries it).
+Filler [FW]: CollectDataFromTranscode (0x5c1ac) / ProcessTranscodeDone
+(0x7d840) call CRateControl::AVE_CBR_InsertFiller (0x43488) in mode 2,
+which fills _S_AVE_FillerInfo at coded header +0xF4 (+12 per layer):
+start code 00 00 00 01, NAL header (AVC 0x0C; HEVC type 38, 2 bytes),
++7 overhead charged (6 / 7), +8 count of 0xFF bytes. It only accounts
+for the bytes; the host writes 00 00 00 01, header, count x 0xFF, 0x80.
+
+Labels [FW]: wire 0xFF80 (VP+0xFF20) is eStaticAreasLowQpSel (the
+firmware's parameter printer CHEVCController::DebugInit 0x391f0; both
+IEPs log it as enableStaticAreasLowQP), not the DRL enable. The DRL
+enable is VP+0xFE6E = wire 0xFECE (IEP -> ctrl+0x2401C) and its 40-byte
+config is copied from VP+0x10528 = wire 0x10588. Neither field was
+written by any code path; only the table changes.
+Default (VBR/CQ) streams are unchanged. Untested on hardware.
+---
+ driver/ave_abi.h     | 49 +++++++++++++++++++++++++++++++------
+ driver/ave_cmd.c     | 29 +++++++++++++++++++++-
+ driver/ave_cmd.h     | 15 ++++++++++++
+ driver/ave_session.c | 58 ++++++++++++++++++++++++++++++++++++++++++++
+ driver/ave_session.h |  5 ++++
+ driver/ave_v4l2.c    | 16 +++++++++---
+ 6 files changed, 161 insertions(+), 11 deletions(-)
+
+diff --git a/driver/ave_abi.h b/driver/ave_abi.h
+index 8fb98ed..5b7da86 100644
+--- a/driver/ave_abi.h
++++ b/driver/ave_abi.h
+@@ -1007,13 +1007,30 @@ struct ave_start_avc_layout {
+ 	 * MaxBitRate and CheckResolution symbols and 13.5 has none of them.
+ 	 * The only leaky-bucket-shaped thing is a 40-byte _S_AVE_DRL_Cfg block
+ 	 * gated by drl_enable, whose layout is [U]; we leave both at zero.
++	 *
++	 * Silicon Bakery, from the 13.5 H14S IEPs (AVC 0x5c964, HEVC
++	 * 0x82e40; VP = wire - 0x60): bitrate_sel (VP+0xFEF4) is the
++	 * controller's _E_AVE_RC mode, kept at ctrl+0x24F18. 2 = CBR: the
++	 * sCRCInitParams "use the CBR rate" flag is (mode == 2) and
++	 * CRateControl::ProcessInit (0x3faa0) then reads its target from
++	 * +0xE0, which the IEP fills from bitrate_alt (VP+0xFEF8), instead of
++	 * +0x10 (ui32BitRate); every frame's CollectDataFromTranscode
++	 * (0x5c1ac / HEVC ProcessTranscodeDone 0x7d840) calls
++	 * AVE_CBR_InsertFiller (0x43488) when the mode is 2 or DRL is on.
++	 * drl_enable is VP+0xFE6E (wire 0xFECE), whose 40-byte config the
++	 * IEP copies from VP+0x10528 (wire 0x10588) into AVE_DRL_Convert.
++	 * Wire 0xFF80 (VP+0xFF20), which the community called drl_enable, is
++	 * eStaticAreasLowQpSel: the firmware's parameter printer names it
++	 * (CHEVCController::DebugInit 0x391f0) and both IEPs log it as
++	 * "enableStaticAreasLowQP".
+ 	 */
+ 	u32	rc_mode_on;		/* wire value for "firmware RC"; NONE = absent */
+ 	u32	frame_rate_div;		/* u32; frame rate is frame_rate/this */
+-	u32	bitrate_sel;		/* u32; 2 selects bitrate_alt instead */
+-	u32	bitrate_alt;		/* u32 bits/s */
++	u32	bitrate_sel;		/* u32 _E_AVE_RC mode; 2 = CBR (bitrate_alt) */
++	u32	bitrate_alt;		/* u32 bits/s, the CBR target */
+ 	u32	drl_enable;		/* u8; gates the DRL config block */
+-	u32	drl_cfg;		/* 40-byte block, layout UNKNOWN */
++	u32	drl_cfg;		/* 40-byte _S_AVE_DRL_Cfg, layout UNKNOWN */
++	u32	static_areas_low_qp;	/* u32 eStaticAreasLowQpSel */
+ 	u32	qp_i, qp_p, qp_b;	/* u32 */
+ 	u32	qp_min, qp_max;		/* u32 */
+ 	u32	key_interval;		/* u32 MaxKeyFrameInterval / IdrPeriod */
+@@ -1374,6 +1391,19 @@ struct ave_coded_hdr_layout {
+ 	 * docs/67 §2.
+ 	 */
+ 	u32	cabac_zero_words;	/* u32; AVE_OFF_NONE = not located */
++	/*
++	 * Silicon Bakery: _S_AVE_FillerInfo, 12 bytes per layer, which
++	 * CRateControl::AVE_CBR_InsertFiller (13.5 fw 0x43488) fills in CBR:
++	 * +0 u32 0x01000000 (the start code 00 00 00 01 in memory), +4/+5 the
++	 * NAL header (AVC 0x0C; HEVC 0x4C|.. and its second byte), +7 the
++	 * byte overhead it charged (6 AVC, 7 HEVC: start code, header, the
++	 * 0x80 trailing byte), +8 u32 the number of 0xFF payload bytes. The
++	 * firmware only accounts for the bytes; the host writes the NAL after
++	 * the frame's last slice. AVC: header+0xF4 (CollectDataFromTranscode
++	 * 0x5c1ac); HEVC: +0xF4 + 12 * layer (ProcessTranscodeDone 0x7d840).
++	 * 0 = not located.
++	 */
++	u32	filler_info;
+ 	/*
+ 	 * HEVC only (docs/77 §4). The firmware writes each slice's header
+ 	 * itself, into the host's SliceHeader slot for that slice, and
+@@ -2106,10 +2136,13 @@ const struct ave_cmd_abi ave_cmd_abi_13_5 = {
+ 						 * string 0x4e69c */
+ 		.rc_mode_on	= 1,		/* docs/66 §1 */
+ 		.frame_rate_div	= 0xff48,	/* AVEFWRCSettings+0x18 */
+-		.bitrate_sel	= 0xff54,	/* +0x24; 2 -> bitrate_alt */
+-		.bitrate_alt	= 0xff58,	/* +0x28 */
+-		.drl_enable	= 0xff80,	/* +0x50 */
+-		.drl_cfg	= 0x10528,	/* 40 bytes, layout UNKNOWN */
++		.bitrate_sel	= 0xff54,	/* +0x24 _E_AVE_RC; 2 = CBR (AVC/HEVC IEP) */
++		.bitrate_alt	= 0xff58,	/* +0x28 CBR target, IEP -> sCRCInitParams+0xE0 */
++		.drl_enable	= 0xfece,	/* VP+0xFE6E, IEP -> ctrl+0x2401C
++						 * (was 0xff80: eStaticAreasLowQpSel) */
++		.drl_cfg	= 0x10588,	/* VP+0x10528, 40 bytes, layout UNKNOWN
++						 * (was 0x10528: a VP offset) */
++		.static_areas_low_qp = 0xff80,	/* VP+0xFF20, fw DebugInit 0x391f0 */
+ 		.rc_feature	= AVE_OFF_NONE,	/* no RC framework switch on 13.5 */
+ 		.rc_feature_fixed_qp = 0,
+ 		.qp_i		= 0xffb4,	/* ldp w9,w8,[x10,#132] 0x5cebc */
+@@ -2382,6 +2415,7 @@ const struct ave_cmd_abi ave_cmd_abi_13_5 = {
+ 		/* kext AVE_PrintCodedHeader 0xfffffe0008eb6584, field offsets
+ 		 * taken from the loads next to each os_log format string. */
+ 		.cabac_zero_words	= 0xf0,	/* fw str w24,[x0,#240] 0x5c200 */
++		.filler_info		= 0xf4,	/* fw 0x5c558 / 0x7dd90, layer 0 */
+ 		.i_mb_cnt		= 0x00,	/* ldr [x21,x28,lsl#2] 0xeb6728 */
+ 		.p_mb_cnt		= 0x10,	/* ldr [x26,#16]       0xeb681c */
+ 		.skip_mb_cnt		= 0x20,	/* ldr [x26,#32]       0xeb6918 */
+@@ -2706,6 +2740,7 @@ const struct ave_cmd_abi ave_cmd_abi_26_6 = {
+ 		.bitrate_alt	= AVE_OFF_NONE,
+ 		.drl_enable	= AVE_OFF_NONE,
+ 		.drl_cfg	= AVE_OFF_NONE,
++		.static_areas_low_qp = AVE_OFF_NONE,
+ 		.rc_feature	= AVE_START_RC_FEATURE,
+ 		.rc_feature_fixed_qp = AVE_RC_FEATURE_NEW_FRAMEWORK, /* docs/35 §9 */
+ 		.qp_i		= AVE_START_QP_I,
+diff --git a/driver/ave_cmd.c b/driver/ave_cmd.c
+index bbcfb5a..8acb2ba 100644
+--- a/driver/ave_cmd.c
++++ b/driver/ave_cmd.c
+@@ -323,6 +323,11 @@ static int ave_vp_check(const struct ave_start_avc_layout *l,
+ {
+ 	u32 i;
+ 
++	/* CBR needs the RC mode selector and its target (13.5 only) */
++	if (s->cbr && (!s->rc_enable || l->bitrate_sel == AVE_OFF_NONE ||
++		       l->bitrate_alt == AVE_OFF_NONE || !s->bitrate))
++		return -EINVAL;
++
+ 	/* ---- parameter validation, before touching the buffer ---- */
+ 	if (s->width < AVE_AVC_MIN_W || s->width > AVE_AVC_MAX_WH ||
+ 	    s->height < AVE_AVC_MIN_H || s->height > AVE_AVC_MAX_WH ||
+@@ -502,7 +507,9 @@ static void ave_vp_fill(struct ave_wr *w, const struct ave_start_avc_layout *l,
+ 		 * 0 keeps the plain ui32BitRate above. The DRL block's layout
+ 		 * is unknown, so it stays disabled.
+ 		 */
+-		wr32_opt(w, l->bitrate_sel, 0);
++		wr32_opt(w, l->bitrate_sel, s->cbr ? 2 : 0);
++		if (s->cbr)
++			wr32(w, l->bitrate_alt, s->bitrate);
+ 		wr32_opt(w, l->frame_rate_div, s->frame_rate_div ?
+ 						s->frame_rate_div : 1);
+ 	} else {
+@@ -1716,6 +1723,26 @@ int ave_cmd_coded_length_codec(const struct ave_cmd_abi *abi, const void *hdr,
+ 	if (coded_size && written > coded_size)
+ 		return -EPROTO;
+ 
++	/*
++	 * CBR filler (ave_coded_hdr_layout.filler_info). Read only when the
++	 * start code is there and the overhead is the one the firmware
++	 * charges for this codec; anything else is not a FillerInfo and is
++	 * ignored. The count is bounded by what a frame could plausibly need.
++	 */
++	if (c->filler_info && c->filler_info != AVE_OFF_NONE &&
++	    c->filler_info + 12u <= hdr_len) {
++		const u8 *fi = h + c->filler_info;
++		u32 cnt = get_unaligned_le32(fi + 8);
++
++		if (fi[0] == 0 && fi[1] == 0 && fi[2] == 0 && fi[3] == 1 &&
++		    fi[7] == (hevc ? 7 : 6) && cnt && cnt <= 0x4000000u) {
++			out->filler_hdr[0] = fi[4];
++			out->filler_hdr[1] = fi[5];
++			out->filler_hdr_len = hevc ? 2 : 1;
++			out->filler_bytes = cnt;
++		}
++	}
++
+ 	out->span = written;
+ 	out->bytes_removed = removed;
+ 	out->hdr_bytes = hdr_total;
+diff --git a/driver/ave_cmd.h b/driver/ave_cmd.h
+index eaa5875..b95a81c 100644
+--- a/driver/ave_cmd.h
++++ b/driver/ave_cmd.h
+@@ -106,6 +106,12 @@ struct ave_avc_session {
+ 	 * per frame.
+ 	 */
+ 	bool	rc_enable;
++	/*
++	 * Silicon Bakery: with rc_enable, the firmware's CBR arm (_E_AVE_RC
++	 * 2 at bitrate_sel, the target at bitrate_alt; ave_abi.h). false =
++	 * neither field written beyond what VBR always sent.
++	 */
++	bool	cbr;
+ 	u32	frame_rate_div;		/* frame rate is frame_rate/this; 0 = 1 */
+ 	u32	key_interval;		/* >= 1; 1 = every frame is an IDR */
+ 	u8	profile_idc;		/* 66, 77 or 100 */
+@@ -527,6 +533,15 @@ struct ave_coded_info {
+ 	u32	cabac_zero_words;
+ 	/* HEVC: sum of the slice-header bytes, already included in bytes. */
+ 	u32	hdr_bytes;
++	/*
++	 * CBR filler NAL the firmware accounted for and the host must write
++	 * after the last slice (ave_coded_hdr_layout.filler_info): header
++	 * bytes (1 AVC, 2 HEVC) and the number of 0xFF bytes. 0 = none.
++	 * Not included in bytes.
++	 */
++	u8	filler_hdr[2];
++	u8	filler_hdr_len;
++	u32	filler_bytes;
+ 	u32	n_slice;		/* entries filled in slice[] */
+ 	struct ave_coded_slice slice[AVE_CODED_SLICE_MAX];
+ };
+diff --git a/driver/ave_session.c b/driver/ave_session.c
+index 5fc093b..5481a9d 100644
+--- a/driver/ave_session.c
++++ b/driver/ave_session.c
+@@ -411,6 +411,16 @@ MODULE_PARM_DESC(session_multi_me,
+  * which is what macOS's user space sends for every session; a non-zero
+  * session_multi_me still wins. For the M1 tests: B frames with one ME unit.
+  */
++/*
++ * Silicon Bakery: write the CBR filler NALs the firmware accounts for
++ * (ave_abi.h coded_hdr.filler_info). 0 = drop them: the stream is then
++ * below the CBR rate whenever the firmware padded.
++ */
++static bool enc_cbr_filler = true;
++module_param(enc_cbr_filler, bool, 0644);
++MODULE_PARM_DESC(enc_cbr_filler,
++		 "CBR streams: append the filler NAL units the firmware accounts for (default 1)");
++
+ static bool session_multi_me_auto = true;
+ module_param(session_multi_me_auto, bool, 0644);
+ MODULE_PARM_DESC(session_multi_me_auto,
+@@ -1038,6 +1048,9 @@ struct ave_sess_bufs {
+ 		u32		len;	/* what the firmware coded into it */
+ 		u32		span;	/* bytes it touched, trims included */
+ 		u32		cabac_zero_words;
++		/* CBR filler NAL to append after the last slice (0 = none) */
++		u32		filler_bytes;
++		u8		filler_hdr[2], filler_hdr_len;
+ 		u32		n_slice;
+ 		struct ave_coded_slice slice[AVE_CODED_SLICE_MAX];
+ 	}		coded[AVE_SESS_FRAMES_MAX], coded_hdr[AVE_SESS_FRAMES_MAX];
+@@ -1102,6 +1115,7 @@ struct ave_sess_bufs {
+ 	u32		qp_min, qp_max;	/* 0,0 = the module parameters */
+ 	u32		req_slots;	/* coded slots to publish at Start_AVC */
+ 	struct ave_vui	vui;		/* SPS VUI colour group; .present 0 = none */
++	bool		cbr;		/* CBR arm (with bitrate); filler appended */
+ 	/*
+ 	 * docs/81 "V4L2 implementation" (ave_enc_cfg). All 0 in the
+ 	 * self-test, which keeps its module parameters.
+@@ -2315,6 +2329,7 @@ static int ave_session_start_prep(struct ave_device *ave,
+ 	s->frame_rate_div = bufs->fps_den ? bufs->fps_den : 1;
+ 	s->bitrate = bufs->bitrate;
+ 	s->rc_enable = bufs->bitrate != 0;
++	s->cbr = s->rc_enable && bufs->cbr;
+ 	s->qp_i = bufs->qp;
+ 	s->qp_p = bufs->qp_p ? bufs->qp_p : bufs->qp;
+ 	s->qp_b = bufs->qp_b ? bufs->qp_b : s->qp_p;
+@@ -3750,6 +3765,37 @@ static void ave_session_diag_mcpu(struct ave_device *ave,
+  * firmware never counts them for HEVC. The order is [I]: it follows from
+  * where each part lives.
+  */
++/*
++ * The CBR filler NAL (Silicon Bakery): start code, the header the firmware
++ * gave, filler_bytes x 0xFF, then rbsp_trailing_bits (0x80) - H.264
++ * 7.3.2.7 / H.265 7.3.2.8. Exactly the overhead the firmware charged
++ * (6 or 7 bytes) on top of the 0xFF count. Returns the bytes written to
++ * @p, which must have ave_sess_filler_len() room.
++ */
++static size_t ave_sess_filler_len(const struct ave_sess_bufs *b, u32 idx)
++{
++	return b->coded[idx].filler_bytes ?
++	       4 + b->coded[idx].filler_hdr_len + b->coded[idx].filler_bytes + 1 : 0;
++}
++
++static u8 *ave_sess_filler_put(const struct ave_sess_bufs *b, u32 idx, u8 *p)
++{
++	u32 n = b->coded[idx].filler_bytes;
++
++	if (!n)
++		return p;
++	*p++ = 0;
++	*p++ = 0;
++	*p++ = 0;
++	*p++ = 1;
++	memcpy(p, b->coded[idx].filler_hdr, b->coded[idx].filler_hdr_len);
++	p += b->coded[idx].filler_hdr_len;
++	memset(p, 0xff, n);
++	p += n;
++	*p++ = 0x80;
++	return p;
++}
++
+ static int ave_sess_stream_append_hevc(struct ave_sess_bufs *b, u32 idx,
+ 				       bool idr)
+ {
+@@ -3767,6 +3813,7 @@ static int ave_sess_stream_append_hevc(struct ave_sess_bufs *b, u32 idx,
+ 			return -EPROTO;
+ 		need += e->hdr_len + e->len;
+ 	}
++	need += ave_sess_filler_len(b, idx);
+ 	if (b->stream_len + need > b->stream_cap) {
+ 		size_t cap = max(2 * b->stream_cap, b->stream_len + need + SZ_64K);
+ 
+@@ -3794,6 +3841,7 @@ static int ave_sess_stream_append_hevc(struct ave_sess_bufs *b, u32 idx,
+ 		memcpy(p, (u8 *)b->coded[idx].cpu + e->off, e->len);
+ 		p += e->len;
+ 	}
++	p = ave_sess_filler_put(b, idx, p);
+ 	b->stream_len = p - b->stream;
+ 	return 0;
+ }
+@@ -3813,6 +3861,7 @@ static int ave_sess_stream_append(struct ave_sess_bufs *b, u32 idx, bool first)
+ 		need += b->coded[idx].slice[sl].len;
+ 	/* H.264 7.3.4: the host appends each cabac_zero_word (docs/67). */
+ 	need += 3 * b->coded[idx].cabac_zero_words;
++	need += ave_sess_filler_len(b, idx);
+ 	if (b->stream_len + need > b->stream_cap) {
+ 		size_t cap = max(2 * b->stream_cap, b->stream_len + need + SZ_64K);
+ 
+@@ -3842,6 +3891,8 @@ static int ave_sess_stream_append(struct ave_sess_bufs *b, u32 idx, bool first)
+ 		*p++ = 0x00;
+ 		*p++ = 0x03;
+ 	}
++	/* after the cabac_zero_words, which belong to the slice data */
++	p = ave_sess_filler_put(b, idx, p);
+ 	b->stream_len = p - b->stream;
+ 	return 0;
+ }
+@@ -4412,6 +4463,12 @@ static int ave_session_process_result(struct ave_device *ave,
+ 	bufs->coded[idx].len = info->bytes;
+ 	bufs->coded[idx].span = info->span;
+ 	bufs->coded[idx].cabac_zero_words = info->cabac_zero_words;
++	/* Only a CBR session's filler is ours to write (ave_abi.h) */
++	bufs->coded[idx].filler_bytes = bufs->cbr && enc_cbr_filler ?
++					info->filler_bytes : 0;
++	bufs->coded[idx].filler_hdr_len = info->filler_hdr_len;
++	memcpy(bufs->coded[idx].filler_hdr, info->filler_hdr,
++	       sizeof(info->filler_hdr));
+ 	bufs->coded[idx].n_slice = min_t(u32, info->n_slice, AVE_CODED_SLICE_MAX);
+ 	memcpy(bufs->coded[idx].slice, info->slice,
+ 	       bufs->coded[idx].n_slice * sizeof(info->slice[0]));
+@@ -5628,6 +5685,7 @@ int ave_enc_start(struct ave_device *ave, const struct ave_enc_cfg *cfg)
+ 	bufs->fps_den = cfg->fps_den;
+ 	bufs->req_slots = cfg->slots;
+ 	bufs->vui = cfg->vui;
++	bufs->cbr = cfg->cbr && cfg->bitrate;
+ 	/*
+ 	 * docs/81 "V4L2 implementation": two references in the DPB (3 slots)
+ 	 * and both ME units (docs/94) for B frames or two-reference P frames.
+diff --git a/driver/ave_session.h b/driver/ave_session.h
+index c864a8c..8d8fcef 100644
+--- a/driver/ave_session.h
++++ b/driver/ave_session.h
+@@ -100,6 +100,11 @@ struct ave_enc_cfg {
+ 	 */
+ 	u32	bframes;		/* B frames between anchors, 0..2 */
+ 	u32	p_refs;			/* references per P frame, 1..2; 0 = 1 */
++	/*
++	 * Silicon Bakery: with a bitrate, the firmware's CBR arm and the
++	 * filler NALs it accounts for (ave_abi.h bitrate_sel); false = VBR.
++	 */
++	bool	cbr;
+ 	/* SPS VUI colour signalling (Silicon Bakery); .present 0 = none */
+ 	struct ave_vui vui;
+ };
+diff --git a/driver/ave_v4l2.c b/driver/ave_v4l2.c
+index ff741c0..db50d55 100644
+--- a/driver/ave_v4l2.c
++++ b/driver/ave_v4l2.c
+@@ -737,7 +737,8 @@ static int ave_init_ctrls(struct ave_ctx *ctx)
+ 	v4l2_ctrl_new_std_menu(h, o, V4L2_CID_MPEG_VIDEO_BITRATE_MODE,
+ 			       V4L2_MPEG_VIDEO_BITRATE_MODE_CQ,
+ 			       ~(BIT(V4L2_MPEG_VIDEO_BITRATE_MODE_CQ) |
+-				 BIT(V4L2_MPEG_VIDEO_BITRATE_MODE_VBR)),
++				 BIT(V4L2_MPEG_VIDEO_BITRATE_MODE_VBR) |
++				 BIT(V4L2_MPEG_VIDEO_BITRATE_MODE_CBR)),
+ 			       V4L2_MPEG_VIDEO_BITRATE_MODE_VBR);
+ 	/*
+ 	 * High + CABAC by default: the best compression, and what any decoder
+@@ -1038,9 +1039,18 @@ static int ave_start_streaming(struct vb2_queue *q, unsigned int count)
+ 			 * docs/76) only in VBR mode; CQ, the default, is
+ 			 * fixed QP whatever ffmpeg sets FRAME_RC_ENABLE to.
+ 			 */
+-			.bitrate = ctx->bitrate_mode ==
+-					V4L2_MPEG_VIDEO_BITRATE_MODE_VBR &&
++			.bitrate = (ctx->bitrate_mode ==
++					V4L2_MPEG_VIDEO_BITRATE_MODE_VBR ||
++				    ctx->bitrate_mode ==
++					V4L2_MPEG_VIDEO_BITRATE_MODE_CBR) &&
+ 				   ctx->rc_enable ? ctx->bitrate : 0,
++			/*
++			 * Silicon Bakery: the firmware's CBR arm, with the
++			 * filler NALs it pads to the rate with (ave_abi.h).
++			 */
++			.cbr = ctx->bitrate_mode ==
++					V4L2_MPEG_VIDEO_BITRATE_MODE_CBR &&
++			       ctx->rc_enable,
+ 			/* The firmware reads 0xFF4C as integer Hz (docs/76). */
+ 			.fps_num = fps,
+ 			.fps_den = rc_nondrop ? fps : 1,
