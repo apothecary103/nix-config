@@ -31,8 +31,9 @@ in
         Mesa with patches/mesa as the runtime graphics driver
         (hardware.graphics.package): Honeykrisp leaving input attachments
         uncompressed, without which wlroots' 10-bit Vulkan scanout flickers a
-        border round the panel on G14S (M2 Pro/Max). Only the driver package
-        changes, so nothing that links Mesa is rebuilt.
+        border round the panel on G14S (M2 Pro/Max), and the compute barrier
+        AGXMetalG14X uses on single-die G14X instead of every known bit. Only
+        the driver package changes, so nothing that links Mesa is rebuilt.
       '';
     };
 

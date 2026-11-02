@@ -1,0 +1,74 @@
+asahi: use Metal's CDM barrier on single-die G14X
+
+agx_cdm_barrier() sets every known bit after each compute launch, which its
+comment calls a guess until the bits are understood. AGXMetalG14X answers
+it for the M2 Pro and Max: ComputeContext::encodeBarrier emits 0x60000160
+(unk_5, unk_6, unk_8) between dispatches and 0x60001560 (adding unk_10 and
+unk_12) after a CDM blit that wrote a texture; only AGXG14DDevice (two
+dies, hasMultipleAGCs) takes another path. We can't tell an image-writing
+launch apart at the flush, so single-die G14X always gets 0x60001560.
+Mesa !44041 measures the per-dispatch cost halving with unk_5/6/8 alone.
+
+diff --git a/src/asahi/libagx/libagx_dgc.h b/src/asahi/libagx/libagx_dgc.h
+index d8266b6..27e5b97 100644
+--- a/src/asahi/libagx/libagx_dgc.h
++++ b/src/asahi/libagx/libagx_dgc.h
+@@ -368,6 +368,26 @@ agx_vdm_barrier(GLOBAL uint32_t *out, enum agx_chip chip)
+    return out;
+ }
+ 
++/*
++ * The barrier Metal emits between compute dispatches on single-die G14X
++ * (AGXG14SDevice, AGXG14CDevice): unk_5, unk_6 and unk_8 after every dispatch,
++ * plus unk_10 and unk_12 after one that wrote a texture through the PBE. We
++ * can't tell the two apart here, so always use the second.
++ */
++static inline GLOBAL uint32_t *
++agx_cdm_barrier_g14x_single_die(GLOBAL uint32_t *out)
++{
++   agx_push(out, CDM_BARRIER, cfg) {
++      cfg.unk_5 = true;
++      cfg.unk_6 = true;
++      cfg.unk_8 = true;
++      cfg.unk_10 = true;
++      cfg.unk_12 = true;
++   }
++
++   return out;
++}
++
+ static inline GLOBAL uint32_t *
+ agx_cdm_barrier(GLOBAL uint32_t *out, enum agx_chip chip)
+ {
+diff --git a/src/asahi/vulkan/hk_cmd_dispatch.c b/src/asahi/vulkan/hk_cmd_dispatch.c
+index 7cb08bb..8667010 100644
+--- a/src/asahi/vulkan/hk_cmd_dispatch.c
++++ b/src/asahi/vulkan/hk_cmd_dispatch.c
+@@ -48,7 +48,10 @@ hk_cdm_cache_flush(struct hk_device *dev, struct hk_cs *cs)
+    assert(cs->current + AGX_CDM_BARRIER_LENGTH < cs->end &&
+           "caller must ensure space");
+ 
+-   cs->current = agx_cdm_barrier(cs->current, dev->dev.chip);
++   if (dev->dev.chip == AGX_CHIP_G14X && dev->dev.params.num_dies == 1)
++      cs->current = agx_cdm_barrier_g14x_single_die(cs->current);
++   else
++      cs->current = agx_cdm_barrier(cs->current, dev->dev.chip);
+    cs->stats.flushes++;
+ }
+ 
+diff --git a/src/gallium/drivers/asahi/agx_state.c b/src/gallium/drivers/asahi/agx_state.c
+index 0524e6f..6e8e92f 100644
+--- a/src/gallium/drivers/asahi/agx_state.c
++++ b/src/gallium/drivers/asahi/agx_state.c
+@@ -3006,7 +3006,10 @@ agx_launch_internal(struct agx_batch *batch, struct agx_grid grid,
+    uint32_t *out = (uint32_t *)batch->cdm.current;
+ 
+    out = agx_cdm_launch(out, dev->chip, grid, wg, launch, usc);
+-   out = agx_cdm_barrier(out, dev->chip);
++   if (dev->chip == AGX_CHIP_G14X && dev->params.num_dies == 1)
++      out = agx_cdm_barrier_g14x_single_die(out);
++   else
++      out = agx_cdm_barrier(out, dev->chip);
+ 
+    batch->cdm.current = (void *)out;
+    assert(batch->cdm.current <= batch->cdm.end &&
