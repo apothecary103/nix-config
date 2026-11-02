@@ -26,7 +26,7 @@ in
       description = ''
         Hardware video decode on the media engine's AVD block, as VideoToolbox
         does on macOS: the in-kernel apple-avd driver, Asahi's open AVD
-        firmware, and VA-API through libva-v4l2-request (nixos-apple-silicon's
+        firmware, and VA-API through asahi-va-driver (nixos-apple-silicon's
         hardware.asahi.avd). Experimental upstream; players fall back to
         software when it fails. On the M2 Pro it decodes H.264, HEVC and VP9;
         AV1 needs an M3. Encode is media.encode.
