@@ -1,0 +1,174 @@
+From: Silicon Bakery <noreply@localhost>
+Subject: [PATCH] arm64: dts: apple: t602x: add the M2Scaler (scaler0) and its DART
+
+Add die 0's M2Scaler and its t8110 DART to t602x-die0.dtsi, disabled, and
+enable them on t6020 (M2 Pro). Values from the macOS 13.5 j414sap ADT and
+the live 27.2 IODeviceTree (/arm-io/scaler0: reg bus 0x20b000000/0x28000,
+0x20b210000/0x4000, 0x20b204000/0x4000; interrupts 1186, 1188;
+/arm-io/dart-scaler0: 0x20b200000, interrupt 1187, sid 0 and 1) plus
+Asahi's ps_msr0 / ps_msr0_ase_core power states; see docs/scaler-port.txt.
+Adds a binding for "apple,t6020-scaler".
+The nodes are for the out-of-tree apple-scaler driver. Not built or booted:
+verify with the runtime overlay (scaler-overlay.ko) first.
+Applies after patches/linux-ave and patches/linux-jpeg (in that order):
+the t6020.dtsi enables sit right before the &gpu block.
+
+---
+diff --git a/Documentation/devicetree/bindings/media/apple,scaler.yaml b/Documentation/devicetree/bindings/media/apple,scaler.yaml
+new file mode 100644
+index 0000000..e8ed5bf
+--- /dev/null
++++ b/Documentation/devicetree/bindings/media/apple,scaler.yaml
+@@ -0,0 +1,87 @@
++# SPDX-License-Identifier: GPL-2.0-only OR BSD-2-Clause
++%YAML 1.2
++---
++$id: http://devicetree.org/schemas/media/apple,scaler.yaml#
++$schema: http://devicetree.org/meta-schemas/core.yaml#
++
++title: Apple M2Scaler (scaler / colour-space converter)
++
++description:
++  The M2Scaler is a memory-to-memory 2D engine on Apple silicon SoCs. It
++  reads and writes YCbCr and RGB surfaces, scales with polyphase filters,
++  converts colour spaces, rotates by multiples of 90 degrees and flips.
++
++maintainers:
++  - Silicon Bakery <noreply@localhost>
++
++properties:
++  compatible:
++    enum:
++      - apple,t6020-scaler
++
++  reg:
++    items:
++      - description: scaler registers
++      - description: register-sequence DMA (APIODMA)
++      - description: power estimator (DPE)
++
++  reg-names:
++    items:
++      - const: scaler
++      - const: apiodma
++      - const: dpe
++
++  interrupts:
++    minItems: 1
++    items:
++      - description: scaler
++      - description: second scaler interrupt (purpose unknown)
++
++  iommus:
++    minItems: 1
++    items:
++      - description: pixel data stream
++      - description: APIODMA stream
++
++  power-domains:
++    minItems: 1
++    items:
++      - description: scaler block (msr0)
++      - description: enhancement core (msr0_ase_core)
++
++  resets:
++    maxItems: 1
++
++required:
++  - compatible
++  - reg
++  - reg-names
++  - interrupts
++  - iommus
++  - power-domains
++
++additionalProperties: false
++
++examples:
++  - |
++    #include <dt-bindings/interrupt-controller/apple-aic.h>
++    #include <dt-bindings/interrupt-controller/irq.h>
++
++    soc {
++        #address-cells = <2>;
++        #size-cells = <2>;
++
++        scaler@40b000000 {
++            compatible = "apple,t6020-scaler";
++            reg = <0x4 0x0b000000 0x0 0x28000>,
++                  <0x4 0x0b210000 0x0 0x4000>,
++                  <0x4 0x0b204000 0x0 0x4000>;
++            reg-names = "scaler", "apiodma", "dpe";
++            interrupt-parent = <&aic>;
++            interrupts = <AIC_IRQ 0 1186 IRQ_TYPE_LEVEL_HIGH>,
++                         <AIC_IRQ 0 1188 IRQ_TYPE_LEVEL_HIGH>;
++            power-domains = <&ps_msr0>, <&ps_msr0_ase_core>;
++            resets = <&ps_msr0>;
++            iommus = <&scaler_dart 0>, <&scaler_dart 1>;
++        };
++    };
+diff --git a/arch/arm64/boot/dts/apple/t6020.dtsi b/arch/arm64/boot/dts/apple/t6020.dtsi
+index 06fbb10..444fd5c 100644
+--- a/arch/arm64/boot/dts/apple/t6020.dtsi
++++ b/arch/arm64/boot/dts/apple/t6020.dtsi
+@@ -12,6 +12,15 @@
+ #define GPU_REPEAT(x) <x x>
+ 
+ #include "t6021.dtsi"
++
++/* The M2 Pro's scaler (out-of-tree apple-scaler driver) */
++&scaler_dart {
++	status = "okay";
++};
++
++&scaler {
++	status = "okay";
++};
+ 
+ / {
+ 	compatible = "apple,t6020", "apple,arm-platform";
+diff --git a/arch/arm64/boot/dts/apple/t602x-die0.dtsi b/arch/arm64/boot/dts/apple/t602x-die0.dtsi
+index 135cc11..f59e801 100644
+--- a/arch/arm64/boot/dts/apple/t602x-die0.dtsi
++++ b/arch/arm64/boot/dts/apple/t602x-die0.dtsi
+@@ -937,6 +937,40 @@
+ 		#sound-dai-cells = <1>;
+ 	};
+ 
++	/*
++	 * M2Scaler (scaler0) and its DART, die 0. From the macOS 13.5 j414sap ADT
++	 * and the live 27.2 IODeviceTree (/arm-io/scaler0, /arm-io/dart-scaler0):
++	 * CPU address = ADT bus address + 0x200000000, AIC numbers as in the ADT.
++	 * Registers: the scaler, its register-sequence DMA (APIODMA) and its power
++	 * estimator (DPE). DART stream 0 is the pixel data, stream 1 APIODMA.
++	 * Disabled here (t6021/t6022 have a second scaler and are not checked);
++	 * t6020.dtsi enables it. Driven by the out-of-tree apple-scaler driver.
++	 */
++	scaler_dart: iommu@40b200000 {
++		compatible = "apple,t6020-dart", "apple,t8110-dart";
++		reg = <0x4 0x0b200000 0x0 0x4000>;
++		#iommu-cells = <1>;
++		interrupt-parent = <&aic>;
++		interrupts = <AIC_IRQ 0 1187 IRQ_TYPE_LEVEL_HIGH>;
++		power-domains = <&ps_msr0>;
++		status = "disabled";
++	};
++
++	scaler: scaler@40b000000 {
++		compatible = "apple,t6020-scaler";
++		reg = <0x4 0x0b000000 0x0 0x28000>,
++			<0x4 0x0b210000 0x0 0x4000>,
++			<0x4 0x0b204000 0x0 0x4000>;
++		reg-names = "scaler", "apiodma", "dpe";
++		interrupt-parent = <&aic>;
++		interrupts = <AIC_IRQ 0 1186 IRQ_TYPE_LEVEL_HIGH>,
++			<AIC_IRQ 0 1188 IRQ_TYPE_LEVEL_HIGH>;
++		power-domains = <&ps_msr0>, <&ps_msr0_ase_core>;
++		resets = <&ps_msr0>;
++		iommus = <&scaler_dart 0>, <&scaler_dart 1>;
++		status = "disabled";
++	};
++
+ 	gpu: gpu@406400000 {
+ 		compatible = "apple,agx-g14s";
+ 		reg = <0x4 0x6400000 0 0x40000>,
