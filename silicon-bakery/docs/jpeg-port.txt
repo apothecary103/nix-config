@@ -1,0 +1,323 @@
+JPEG codec port to t6020 / M2 Pro (MacBook Pro 14" Mac14,9, j414s)
+===================================================================
+Silicon Bakery, 2026-11-02. Written on the Mac14,9 itself under macOS 27.2.
+STATUS: static port only. The C files compile against linux-asahi 7.2.14
+headers with the kernel's own clang flags (W=1, no warnings); the job builder
+passes a host-side test; the DT patch compiles into the t6020/t6021/t6022
+DTBs. Nothing has run on Linux. Every claim carries one of these labels:
+
+  [ADT]      the macOS 13.5 j414sap device tree (DeviceTree.j414sap.im4p,
+             the Asahi stub's copy)
+  [KEXT13.5] AppleJPEGDriver in the stub's 13.5 kernelcache (mac14j)
+  [KEXT27]   the same kext in macOS 27.2; "13.5==27.2" where both agree
+  [LIVE]     this Mac's IORegistry under macOS 27.2
+  [M1N1]     m1n1 proxyclient hw/jpeg.py, experiments/jpeg.py, jpeg_doc.md
+             (M1 register layout; the decode recipe)
+  [AURORA]   aurora-silicon/linux aurora-wip 27c8c52a,
+             drivers/media/platform/apple/jpeg (T8140 encoder, GPL-2.0-only)
+  [DT]       Asahi Linux device trees at tag asahi-7.2.14-1
+  [INF]      inference, not verified
+  [HW]       only a run on the machine can settle it
+
+Files, as they sit in Silicon Bakery:
+  drivers/apple-jpeg/                  out-of-tree module source (Kbuild, Makefile KDIR=)
+    apple-jpeg-hw.h, apple-jpeg-hw.c   register map; reset defaults, tunables, encode and
+                                       decode job builders, IJG tables, DRI insertion
+                                       (no hardware access; host-testable)
+    apple-jpeg-drv.c                   platform driver, V4L2 m2m encoder + stateful decoder
+    apple-jpeg-overlay.c,              runtime DT overlay module (jpeg0/jpeg1 + DARTs)
+    jpeg-overlay-core{0,1}.dts, mkhdr.py
+    v4l2-jpeg-bundled.c                the kernel's v4l2-jpeg.c from asahi-7.2.14-1
+                                       (Pengutronix, GPL-2.0-only), built in only when
+                                       the kernel lacks CONFIG_V4L2_JPEG_HELPER
+  patches/linux-jpeg/0001-dt-bindings-media-add-apple-t6020-jpeg.patch
+  patches/linux-jpeg/0002-arm64-dts-apple-t602x-add-jpeg.patch
+  pkgs/apple-jpeg.nix                  the module derivation (no firmware needed)
+No Apple data is in these files beyond small register values with labels.
+Quantisation tables are computed (T.81 Annex K x IJG quality scaling); the
+Huffman tables are the engine's built-in standard ones. No m1n1 scripts: there
+is no second machine (tools/m1n1 not written).
+
+
+1. Upstream state (checked 2026-11-02)
+--------------------------------------
+- Asahi linux 7.2.14 and m1n1: no JPEG node, driver or tracer for any SoC.
+  t602x has only the power domain ps_jpg (pmgr 0x1b8, label "jpg") and a
+  disabled PMP report entry pmp-jpg (report@13). [DT]
+- aurora-silicon aurora-wip: apple-jpeg, a V4L2 m2m baseline encoder for
+  T8140 (A18 Pro), NV12M/NV16M input; refuses T6041. Encodes on T8140. This
+  port forks it. [AURORA]
+- m1n1: the M1 layout (32-bit pointers, other offsets above 0x8c) and a
+  proxy experiment that encodes and decodes on M1/M1 Max. [M1N1]
+
+2. Facts
+--------
+2.1 Instances [ADT]
+  jpeg0  bus 0x18d000000+0x8000 -> CPU 0x38d000000 (codec 0x4000, DART at +0x4000)
+         IRQ 1177; dart-jpeg0 0x38d004000 IRQ 1178
+  jpeg1  0x38d008000 IRQ 1182; dart-jpeg1 0x38d00c000 IRQ 1183
+  compatible "jpeg,t6020","jpeg,s5l8920x", hw-type e0010; DARTs "dart,t8110",
+  sid 0, 16 KiB pages, dart-options 0x25, vm-base 0x10000000000.
+  Power gates JPG0-V, JPG1-V, JPG0-DART, JPG1-DART are aliases of JPG
+  (= ps_jpg); JPG-FAB0-VNOM/VMAX, JPG1-FAB0-VNOM/VMAX are perf requests
+  (pmgr devices list) [ADT]. CPU = bus + 0x200000000 and AIC numbers = ADT
+  numbers on t602x, as for AVE [DT].
+2.2 Version: MODE 0x147 opens 0x1c4, which reads 0x000e0010 [KEXT13.5][LIVE];
+  the driver refuses anything else. Register offsets of HalV11 (e0010) equal
+  HalV8's, which drives T8140, so aurora's T8140 map is the t6020 map
+  [KEXT13.5]. AppleJPEGNumCores=2, DCTScaling=1, 12Bits=0,
+  SupportsMissingEOI, RequiresMCUAlignment=0 [LIVE].
+2.3 MODE values [KEXT13.5]: reset 0x100 then 0x13e; setup 0x13e; open 0x17f;
+  idle 0x143; identify 0x147; job = bits << 1 | 0x141 -> encode 0x14f,
+  decode 0x157 (RGB variants 0x16f/0x177, unused). T8140 uses 0x743/0x74f
+  [AURORA].
+2.4 AXI wrapper (not in the ADT) [KEXT13.5, RadishFunctions]: block at die
+  base + 0x38c000000 (size 0xc84); jpeg0 ctrl +0xb38 status +0xb3c, jpeg1
+  +0xb98/+0xb9c; die 1 at 0x238c000000. After an interrupt that does not
+  report completion: ctrl = 0, poll status == 0 (<= 10001 reads), ctrl =
+  0x0040000a. In the DT it is the node's second reg entry ("axi", 8 bytes).
+2.5 Tunables, mask 0xff, applied at every reset between the defaults and
+  MODE 0x17f [KEXT13.5], same in 27.2 [KEXT27]:
+    offset   0x098 0x0a8 0x0c8 0x0d8 0x298 0x29c 0x2b4 0x2b8 0x294 0x2b0
+    jpeg0     01    02    03    04    05    06    07    08    07    07
+    jpeg1     09    0a    0b    0c    0d    0e    0f    10    07    07
+  The driver picks the row from the engine's physical address within a die,
+  as macOS does.
+2.6 Reset (reset_jpeg_block) [KEXT13.5]: MODE 0x100, 0x13e; RUN 0; defaults
+  (ajpeg_driver_set_default_regs: about 120 writes, incl. 0x280 = 8000,
+  0x294 = 0x2b0 = 7, dither 0xff, IRQ mask 0xff); tunables; MODE 0x17f; wait
+  COMMAND (0x1004) == 0; RST_INTERVAL (0x1014) = 1 and read back 1, then 0;
+  clear 0x1dc..0x210; MODE 0x143. The driver resets before every job.
+2.7 Encode [KEXT13.5]: MODE 0x13e, RUN 0, defaults, MODE 0x17f; enables
+  (0x38 = 1, 0x2c = 1, 0x34 = 0), CODEC (0 444, 1 422, 3 420, 4 400);
+  plane sizes and the timeout (6 x samples + 66.5M cycles, at least 266M);
+  MCU counts; tile sizes and pipe limits per (codec, layout) (420 from NV12:
+  2/16 and 2/8, limits 3/1; 422: limits 8/2; 444: 1/8, 2/8, 0xc/2; 400:
+  0xb/2); 0x258/0x25c = W/H; pixel format 4 (two planes) or 5 (packed 4:2:2)
+  with component positions; chroma halving 0x40/0x48 when the JPEG is
+  subsampled more than the input; 64-bit pointers (input end | 7); prefetch
+  0x154 = 1; MODE 0x14f; 0x1000 = 0x30 | {444 0, 422 1, 420 2, 400 3};
+  0x101c/0x1018 = W/H; 0x1014 = restart interval; 0x1024 = 0; Q tables at
+  0x1100 (luma), 0x1140 (chroma) in natural order, big-endian bytes per word
+  [KEXT13.5][M1N1][AURORA]; QTBL_SEL 0x14; HUFF 0x3c; RUN 1; COMMAND 1.
+  Packed 4:2:2 input is always encoded 4:2:2 (macOS forces it); 4:1:1 encode
+  is refused by the hardware checks. The engine writes SOI DQT SOF0 DHT SOS
+  ... EOI, no APP0 and no DRI [KEXT13.5]; with a restart interval the driver
+  inserts a DRI segment before SOS (CPU memmove on MMAP buffers) [INF: needed].
+2.8 Decode [KEXT13.5]: same preamble; 0x34 = 1, 0x2c = 0, 0x38 = 0; CODEC from
+  SOF0; 0x188 = output layout (0 NV24, 1 NV16, 2 NV12, 3 packed 4:2:2; 5/6
+  RGB unused); plane sizes at the scaled size; limits 0x1f/1; JPEG MCU
+  counts and edge sizes (0x16c..0x180); output tiling per (codec, layout) =
+  m1n1's recipe = the kext's dcd_cmp_yuv_* rows [M1N1][KEXT13.5]; chroma
+  halve/double registers; 0x18c = 1 for YUYV order [M1N1]; DCT scale 0x184
+  (1/2/4/8 -> 0/1/2/3, the kext's table [KEXT13.5]); at scale 1/8 vertical
+  chroma halving uses 0x198 instead of 0x44; MODE 0x157; EOI insertion
+  0x1d8 = 1; 0x1028 = 0; 0x1000 = 0x3f; RUN 1; COMMAND 1. The engine parses
+  DQT, DHT, SOF0, DRI and SOS itself. No 4:4:4 two-plane output from
+  subsampled JPEGs. Inputs under 0x101 bytes are refused.
+2.9 Completion [KEXT13.5]: read 0x24 (status: b0 done, b1 timeout, b2 read
+  overflow, b3 write overflow, b4 codec overflow, b5 MB, b6 AXI, b7 other),
+  0x102c (0x80000000 or 0x40000000 = good), 0x0c; clear 0x102c, RUN, 0x154,
+  0x158, IRQ mask; byte count 0x1020; decode errors 0x1030. A lone MB error
+  with 0x0c bit 2 set is not an error.
+2.10 Limits: baseline 8-bit only (SOF0); progressive, 12-bit, lossless and
+  arithmetic are software on macOS too [KEXT13.5][LIVE 12Bits=0]. Engine
+  up to 65535 x 65535; the driver caps at 16384. Buffers: 128-byte aligned
+  plane addresses and strides [INF from the kext's compressed-mode checks].
+
+3. The driver
+-------------
+apple-jpeg.ko (module apple_jpeg) binds "apple,t6020-jpeg", one platform
+device per engine. Each engine registers two V4L2 mem2mem nodes sharing it:
+  apple-jpeg<N>-enc  OUTPUT NV12M NV12 NV16M NV16 NV24 YUYV UYVY -> CAPTURE JPEG
+  apple-jpeg<N>-dec  OUTPUT JPEG -> CAPTURE NV12M NV12 NV16M NV16 NV24 YUYV UYVY
+Encoder controls: compression_quality (1-100, default 75; IJG tables),
+restart_interval (0-65535), chroma_subsampling (4:4:4, 4:2:2, 4:2:0, gray;
+follows the input on S_FMT). Decoder: stateful (dev-decoder.rst):
+the first header sets CAPTURE and raises SOURCE_CHANGE; a new size mid-stream
+returns an empty CAPTURE buffer flagged LAST, raises SOURCE_CHANGE and waits
+for CAPTURE to be set up again. Private control "JPEG Decode Downscale"
+(integer menu 1, 2, 4, 8; id V4L2_CID_USER_BASE + 0x1f00) uses the engine's
+DCT scaling. Headers are parsed with v4l2-jpeg (the kernel's or the bundled
+copy, see 5); only
+SOF0, 8-bit, 1 or 3 components, one interleaved scan, 4:4:4/4:2:2/4:2:0/
+4:1:1/gray are accepted; others fail the buffer. Colorimetry: JPEG
+(full-range BT.601), no conversion. Draining: ENCODER_CMD/DECODER_CMD STOP.
+Two engines = two encoders and two decoders; applications pick a node
+(no scheduling across engines in the driver).
+
+Parameters: stop_after= (1-5, default 5), step_ms=, tunables= (1),
+axi_drain= (1), axi_init= (0: write 0x0040000a at probe), prefetch= (bit 0
+encode 0x154 = 1 [AURORA]/[KEXT13.5 when its flag is set], bit 1 decode
+0x158 = 1; default 1), encoder= / decoder= (1).
+Probe stages:
+  1 resources: regs, "axi" pair, core from the address, IOMMU, power domain,
+    DMA mask, IRQ number. No hardware access.
+  2 power on (runtime PM, ps_jpg), read MODE/DEBUG and the AXI ctrl/status.
+  3 MODE 0x147, read 0x1c4; refuse unless 0x000e0010.
+  4 one full reset with tunables; tunable low bytes read back.
+  5 threaded IRQ, V4L2 nodes.
+A stop returns -ENODEV (silent) after releasing everything, so the next
+modprobe with a higher stop_after starts clean in the same boot.
+apple-jpeg-overlay.ko (module apple_jpeg_overlay, cores= 1/2/3) adds the
+nodes at runtime; it has no exit (nodes stay until reboot) and refuses on
+anything but apple,t6020 or when a "apple,t6020-jpeg" node exists already.
+
+4. Device tree
+--------------
+patches/linux-jpeg (git apply --check clean on asahi-7.2.14-1, also stacked
+with patches/linux-ave): 0001 adds bindings/media/apple,t6020-jpeg.yaml (not
+run through dt-schema here); 0002 adds DIE_NODE(jpeg0/1) and
+DIE_NODE(jpeg0/1_dart) to t602x-dieX.dtsi, disabled, power-domains ps_jpg,
+reg-names "jpeg", "axi"; t6020.dtsi enables the four. Compiled with the
+tree's own dtc (cpp + dtc -@): t6020-j414s has them okay (IRQ 0x499/0x49a,
+power-domains -> ps_jpg "jpg"); t6021-j414c and t6022-j180d (both dies)
+have them disabled; no new dtc warnings. The perf domain (pmp_report_jpg)
+is not wired: it needs the PMP (power.pmp) and is optional in the binding.
+
+5. Kernel requirements
+----------------------
+V4L2_MEM2MEM_DEV, VIDEOBUF2_DMA_CONTIG, APPLE_DART, OF_OVERLAY=y (overlay
+path). V4L2_JPEG_HELPER is optional: it is a hidden symbol that exists only
+when a driver such as VIDEO_HANTRO selects it, and frieren's config
+(nixos-apple-silicon f88fb808) cannot be generated on macOS to check.
+Kbuild decides at build time from the kernel's auto.conf:
+  - CONFIG_V4L2_JPEG_HELPER=m/y: apple-jpeg.ko uses the kernel's parser
+    (undefined symbol v4l2_jpeg_parse_header, resolved by v4l2-jpeg.ko) and
+    carries softdep "pre: v4l2-jpeg".
+  - unset: v4l2-jpeg-bundled.c (blob 36a0f1a1b0d9 of asahi-7.2.14-1, MODULE_*
+    and EXPORT_SYMBOL_GPL lines removed) is linked into apple-jpeg.ko, its
+    public symbols renamed apple_jpeg_bundled_* by -D in Kbuild and not
+    exported, so nothing can clash with a v4l2-jpeg.ko; no softdep.
+Both variants compile at W=1 without warnings in the prepared tree
+(/Volumes/NixScratch/work/jpeg/kout, the second with CONFIG_V4L2_JPEG_HELPER=
+on the make line); nm/modinfo of apple-jpeg.o confirm the above (no
+__ksymtab in either). Check on the machine:
+`zcat /proc/config.gz | grep -E 'V4L2_JPEG_HELPER|OF_OVERLAY'` and
+`modinfo apple_jpeg | grep softdep`.
+
+6. Bring-up on the Mac14,9 (NixOS, linux-asahi 7.2.14), from this Mac alone
+---------------------------------------------------------------------------
+Rules: one risky stage per boot; nothing JPEG-related in boot.kernelModules;
+apple_jpeg blacklisted when the DT patch is in; `sync` before every modprobe.
+Logging without a second machine:
+  a. persistent journal (services.journald.storage = "persistent"); after a
+     hang and hard power-off: `journalctl -k -b -1 | grep -E 'jpeg|dart'`.
+  b. a synced kernel-log tee before each risky modprobe, so the last marker
+     reaches the disk:
+       sudo sh -c 'dmesg -n 8; dmesg -w >> /var/log/jpeg-bringup.log &
+                   while sleep 0.2; do sync /var/log/jpeg-bringup.log; done &'
+     and step_ms=500 on apple_jpeg in risky boots.
+  c. pstore/ramoops: CONFIG_PSTORE_RAM=m in the reference config, but ramoops
+     needs a reserved-memory node in the boot DT and survival of DRAM across
+     a power-button reset through iBoot/m1n1 is unknown [INF: assume not].
+     A bonus, not the plan.
+  d. stop_after= itself: a hang's position is the stage asked for.
+Read-only checks first:
+  modinfo apple_jpeg | grep -E 'alias|parm'; modinfo apple_jpeg_overlay
+  grep -c . /sys/kernel/debug/pm_genpd/pm_genpd_summary   # genpd present
+  ls /proc/device-tree/soc | grep -E 'jpeg|38d0'          # nothing yet (overlay path)
+
+Boot A - nodes and DARTs (low risk):
+    sudo modprobe -a videodev v4l2-mem2mem videobuf2-dma-contig
+    sudo modprobe apple_jpeg_overlay cores=1
+  Expect:
+    apple-jpeg-overlay: aic -> phandle 0x.., ps_jpg -> phandle 0x..
+    apple-jpeg-overlay: jpeg0 and its DART added (changeset N)
+    apple-dart 38d004000.iommu: DART [pagesize 4000, 1 streams, ...] initialized
+  Then `sudo cat /sys/kernel/debug/pm_genpd/pm_genpd_summary | grep jpg`.
+  A hang here = apple-dart touching the DART with ps_jpg off or wrongly
+  modelled; hard power-off, read the log as above.
+Boot B - power and read-only reads (first engine access):
+    sudo modprobe apple_jpeg_overlay cores=1
+    sudo modprobe apple_jpeg stop_after=2 step_ms=500
+  Expect:
+    apple-jpeg 38d000000.jpeg: stage 1: resources mapped, core identified
+    apple-jpeg 38d000000.jpeg: core 0 powered: MODE 0x... DEBUG 0x...
+    apple-jpeg 38d000000.jpeg: AXI wrapper: ctrl 0x... outstanding 0x...
+    apple-jpeg 38d000000.jpeg: stage 2: power on, read-only reads done
+    apple-jpeg 38d000000.jpeg: stop_after=2: stopping here, nothing left running
+  Record MODE, DEBUG (m1n1 saw 0x200 at power-up on M1 [M1N1]) and the
+  wrapper ctrl (0x0040000a expected if iBoot set it [INF]; 0 would mean
+  jobs stall: then try axi_init=1 in boot D). A hang right after "stage 1"
+  = the codec or the wrapper read; next boot rebuild without "axi" (not
+  possible with the overlay as is: report).
+  Same boot, continue (no state is kept by a stop):
+    sudo modprobe -r apple_jpeg; sudo modprobe apple_jpeg stop_after=3 step_ms=500
+  Expect "JPEG codec version 0xe0010" and "stage 3: version checked".
+  "version 0x..., expected 0xe0010: refusing" -> stop and report the value.
+Boot C - reset with tunables:
+    sudo modprobe apple_jpeg_overlay cores=1
+    sudo modprobe apple_jpeg stop_after=4 step_ms=500
+  Expect "reset OK, MODE 0x143" and "stage 4: reset done"; any "tunable 0x...
+  reads 0x..., wrote low byte 0x.." line is information (record it).
+  "reset failed (COMMAND or RST_INTERVAL stuck)" -> retry with tunables=0
+  to separate the tunables from the sequence.
+Boot D - full load and encode:
+    sudo modprobe apple_jpeg_overlay cores=1
+    sudo modprobe apple_jpeg
+  Expect "core 0: encoder videoN, decoder videoM" and "stage 5: ready".
+    for n in /sys/class/video4linux/video*/name; do echo "$n $(cat $n)"; done
+    ENC=/dev/$(basename $(dirname $(grep -lx apple-jpeg0-enc /sys/class/video4linux/video*/name)))
+    DEC=/dev/$(basename $(dirname $(grep -lx apple-jpeg0-dec /sys/class/video4linux/video*/name)))
+    v4l2-ctl -d $ENC --info --list-formats-out --list-formats --list-ctrls
+    ffmpeg -f lavfi -i testsrc2=size=1920x1088 -frames:v 1 -pix_fmt nv12 -f rawvideo /tmp/in.nv12
+    v4l2-ctl -d $ENC --set-fmt-video-out=width=1920,height=1088,pixelformat=NV12 \
+      --set-fmt-video=pixelformat=JPEG --set-ctrl=compression_quality=90 \
+      --stream-mmap --stream-out-mmap --stream-from=/tmp/in.nv12 \
+      --stream-to=/tmp/out.jpg --stream-count=1
+    ffprobe /tmp/out.jpg; ffmpeg -i /tmp/out.jpg -f rawvideo -pix_fmt nv12 -s 1920x1088 \
+      -i /tmp/in.nv12 -lavfi psnr -f null - 2>&1 | grep PSNR
+  (1088 rows: no row padding, so the raw file maps 1:1 onto the buffer.)
+  Expect a valid baseline JPEG and PSNR around 40 dB at quality 90 [INF:
+  libjpeg gives about that on testsrc2]. Then GStreamer, 1080 rows:
+    gst-inspect-1.0 | grep -i jpeg     # v4l2jpegenc / v4l2videoNjpegenc names
+    gst-launch-1.0 videotestsrc num-buffers=30 ! \
+      video/x-raw,format=NV12,width=1920,height=1080 ! v4l2jpegenc ! \
+      multifilesink location=/tmp/gst-%02d.jpg
+  Variants: restart interval (--set-ctrl=restart_interval=8: expect a DRI
+  segment, `ffmpeg -v error -i out.jpg -f null -` clean), chroma_subsampling
+  (444 from NV24, gray), YUYV input.
+  Failures: "encode failed: status 0x.. int 0x.." -> status bits in 2.9
+  (b3 = output buffer too small, b6 = AXI); "job timed out" -> the engine
+  never interrupted: check the wrapper ctrl (boot B), try axi_init=1,
+  prefetch=0; an apple-dart fault -> addresses/streams; all-grey output ->
+  tiling (0x19c; aurora writes 1 there for encode on T8140, macOS 0 [HW]).
+Decode (same boot):
+    ffmpeg -f lavfi -i testsrc2=size=1920x1080 -frames:v 1 -q:v 2 /tmp/ref.jpg
+    gst-launch-1.0 filesrc location=/tmp/ref.jpg ! jpegparse ! v4l2jpegdec ! \
+      video/x-raw,format=NV12 ! filesink location=/tmp/dec.nv12
+    ffmpeg -i /tmp/ref.jpg -f rawvideo -pix_fmt nv12 /tmp/ref.nv12
+    ffmpeg -f rawvideo -pix_fmt nv12 -s 1920x1080 -i /tmp/dec.nv12 -f rawvideo \
+      -pix_fmt nv12 -s 1920x1080 -i /tmp/ref.nv12 -lavfi psnr -f null - 2>&1 | grep PSNR
+  Expect > 45 dB (IDCT rounding only) [INF]. Then 4:2:2 / 4:4:4 / gray /
+  4:1:1 sources (ffmpeg -pix_fmt yuvj422p / yuvj444p / gray), odd sizes
+  (1917x1079), and the downscale control (v4l2-ctl -d $DEC
+  --set-ctrl=jpeg_decode_downscale=1 for 1/2; compare with ffmpeg
+  -vf scale=iw/2:ih/2:flags=area, expect ~35 dB [INF]). Progressive or
+  12-bit input must fail the buffer, not the engine.
+  Failures: "decode failed: ... decomp 0x.." -> the engine rejected the
+  stream (record the file); garbage chroma -> the chroma registers (2.8).
+Compliance: v4l2-compliance -d $ENC -s; v4l2-compliance -d $DEC -s
+  (record failures; the stateful decoder flow is the likeliest place).
+Second engine: reboot, modprobe apple_jpeg_overlay (cores=3), modprobe
+  apple_jpeg; expect "core 1: ..." with 38d008000.jpeg; repeat the encode on
+  apple-jpeg1-enc, then both engines at once (two gst pipelines).
+Suspend: untested; unload apple_jpeg around sleep until checked.
+Last: the kernel DT patch (patches/linux-jpeg) instead of the overlay, with
+  apple_jpeg blacklisted for the first boot.
+
+7. What only hardware can settle [HW]
+-------------------------------------
+  - whether reading the AXI wrapper is safe with only ps_jpg on, and the
+    ctrl value iBoot leaves (0x0040000a assumed);
+  - TILING_ENABLE (0x19c) for linear encode: 0 (macOS reset) vs 1 (aurora);
+  - prefetch defaults; the YUYV/UYVY component order (from the kext's flag
+    and m1n1's YUV-linear, [INF]);
+  - whether the engine ever writes DRI itself (the driver only adds one
+    when missing);
+  - 4:0:0 decode into two-plane formats (chroma content);
+  - interrupt behaviour on errors (level, cleared by 0x102c = 0 [KEXT13.5]);
+  - the perf domain (JPG-FAB0-VMAX) for full clock speed: without the PMP
+    the engine may run slower;
+  - t6021 (M2 Max) and t6022: same nodes, not enabled, not checked.
