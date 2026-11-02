@@ -42,11 +42,11 @@
     "asahi-firmware": {
       "flake": false,
       "locked": {
-        "lastModified": 1793629652,
-        "narHash": "sha256-h/1TG7O7n3DiuWGcQBtLkoLargjvP63xqyEXjddcmpk=",
+        "lastModified": 1793663097,
+        "narHash": "sha256-Hc7CkjvS2sLaFNSmRro6G1UqtMgkUIzSQR789jXzVec=",
         "ref": "main",
-        "rev": "e57d0f0c18d35b47b08fc8e033f4c58229b7b36e",
-        "revCount": 4,
+        "rev": "918e075216b448eb077904dc5b48b12bcf8ddb96",
+        "revCount": 5,
         "type": "git",
         "url": "ssh://git@codeberg.org/frieren/asahi-firmware"
       },
