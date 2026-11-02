@@ -11,7 +11,7 @@ art. No Apple firmware or kernel binaries are kept here.
 |---|---|---|---|
 | AVD, decoder | `avd0`, `avd,t6020` | Cortex-M3; Linux loads Asahi's open `avd-fw` | `apple-avd` V4L2 stateless decoder, device tree node present |
 | AVE, encoder | `ave0`, `ave2`, one instance | ARM64 RTKit "Chinook" core, preloaded by iBoot (`AppleAVE2FW_H14S`, build 6070.11.1 on the 13.5 stub), symbols not stripped | upstream nothing; Silicon Bakery's t6020 port of the community driver (`media.encode`, below) |
-| ProRes | `apr0` | none on the 13.5 stub (macOS 27 adds an "SCodec" coprocessor) | nothing |
+| ProRes | `apr0` | none, register-driven (macOS 27's "SCodec" RTKit core is a separate display/camera streaming codec that can borrow it) | nothing |
 | JPEG ×2 | `jpeg0`, `jpeg1` | none, register-driven | nothing |
 | M2Scaler | `scaler0` | none, register-driven | nothing |
 
