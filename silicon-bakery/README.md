@@ -55,6 +55,10 @@ Run it before installing Linux, or from macOS whenever a setting changes.
 
 ## What it does
 
+`docs/support.md` is the support table for the Mac14,9: what works, what
+Silicon Bakery adds, and what the hardware does under macOS that Linux does
+not yet.
+
 ### Trackpad (`modules/input.nix`, `lib/macos-accel.nix`)
 
 macOS's pointer and scroll acceleration, rebuilt from the profile and from
@@ -170,9 +174,19 @@ Measurements written into the profile are picked up automatically.
 
 ### Graphics (`modules/graphics.nix`)
 
-- `patches/mesa`: Honeykrisp leaves input attachments uncompressed; without it
-  wlroots' 10-bit Vulkan scanout flickers the panel's edges on G14S. Applied
-  to `hardware.graphics.package` only, so nothing linking Mesa rebuilds.
+- `patches/mesa`, applied to `hardware.graphics.package` only, so nothing
+  linking Mesa rebuilds:
+  - `mesa-hk-no-compressed-input-attachments`: Honeykrisp leaves input
+    attachments uncompressed; without it wlroots' 10-bit Vulkan scanout
+    flickers the panel's edges on G14S.
+  - `mesa-agx-g14x-metal-cdm-barrier`: the barrier after each compute launch
+    is the one AGXMetalG14X writes on the M2 Pro/Max (5 bits) instead of
+    every known bit.
+- `patches/linux/drm-asahi-flush-stamps-last-command`: the last render and
+  compute command of a submission flush their stamps again, as before the
+  UAPI rework (AsahiLinux/linux#633).
+- `docs/gpu.md`: the driver checked against macOS's device tree, kext and
+  Metal driver, what matches, what was fixed and what is open.
 - `WLR_RENDER_DRM_DEVICE` set to the GPU's render node for the profile's SoC:
   appledrm has no render node, and wlroots would otherwise hand the display
   node to the Vulkan renderer.
