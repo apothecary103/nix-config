@@ -1,0 +1,94 @@
+From: Silicon Bakery <noreply@localhost>
+Subject: [PATCH 1/2] dt-bindings: media: add apple,t6020-jpeg
+
+The M2 Pro's two JPEG engines, for the out-of-tree apple-jpeg driver
+(silicon-bakery/drivers/apple-jpeg). Shape follows aurora-silicon's
+apple,jpeg.yaml (T6041/T8140) plus the AXI wrapper register pair.
+
+---
+diff --git a/Documentation/devicetree/bindings/media/apple,t6020-jpeg.yaml b/Documentation/devicetree/bindings/media/apple,t6020-jpeg.yaml
+new file mode 100644
+--- /dev/null
++++ b/Documentation/devicetree/bindings/media/apple,t6020-jpeg.yaml
+@@ -0,0 +1,81 @@
++# SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
++%YAML 1.2
++---
++$id: http://devicetree.org/schemas/media/apple,t6020-jpeg.yaml#
++$schema: http://devicetree.org/meta-schemas/core.yaml#
++
++title: Apple M2 Pro (t6020) JPEG codec
++
++maintainers:
++  - Silicon Bakery <noreply@localhost>
++
++description: |
++  Directly programmed memory-to-memory baseline JPEG encoder/decoder, two
++  engines per die on t602x, each with its own interrupt and DART stream,
++  both in the "jpg" power domain. Besides its 16 KiB register window each
++  engine has a control/status register pair in a shared AXI wrapper block
++  that the driver uses to drain outstanding transactions after a failed
++  job. Derived from aurora-silicon's apple,jpeg.yaml (T6041/T8140).
++
++properties:
++  compatible:
++    const: apple,t6020-jpeg
++
++  reg:
++    items:
++      - description: engine registers
++      - description: AXI wrapper control and status registers of this engine
++
++  reg-names:
++    items:
++      - const: jpeg
++      - const: axi
++
++  interrupts:
++    maxItems: 1
++
++  iommus:
++    maxItems: 1
++
++  power-domains:
++    minItems: 1
++    items:
++      - description: The engine's power domain
++      - description: Performance request held while the engine works
++
++  power-domain-names:
++    minItems: 1
++    items:
++      - const: core
++      - const: perf
++
++required:
++  - compatible
++  - reg
++  - reg-names
++  - interrupts
++  - iommus
++  - power-domains
++
++additionalProperties: false
++
++examples:
++  - |
++    #include <dt-bindings/interrupt-controller/apple-aic.h>
++    #include <dt-bindings/interrupt-controller/irq.h>
++
++    soc {
++        #address-cells = <2>;
++        #size-cells = <2>;
++
++        jpeg@38d000000 {
++            compatible = "apple,t6020-jpeg";
++            reg = <0x3 0x8d000000 0x0 0x4000>,
++                  <0x3 0x8c000b38 0x0 0x8>;
++            reg-names = "jpeg", "axi";
++            interrupt-parent = <&aic>;
++            interrupts = <AIC_IRQ 0 1177 IRQ_TYPE_LEVEL_HIGH>;
++            iommus = <&jpeg0_dart 0>;
++            power-domains = <&ps_jpg>;
++        };
++    };
