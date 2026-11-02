@@ -89,6 +89,9 @@ in
     # Compute dispatch cost and ordering checks, for testing patches/mesa.
     hk-dispatch-bench = final.callPackage ./hk-dispatch-bench.nix { };
 
+    # True Tone (display.trueTone).
+    truetone = final.callPackage ./truetone.nix { };
+
     # For boot.kernelPatches, on top of nixos-apple-silicon's linux-asahi:
     # always (patches/linux), and for display.experimentalHdr and
     # display.experimentalVrr (patches/linux-hdr, patches/linux-vrr).
@@ -104,5 +107,7 @@ in
     kernelPatchesScaler = kernelPatchesIn ../patches/linux-scaler;
     # The PMP on the Mac14,9 (power.experimentalPmp).
     kernelPatchesPmp = kernelPatchesIn ../patches/linux-pmp;
+    # True Tone's DCP matrix and colour temperature (display.trueTone).
+    kernelPatchesTrueTone = kernelPatchesIn ../patches/linux-truetone;
   };
 }
