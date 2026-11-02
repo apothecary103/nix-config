@@ -1,4 +1,12 @@
 {
+  "display": {
+    "trueTone": {
+      "enabled": true,
+      "mode": 1,
+      "shiftA": -294912,
+      "shiftB": 137626
+    }
+  },
   "keyboard": {
     "initialKeyRepeat": 166666666,
     "keyRepeat": 33333333
@@ -9,7 +17,7 @@
   },
   "soc": "t6020",
   "source": {
-    "date": "2026-11-02",
+    "date": "2026-11-03",
     "macos": "27.2 (26B5101f)",
     "tool": "silicon-bakery/tools/bakery-probe"
   },
