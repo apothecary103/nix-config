@@ -1,0 +1,307 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: "Silicon Bakery (t6020 port)" <noreply@localhost>
+Date: Mon, 2 Nov 2026 12:42:44 +0200
+Subject: [PATCH] RealTime and throughput mode as driver-private controls
+
+Two codec-class controls at V4L2_CID_CODEC_BASE + 0x1f00 (not UAPI;
+v4l2-ctl finds them by name): "AVE RealTime" (bool) and "AVE Throughput
+Mode" (0 = not sent, 1 normal, 2, 3 turbo). Both default off, which
+leaves the command image as before.
+
+Wire fields:
+- RealTimeClient, wire 0xFF84 (VP+0xFF24) = 1 at Start [FW: named by
+  CHEVCController::DebugInit 0x391f0; both IEPs latch it non-zero into
+  ctrl+0xA80]. macOS sends 0xCDCDCDCD when RealTime is off (docs/85).
+- throughputRateMode, PICMGMT+0x6DC = mode, with PICMGMT+0x6E4 = the
+  kext's level {3, 2, 0}[mode - 1] [KEXT13.5 AVE_CHM_SetDataInfo_RC
+  0xfffffe0008eb7f3c, table 0xfffffe0007233864]. The 13.5 HEVC mode
+  decision reads +0x6DC (CHEVCController::SetMdFwParams 0x8b5c8: bit 3
+  for mode > 1, bit 2 for bit 0, into MD register 0x133093C) [FW].
+[LIVE] macOS 27.2: PrioritizeEncodingSpeedOverQuality takes HEVC 1080p
+from 189 to 312 fps (+20 % bits); no AVC change. Untested on hardware.
+---
+ driver/ave_abi.h     | 22 ++++++++++++++++++++++
+ driver/ave_cmd.c     | 15 +++++++++++++++
+ driver/ave_cmd.h     |  7 +++++++
+ driver/ave_session.c |  6 ++++++
+ driver/ave_session.h |  6 ++++++
+ driver/ave_v4l2.c    | 43 ++++++++++++++++++++++++++++++++++++++++++-
+ 6 files changed, 98 insertions(+), 1 deletion(-)
+
+diff --git a/driver/ave_abi.h b/driver/ave_abi.h
+index 6801e3f..845c0b5 100644
+--- a/driver/ave_abi.h
++++ b/driver/ave_abi.h
+@@ -1242,6 +1242,14 @@ struct ave_start_avc_layout {
+ 	 */
+ 	u32	src_go_bit3;		/* u8; AVE_OFF_NONE = not located */
+ 	u32	multi_me;		/* u16 iMultiMECnt (docs/94); AVE_OFF_NONE = not located */
++	/*
++	 * Silicon Bakery: u32 RealTimeClient (VP+0xFF24), VideoToolbox's
++	 * RealTime. Named by the firmware's parameter printer
++	 * (CHEVCController::DebugInit 0x391f0); both 13.5 IEPs latch
++	 * (value != 0) into ctrl+0xA80. macOS sends 0xCDCDCDCD ("unset") when
++	 * RealTime is off (docs/85). 0 = not located.
++	 */
++	u32	realtime;
+ 	/*
+ 	 * Multi-pass (docs/95 §2.1-2.2): bEnableMultipass (u8), the pass
+ 	 * (u32: 1 first, 2 final; the firmware turns 1 into 9 with
+@@ -1604,6 +1612,17 @@ struct ave_process_avc_layout {
+ 	/* Loose scratch IOVAs the host publishes per frame. */
+ 	u32	scratch[AVE_PIC_SCRATCH_MAX];
+ 	u32	scratch_n;
++	/*
++	 * Silicon Bakery: PICMGMT-relative, per frame. throughput_mode u32
++	 * (+0x6DC) = the client's throughput mode (kext
++	 * AVE_CHM_SetDataInfo_RC 0xfffffe0008eb7f3c, FrameInfo+0xD6C; 1
++	 * normal, 3 turbo [KEXT13.5]); throughput_level u32 (+0x6E4) = the
++	 * kext's table at 0xfffffe0007233864 indexed by mode - 1: {3, 2, 0},
++	 * else 3. The 13.5 HEVC mode decision reads +0x6DC
++	 * (CHEVCController::SetMdFwParams 0x8b5c8: bit 3 for > 1, bit 2 for
++	 * bit 0, into MD register 0x133093C). 0 = not located.
++	 */
++	u32	throughput_mode, throughput_level;
+ 	/*
+ 	 * docs/85 group PIC: u8, PICMGMT-relative. The kext writes
+ 	 * (Process commands sent since Start < iNumViews) here (kext
+@@ -2246,6 +2265,7 @@ const struct ave_cmd_abi ave_cmd_abi_13_5 = {
+ 		 * (ldrh 0x4e930) gates every ME1-bank (DPE+0xF0000) write on it.
+ 		 */
+ 		.multi_me	= 0xfcea,
++		.realtime	= 0xff84,	/* VP+0xFF24, fw IEP -> ctrl+0xA80 */
+ 		/* docs/95 §2.1: VP+0xFE9C..0xFEB0, fw 0x4e6a0-0x4e73c */
+ 		.mp_enable	= 0xfefc,
+ 		.mp_pass	= 0xff00,
+@@ -2428,6 +2448,8 @@ const struct ave_cmd_abi ave_cmd_abi_13_5 = {
+ 		.scratch	= { 0x8e0, 0x8e8, 0x8f0, 0x900 },
+ 		.scratch_n	= 4,
+ 		.first_process	= 0x6d8,	/* kext 0xfffffe0008eab908; fw 0x2d30c */
++		.throughput_mode  = 0x6dc,	/* kext 0xeb7f3c; fw SetMdFwParams 0x8b5c8 */
++		.throughput_level = 0x6e4,	/* kext table 0xfffffe0007233864 */
+ 		.sh_slice_map	= 0x4b2,	/* SH+0x472, kext GenerateMap 0xf556f0 */
+ 		.sh_slice_mbs	= 0x5b4,	/* SH+0x574, fw PipePrepareParam 0x47ac0 */
+ 	},
+diff --git a/driver/ave_cmd.c b/driver/ave_cmd.c
+index b63f042..af247e8 100644
+--- a/driver/ave_cmd.c
++++ b/driver/ave_cmd.c
+@@ -323,6 +323,8 @@ static int ave_vp_check(const struct ave_start_avc_layout *l,
+ {
+ 	u32 i;
+ 
++	if (s->realtime && (!l->realtime || l->realtime == AVE_OFF_NONE))
++		return -EINVAL;
+ 	/* CBR needs the RC mode selector and its target (13.5 only) */
+ 	if (s->cbr && (!s->rc_enable || l->bitrate_sel == AVE_OFF_NONE ||
+ 		       l->bitrate_alt == AVE_OFF_NONE || !s->bitrate))
+@@ -574,6 +576,8 @@ static void ave_vp_fill(struct ave_wr *w, const struct ave_start_avc_layout *l,
+ 	}
+ 	if (s->src_go_bits)
+ 		wr8(w, l->src_go_bits, s->src_go_bits);
++	if (s->realtime)
++		wr32(w, l->realtime, 1);
+ 	if (s->dbg_bits)
+ 		wr32(w, l->dbg_bits, s->dbg_bits);
+ 	if (s->ipcm_islice)
+@@ -1354,6 +1358,10 @@ static int ave_pic_check(const struct ave_cmd_abi *abi,
+ 	}
+ 	if (f->n_scratch > l->scratch_n)
+ 		return -EINVAL;
++	if (f->throughput_mode > 3 ||
++	    (f->throughput_mode && (!l->throughput_mode ||
++				    l->throughput_mode == AVE_OFF_NONE)))
++		return -EINVAL;
+ 	/* a slice map: whole, starting at slice 0, steps of 0 or 1 */
+ 	if (f->slice_rows) {
+ 		u32 r;
+@@ -1452,6 +1460,13 @@ static int ave_pic_fill(struct ave_wr *w, const struct ave_process_avc_layout *l
+ 		wr8(w, base + l->force_non_ref, f->force_non_ref);
+ 	if (l->update_param_sets != AVE_OFF_NONE)
+ 		wr8(w, base + l->update_param_sets, f->update_param_sets);
++	if (f->throughput_mode) {
++		/* the kext's mode -> level table (ave_abi.h) */
++		static const u8 lvl[4] = { 3, 3, 2, 0 };
++
++		wr32(w, base + l->throughput_mode, f->throughput_mode);
++		wr32(w, base + l->throughput_level, lvl[f->throughput_mode]);
++	}
+ 	/* HEVC: mode 0 = flat 16 in every quantiser scale register (docs/77 §2.5). */
+ 	wr32_opt(w, base + l->scaling_matrix_mode, 0);
+ 
+diff --git a/driver/ave_cmd.h b/driver/ave_cmd.h
+index 8485dcb..e744404 100644
+--- a/driver/ave_cmd.h
++++ b/driver/ave_cmd.h
+@@ -197,6 +197,8 @@ struct ave_avc_session {
+ 	u32	mp_pass;
+ 	s32	mp_const_qp, mp_qpmod, mp_max_qpmod, mp_options;
+ 	u8	src_go_bits;
++	/* Silicon Bakery: RealTimeClient = 1 (wire 0xFF84); false = not written */
++	bool	realtime;
+ 	/*
+ 	 * Controller debug verbosity (wire 0xFCD8). Bit 5 is what lets the
+ 	 * firmware's own "AVC COMMON:: QPY %d nQuant %d" lines out at all.
+@@ -365,6 +367,11 @@ struct ave_avc_frame {
+ 	 */
+ 	const u8 *slice_map;
+ 	u32	slice_rows;
++	/*
++	 * Silicon Bakery: throughputRateMode 1..3 (PICMGMT+0x6DC, with the
++	 * kext's level at +0x6E4); 0 = neither written, as every release.
++	 */
++	u8	throughput_mode;
+ 	/* Loose per-frame scratch IOVAs; 0 = write none. */
+ 	u64	scratch[AVE_PIC_SCRATCH_MAX];
+ 	u32	n_scratch;
+diff --git a/driver/ave_session.c b/driver/ave_session.c
+index 242f11f..829cd9f 100644
+--- a/driver/ave_session.c
++++ b/driver/ave_session.c
+@@ -1119,6 +1119,8 @@ struct ave_sess_bufs {
+ 	/* per-frame slice map (ave_avc_frame.slice_map); rows 0 = one slice */
+ 	u8		slice_map[0x100];
+ 	u32		slice_rows;
++	bool		realtime;	/* RealTimeClient = 1 at Start */
++	u8		throughput_mode;	/* per frame; 0 = not sent */
+ 	/*
+ 	 * docs/81 "V4L2 implementation" (ave_enc_cfg). All 0 in the
+ 	 * self-test, which keeps its module parameters.
+@@ -2262,6 +2264,7 @@ static int ave_session_start_prep(struct ave_device *ave,
+ 	s->width = bufs->width;
+ 	s->height = bufs->height;
+ 	s->vui = bufs->vui;
++	s->realtime = bufs->realtime;
+ 	s->crop_width = bufs->crop_w;
+ 	s->crop_height = bufs->crop_h;
+ 	s->src_mode = (u16)session_src_mode;
+@@ -4096,6 +4099,7 @@ static int ave_session_process_build(struct ave_device *ave,
+ 		f.slice_map = bufs->slice_map;
+ 		f.slice_rows = bufs->slice_rows;
+ 	}
++	f.throughput_mode = bufs->throughput_mode;
+ 	/* docs/85: the groups Start_AVC latched; AVC only */
+ 	f.macos = hevc ? 0 : bufs->macos;
+ 	f.in_luma_addr = luma_iova;
+@@ -5722,6 +5726,8 @@ int ave_enc_start(struct ave_device *ave, const struct ave_enc_cfg *cfg)
+ 	bufs->req_slots = cfg->slots;
+ 	bufs->vui = cfg->vui;
+ 	bufs->cbr = cfg->cbr && cfg->bitrate;
++	bufs->realtime = cfg->realtime;
++	bufs->throughput_mode = cfg->throughput_mode <= 3 ? cfg->throughput_mode : 0;
+ 	bufs->slice_rows = ave_sess_slice_map(bufs->slice_map, hevc ?
+ 			DIV_ROUND_UP(cfg->height, 32) : DIV_ROUND_UP(cfg->height, 16),
+ 			cfg->slices);
+diff --git a/driver/ave_session.h b/driver/ave_session.h
+index 37d94e5..4f9de45 100644
+--- a/driver/ave_session.h
++++ b/driver/ave_session.h
+@@ -111,6 +111,12 @@ struct ave_enc_cfg {
+ 	 * one slice (nothing written); at most 32 and the row count.
+ 	 */
+ 	u32	slices;
++	/*
++	 * Silicon Bakery (driver-private V4L2 controls): RealTimeClient, and
++	 * the per-frame throughput mode 1 normal .. 3 turbo; 0 = not sent.
++	 */
++	bool	realtime;
++	u8	throughput_mode;
+ 	/* SPS VUI colour signalling (Silicon Bakery); .present 0 = none */
+ 	struct ave_vui vui;
+ };
+diff --git a/driver/ave_v4l2.c b/driver/ave_v4l2.c
+index a455797..4b0d66a 100644
+--- a/driver/ave_v4l2.c
++++ b/driver/ave_v4l2.c
+@@ -179,6 +179,8 @@ struct ave_ctx {
+ 	bool			force_key;
+ 	/* Silicon Bakery: MULTI_SLICE_MODE (SINGLE / MAX_MB) and MAX_MB */
+ 	u32			slice_mode, slice_max_mb;
++	bool			realtime;	/* AVE_CID_REALTIME */
++	u32			throughput;	/* AVE_CID_THROUGHPUT */
+ 	/*
+ 	 * docs/81: VIDEO_B_FRAMES and REF_NUMBER_FOR_PFRAMES as set, and
+ 	 * MIN_BUFFERS_FOR_OUTPUT, which follows B_FRAMES. nb is B_FRAMES as
+@@ -212,6 +214,19 @@ struct ave_ctx {
+ 	bool			pm_lost;
+ };
+ 
++/*
++ * Silicon Bakery driver-private controls, in a codec-class range no
++ * in-tree driver uses (V4L2_CID_CODEC_BASE + 0x1f00). Not UAPI: set them by
++ * id (v4l2-ctl -c ave_realtime=1 finds them by name).
++ *  AVE_CID_REALTIME:   RealTimeClient (VideoToolbox RealTime), 0/1.
++ *  AVE_CID_THROUGHPUT: per-frame throughputRateMode, 0 = not sent (the
++ *                      community stream), 1 normal, 2, 3 turbo
++ *                      (VideoToolbox PrioritizeEncodingSpeedOverQuality).
++ */
++#define AVE_CID_BASE		(V4L2_CID_CODEC_BASE + 0x1f00)
++#define AVE_CID_REALTIME	(AVE_CID_BASE + 0)
++#define AVE_CID_THROUGHPUT	(AVE_CID_BASE + 1)
++
+ static inline struct ave_ctx *fh_to_ctx(struct file *file)
+ {
+ 	return container_of(file_to_v4l2_fh(file), struct ave_ctx, fh);
+@@ -663,6 +678,12 @@ static int ave_s_ctrl(struct v4l2_ctrl *c)
+ 	case V4L2_CID_MPEG_VIDEO_MULTI_SLICE_MODE:
+ 		ctx->slice_mode = c->val;
+ 		break;
++	case AVE_CID_REALTIME:
++		ctx->realtime = c->val;
++		break;
++	case AVE_CID_THROUGHPUT:
++		ctx->throughput = c->val;
++		break;
+ 	case V4L2_CID_MPEG_VIDEO_MULTI_SLICE_MAX_MB:
+ 		ctx->slice_max_mb = c->val;
+ 		break;
+@@ -708,6 +729,22 @@ static const struct v4l2_ctrl_ops ave_ctrl_ops = {
+ 	.s_ctrl = ave_s_ctrl,
+ };
+ 
++static const struct v4l2_ctrl_config ave_ctrl_realtime = {
++	.ops = &ave_ctrl_ops,
++	.id = AVE_CID_REALTIME,
++	.name = "AVE RealTime",
++	.type = V4L2_CTRL_TYPE_BOOLEAN,
++	.min = 0, .max = 1, .step = 1, .def = 0,
++};
++
++static const struct v4l2_ctrl_config ave_ctrl_throughput = {
++	.ops = &ave_ctrl_ops,
++	.id = AVE_CID_THROUGHPUT,
++	.name = "AVE Throughput Mode",
++	.type = V4L2_CTRL_TYPE_INTEGER,
++	.min = 0, .max = 3, .step = 1, .def = 0,
++};
++
+ static int ave_init_ctrls(struct ave_ctx *ctx)
+ {
+ 	struct v4l2_ctrl_handler *h = &ctx->hdl;
+@@ -715,7 +752,7 @@ static int ave_init_ctrls(struct ave_ctx *ctx)
+ 	/* docs/89 §9: where two references hang, the ranges stop at 0 and 1 */
+ 	const bool two = ctx->av->two_refs;
+ 
+-	v4l2_ctrl_handler_init(h, 26);
++	v4l2_ctrl_handler_init(h, 28);
+ 	/*
+ 	 * ffmpeg sets 0 and reads it back; non-zero fails its open (docs/81
+ 	 * §3.2), so 0 stays the default. 1..2 (docs/81 "V4L2 implementation").
+@@ -782,6 +819,8 @@ static int ave_init_ctrls(struct ave_ctx *ctx)
+ 			       V4L2_MPEG_VIDEO_MULTI_SLICE_MODE_SINGLE);
+ 	v4l2_ctrl_new_std(h, o, V4L2_CID_MPEG_VIDEO_MULTI_SLICE_MAX_MB,
+ 			  1, (AVE_MAX_W / 16) * (AVE_MAX_H / 16), 1, 1);
++	v4l2_ctrl_new_custom(h, &ave_ctrl_realtime, NULL);
++	v4l2_ctrl_new_custom(h, &ave_ctrl_throughput, NULL);
+ 	v4l2_ctrl_new_std_menu(h, o, V4L2_CID_MPEG_VIDEO_HEADER_MODE,
+ 			       V4L2_MPEG_VIDEO_HEADER_MODE_JOINED_WITH_1ST_FRAME,
+ 			       ~BIT(V4L2_MPEG_VIDEO_HEADER_MODE_JOINED_WITH_1ST_FRAME),
+@@ -1124,6 +1163,8 @@ static int ave_start_streaming(struct vb2_queue *q, unsigned int count)
+ 			cfg.qp_b = min_t(u32, cfg.qp + AVE_B_QP_OFFSET, 51);
+ 		ave_ctx_vui(ctx, &cfg.vui);
+ 		cfg.slices = ave_ctx_slices(ctx);
++		cfg.realtime = ctx->realtime;
++		cfg.throughput_mode = ctx->throughput;
+ 		if (cfg.vui.present)
+ 			dev_info(av->ave->dev,
+ 				 "v4l2: SPS VUI colour: primaries %u transfer %u matrix %u %s range\n",
