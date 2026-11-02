@@ -13,7 +13,7 @@ art. No Apple firmware or kernel binaries are kept here.
 | AVE, encoder | `ave0`, `ave2`, one instance | ARM64 RTKit "Chinook" core, preloaded by iBoot (`AppleAVE2FW_H14S`, build 6070.11.1 on the 13.5 stub), symbols not stripped | upstream nothing; Silicon Bakery's t6020 port of the community driver (`media.encode`, below) |
 | ProRes | `apr0` | none, register-driven (macOS 27's "SCodec" RTKit core is a separate display/camera streaming codec that can borrow it) | upstream nothing; Silicon Bakery's `apple-prores` encoder (`media.prores`, docs/prores-port.txt) |
 | JPEG ×2 | `jpeg0`, `jpeg1` | none, register-driven | upstream nothing; Silicon Bakery's `apple-jpeg` encoder and decoder (`media.jpeg`, docs/jpeg-port.txt) |
-| M2Scaler | `scaler0` | none, register-driven | nothing yet (docs/scaler-port.txt when it lands) |
+| M2Scaler | `scaler0` | none, register-driven | upstream nothing; Silicon Bakery's `apple-scaler` converter (`media.scaler`, docs/scaler-port.txt) |
 
 macOS advertises AVE encode for H.264 up to 4096×4096 at 2160p30 pixel rate
 and HEVC at 2160p60, 4:0:0 to 4:4:4. The AVE sits behind a `dart,t8110`

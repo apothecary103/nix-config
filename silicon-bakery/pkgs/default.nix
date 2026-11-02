@@ -101,6 +101,7 @@ in
     # (media.prores.deviceTree, media.jpeg.deviceTree).
     kernelPatchesProres = kernelPatchesIn ../patches/linux-prores;
     kernelPatchesJpeg = kernelPatchesIn ../patches/linux-jpeg;
+    kernelPatchesScaler = kernelPatchesIn ../patches/linux-scaler;
     # The PMP on the Mac14,9 (power.experimentalPmp).
     kernelPatchesPmp = kernelPatchesIn ../patches/linux-pmp;
   };

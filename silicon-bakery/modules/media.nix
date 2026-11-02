@@ -121,6 +121,21 @@ in
         /boot/m1n1/boot.bin first, as for media.encode.deviceTree'';
     };
 
+    scaler = {
+      enable = lib.mkEnableOption ''
+        the media engine's M2Scaler: Silicon Bakery's apple-scaler V4L2
+        converter (scale, crop, rotate, flip, colour conversion) for
+        v4l2convert, libcamera and decode-to-encode pipelines, and
+        scaler-test. EXPERIMENTAL and untested; follow docs/scaler-port.txt
+        first'';
+
+      autoload = lib.mkEnableOption "loading apple_scaler at boot (with the runtime overlay unless deviceTree is on)";
+
+      deviceTree = lib.mkEnableOption ''
+        the scaler in the kernel's device tree (patches/linux-scaler) instead
+        of the runtime overlay. Rebuilds the kernel'';
+    };
+
     jpeg = {
       enable = lib.mkEnableOption ''
         the media engine's two JPEG cores: Silicon Bakery's apple-jpeg V4L2
@@ -136,6 +151,36 @@ in
   };
 
   config = lib.mkMerge [
+    (lib.mkIf (cfg.enable && media.scaler.enable) (
+      let
+        apple-scaler = config.boot.kernelPackages.callPackage ../pkgs/apple-scaler.nix { };
+      in
+      {
+        assertions = [
+          {
+            assertion = soc == "t6020";
+            message = "hardware.siliconBakery.media.scaler: the scaler port covers t6020, not ${toString soc}.";
+          }
+        ];
+        boot.extraModulePackages = [ apple-scaler ];
+        boot.kernelPatches = lib.mkIf media.scaler.deviceTree pkgs.siliconBakery.kernelPatchesScaler;
+        boot.blacklistedKernelModules = lib.optional (
+          media.scaler.deviceTree && !media.scaler.autoload
+        ) "apple_scaler";
+        boot.kernelModules = lib.optional media.scaler.autoload "apple_scaler";
+        boot.extraModprobeConfig = lib.optionalString (!media.scaler.deviceTree) ''
+          softdep apple_scaler pre: scaler_overlay
+        '';
+        services.udev.extraRules = ''
+          SUBSYSTEM=="video4linux", ATTR{name}=="apple-scaler*", SYMLINK+="$attr{name}", GROUP="video", MODE="0660"
+        '';
+        environment.systemPackages = [
+          pkgs.v4l-utils
+          apple-scaler
+        ];
+      }
+    ))
+
     (lib.mkIf (cfg.enable && media.prores.enable) {
       assertions = [
         {
