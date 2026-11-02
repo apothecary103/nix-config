@@ -4,7 +4,7 @@ Subject: [PATCH] t6020 (M2 Pro): SoC row, AXI2AF tunables, ADT DVAs, overlay var
 Against github.com/aquarat/apple-m-series-ave-driver
 9ab14e45281e8f61fb499b760408028171a5f2b5 (apply with `git apply` or `patch -p1`).
 Static port, written on the Mac14,9 itself under macOS; not compiled and
-not run on hardware. See PORT.txt for the provenance of every value and the
+not run on hardware. See docs/ave-port.txt for the provenance of every value and the
 bring-up plan.
 
 - driver/ave_soc.[ch]: ave_soc_t6020 (H14S, DevID 19/16/11, Hera_6020 DPE

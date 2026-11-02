@@ -79,6 +79,6 @@ stdenv.mkDerivation {
     homepage = "https://github.com/aquarat/apple-m-series-ave-driver";
     license = lib.licenses.gpl2Only;
     platforms = [ "aarch64-linux" ];
-    # t6020 support is untested on hardware; see PORT.txt before loading it.
+    # t6020 support is untested on hardware; see docs/ave-port.txt before loading it.
   };
 }

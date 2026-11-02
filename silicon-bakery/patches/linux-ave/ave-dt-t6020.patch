@@ -4,7 +4,7 @@ Subject: [PATCH] arm64: dts: apple: t602x: add the video encoder (AVE) and its D
 Add die 0's AVE (ave0) and its two t8110 DARTs to t602x-die0.dtsi,
 disabled, and enable them on t6020 (M2 Pro). Values from the macOS 13.5
 j414sap ADT (/arm-io/ave0, /arm-io/dart-ave0) and Asahi's t602x power-domain
-labels; see the t6020 port's PORT.txt for the provenance of each value.
+labels; see docs/ave-port.txt for the provenance of each value.
 The node is for the out-of-tree apple-ave driver; nothing in-tree binds it.
 Not built or booted: verify with the overlay (variant=15) first.
 
