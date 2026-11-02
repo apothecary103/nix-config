@@ -94,9 +94,106 @@ in
         does not bring the old ones back; keep a copy of /boot/m1n1/boot.bin
         before switching (docs/ave-port.txt). Rebuilds the kernel'';
     };
+
+    prores = {
+      enable = lib.mkEnableOption ''
+        the media engine's ProRes engine (apr0): Silicon Bakery's apple-prores
+        V4L2 encoder for all six ProRes profiles (decoder behind the module's
+        decoder=1). EXPERIMENTAL and untested: a wrong DMA tunables table can
+        hang the machine. Follow docs/prores-port.txt's staged plan first'';
+
+      firmware = lib.mkOption {
+        type = lib.types.nullOr lib.types.path;
+        default = null;
+        example = lib.literalExpression ''inputs.asahi-firmware + "/prores"'';
+        description = ''
+          A directory holding apple/prores-13.5-d0.bin, the DMA tunables
+          tools/bakery-prores-tables writes from this Mac's own macOS 13.5. Apple's
+          data: keep it in a private input.
+        '';
+      };
+
+      autoload = lib.mkEnableOption "loading apple_prores at boot (with the runtime overlay unless deviceTree is on)";
+
+      deviceTree = lib.mkEnableOption ''
+        the ProRes engine in the kernel's device tree (patches/linux-prores)
+        instead of the runtime overlay. Rebuilds the kernel; keep a copy of
+        /boot/m1n1/boot.bin first, as for media.encode.deviceTree'';
+    };
+
+    jpeg = {
+      enable = lib.mkEnableOption ''
+        the media engine's two JPEG cores: Silicon Bakery's apple-jpeg V4L2
+        baseline JPEG encoder and decoder (GStreamer v4l2jpegenc/v4l2jpegdec).
+        EXPERIMENTAL and untested; follow docs/jpeg-port.txt first'';
+
+      autoload = lib.mkEnableOption "loading apple_jpeg at boot (with the runtime overlay unless deviceTree is on)";
+
+      deviceTree = lib.mkEnableOption ''
+        the JPEG cores in the kernel's device tree (patches/linux-jpeg) instead
+        of the runtime overlay. Rebuilds the kernel'';
+    };
   };
 
   config = lib.mkMerge [
+    (lib.mkIf (cfg.enable && media.prores.enable) {
+      assertions = [
+        {
+          assertion = media.prores.firmware != null;
+          message = "hardware.siliconBakery.media.prores needs firmware: run tools/bakery-prores-tables on macOS and point media.prores.firmware at its output.";
+        }
+        {
+          assertion = soc == "t6020";
+          message = "hardware.siliconBakery.media.prores: the ProRes port covers t6020, not ${toString soc}.";
+        }
+      ];
+      boot.extraModulePackages = [ (config.boot.kernelPackages.callPackage ../pkgs/apple-prores.nix { }) ];
+      hardware.firmware = lib.optional (media.prores.firmware != null) (
+        pkgs.runCommand "apple-prores-firmware" { } ''
+          mkdir -p $out/lib/firmware
+          cp -r ${media.prores.firmware}/apple $out/lib/firmware/
+        ''
+      );
+      boot.kernelPatches = lib.mkIf media.prores.deviceTree pkgs.siliconBakery.kernelPatchesProres;
+      boot.blacklistedKernelModules = lib.optional (
+        media.prores.deviceTree && !media.prores.autoload
+      ) "apple_prores";
+      boot.kernelModules = lib.optional media.prores.autoload "apple_prores";
+      boot.extraModprobeConfig = lib.optionalString (!media.prores.deviceTree) ''
+        softdep apple_prores pre: prores_overlay
+      '';
+      services.udev.extraRules = ''
+        SUBSYSTEM=="video4linux", ATTR{name}=="apple-prores*", SYMLINK+="$attr{name}", GROUP="video", MODE="0660"
+      '';
+      environment.systemPackages = [ pkgs.v4l-utils ];
+    })
+
+    (lib.mkIf (cfg.enable && media.jpeg.enable) {
+      assertions = [
+        {
+          assertion = soc == "t6020";
+          message = "hardware.siliconBakery.media.jpeg: the JPEG port covers t6020, not ${toString soc}.";
+        }
+      ];
+      boot.extraModulePackages = [ (config.boot.kernelPackages.callPackage ../pkgs/apple-jpeg.nix { }) ];
+      boot.kernelPatches = lib.mkIf media.jpeg.deviceTree pkgs.siliconBakery.kernelPatchesJpeg;
+      boot.blacklistedKernelModules = lib.optional (
+        media.jpeg.deviceTree && !media.jpeg.autoload
+      ) "apple_jpeg";
+      boot.kernelModules = lib.optional media.jpeg.autoload "apple_jpeg";
+      boot.extraModprobeConfig = lib.optionalString (!media.jpeg.deviceTree) ''
+        options apple_jpeg_overlay cores=3
+        softdep apple_jpeg pre: apple_jpeg_overlay
+      '';
+      services.udev.extraRules = ''
+        SUBSYSTEM=="video4linux", ATTR{name}=="apple-jpeg*", SYMLINK+="$attr{name}", GROUP="video", MODE="0660"
+      '';
+      environment.systemPackages = [
+        pkgs.v4l-utils
+        pkgs.gst_all_1.gst-plugins-good
+      ];
+    })
+
     (lib.mkIf (cfg.enable && encode.enable) {
       assertions = [
         {

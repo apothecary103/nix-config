@@ -97,6 +97,10 @@ in
     kernelPatchesVrr = kernelPatchesIn ../patches/linux-vrr;
     # The AVE's device tree nodes (media.encode.deviceTree).
     kernelPatchesAve = kernelPatchesIn ../patches/linux-ave;
+    # The ProRes engine's and the JPEG cores' device tree nodes
+    # (media.prores.deviceTree, media.jpeg.deviceTree).
+    kernelPatchesProres = kernelPatchesIn ../patches/linux-prores;
+    kernelPatchesJpeg = kernelPatchesIn ../patches/linux-jpeg;
     # The PMP on the Mac14,9 (power.experimentalPmp).
     kernelPatchesPmp = kernelPatchesIn ../patches/linux-pmp;
   };
