@@ -1,0 +1,205 @@
+From 0722c3c4de56168b609d196627242e05f833e280 Mon Sep 17 00:00:00 2001
+From: Silicon Bakery <noreply@localhost>
+Date: Mon, 2 Nov 2026 12:24:51 +0200
+Subject: [PATCH 2/7] media: apple: avd: fail a job at once on VP error or a
+ stuck queue
+
+Three paths left a job to the 2 s watchdog, which then resets the block:
+
+- avd-fw forwards a VP error interrupt as the bare VP index on mailbox 1
+  (src/irq.c err()). The handler only logged "H%d error"; no completion
+  follows, so every corrupt or unsupported frame cost a 2 s stall.
+- A message with bit 16 set comes from avd-fw's default handler, which
+  then spins in WFI. The handler disabled the mailbox interrupt and
+  again waited for the watchdog.
+- avd_submit_job() broke out of its loop when the VP submission queue
+  was full, dropping the rest of the frame including the EXEC command
+  with the END flag, so the frame could never complete.
+
+Hand the job to the watchdog work with no delay in the first two cases
+(only the context that cancels the pending watchdog owns the job, so it
+is finished exactly once), and ignore further messages for that job. For
+a full queue, poll the queue level until the VP drains it (100 ms at
+most) instead of giving up on the first read, and abort the same way if
+it never drains. macOS likewise recovers from decode errors straight
+away (CheckAVDHwStatus, then SoftReset, then HardReset) rather than on a
+timer.
+
+Also read and acknowledge the mailbox before checking for a current
+context: a stray message with no job running kept the level-triggered
+interrupt asserted.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ drivers/media/platform/apple/avd/avd-drv.c | 80 ++++++++++++++++++----
+ drivers/media/platform/apple/avd/avd.h     |  2 +
+ 2 files changed, 68 insertions(+), 14 deletions(-)
+
+diff --git a/drivers/media/platform/apple/avd/avd-drv.c b/drivers/media/platform/apple/avd/avd-drv.c
+index c5b83b0bc..293517d14 100644
+--- a/drivers/media/platform/apple/avd/avd-drv.c
++++ b/drivers/media/platform/apple/avd/avd-drv.c
+@@ -15,6 +15,7 @@
+ #include <linux/iommu.h>
+ #include <linux/reset.h>
+ #include <linux/delay.h>
++#include <linux/iopoll.h>
+ #include <linux/unaligned.h>
+ 
+ #include <media/videobuf2-dma-contig.h>
+@@ -141,24 +142,51 @@ avd_get_ref_buf(struct avd_ctx *ctx, struct vb2_v4l2_buffer *dst, u64 timestamp)
+ 	return vb2_to_avd_decoded_buf(buf);
+ }
+ 
++/* How long a full VP submission queue may take to drain before we give up. */
++#define AVD_QUEUE_DRAIN_TIMEOUT_US	100000
++
++/*
++ * Hand the job to the watchdog work with no delay: it resets the block and
++ * finishes the job with an error. Only the context that cancels a pending
++ * watchdog owns the job; if the watchdog is already running it finishes the
++ * job itself.
++ */
++static void avd_abort_job(struct avd_ctx *ctx)
++{
++	WRITE_ONCE(ctx->hw_error, true);
++	if (cancel_delayed_work(&ctx->watchdog_work))
++		schedule_delayed_work(&ctx->watchdog_work, 0);
++}
++
+ static int avd_wait_submission_queue(struct avd_ctx *ctx, int vp)
+ {
+ 	struct avd_dev *avd = ctx->dev;
++	void __iomem *status = avd->ctrl +
++			       avd->variant->submit_queue_status_offset + vp * 4;
+ 	u32 max = readl_relaxed(avd->ctrl +
+ 				avd->variant->submit_queue_max_offset + vp * 4);
+-	u32 cur = readl_relaxed(
+-		avd->ctrl + avd->variant->submit_queue_status_offset + vp * 4);
+-
+-	if (cur == max) {
+-		dev_err(avd->dev, "instruction que full! %d/%d", cur, max);
+-		return 1;
+-	}
++	u32 cur = readl_relaxed(status);
++	int ret;
+ 
+ 	if (cur >= max / 2) {
+ 		/* TODO: to high? low? Has weird side effects??? */
+ 		usleep_range(500, 650);
++		cur = readl_relaxed(status);
+ 	}
+-	return 0;
++
++	if (cur < max)
++		return 0;
++
++	/*
++	 * Full: wait for the VP to consume entries instead of dropping the
++	 * rest of the frame, which left the job without its END command.
++	 */
++	ret = readl_relaxed_poll_timeout(status, cur, cur < max, 100,
++					 AVD_QUEUE_DRAIN_TIMEOUT_US);
++	if (ret)
++		dev_err(avd->dev, "instruction queue stuck full: %u/%u\n", cur,
++			max);
++	return ret;
+ }
+ 
+ int avd_init_job(struct avd_ctx *ctx, enum avd_codec codec, size_t segments)
+@@ -209,8 +237,11 @@ int avd_submit_job(struct avd_ctx *ctx)
+ 		seg = &sub->segments[idx];
+ 		for (i = 0; i < seg->num; i++)
+ 			writel(seg->instructions[i], reg);
+-		if (avd_wait_submission_queue(ctx, vp))
++		if (avd_wait_submission_queue(ctx, vp)) {
++			/* never ends without its END command: reset now */
++			avd_abort_job(ctx);
+ 			break;
++		}
+ 		writel(AVD_OP_EXEC | exec_mask |
+ 			       AVD_OP_EXEC_FLAG_END(idx == sub->num),
+ 		       reg);
+@@ -259,7 +290,10 @@ static void avd_watchdog_func(struct work_struct *work)
+ 
+ 	avd = ctx->dev;
+ 
+-	dev_err(avd->dev, "Frame processing timed out!");
++	if (READ_ONCE(ctx->hw_error))
++		dev_err(avd->dev, "decode failed, resetting\n");
++	else
++		dev_err(avd->dev, "Frame processing timed out!");
+ 
+ 	writel(0, avd->mbox + AVD_REG_MBOX_IRQ_ENABLE);
+ 	ret = avd_reset(avd);
+@@ -276,16 +310,27 @@ static irqreturn_t avd_irq_handler(int irq, void *data)
+ 
+ 	enum vb2_buffer_state state;
+ 	u32 status;
+-	if (!ctx)
+-		return IRQ_HANDLED;
+ 
++	/* Always drain the message, or the level IRQ stays asserted. */
+ 	status = readl(avd->mbox + AVD_REG_MBOX1_RETRIEVE);
+ 
+ 	writel(AVD_MBOX1_NOT_EMPTY, avd->mbox + AVD_REG_MBOX_IRQ_CLR);
+ 
++	if (!ctx)
++		return IRQ_HANDLED;
++
++	/* The job is being reset; late messages belong to the dead job. */
++	if (READ_ONCE(ctx->hw_error))
++		return IRQ_HANDLED;
++
+ 	if (status & 0x10000) { /* dbg */
++		/*
++		 * avd-fw sends this from its default handler and then sits in
++		 * WFI forever: nothing will complete the job, reset now.
++		 */
+ 		dev_warn(avd->dev, "no handler for IRQ: %3d", status &~0x10000);
+ 		writel_relaxed(0, avd->mbox + AVD_REG_MBOX_IRQ_ENABLE);
++		avd_abort_job(ctx);
+ 		return IRQ_HANDLED;
+ 	}
+ 
+@@ -298,8 +343,14 @@ static irqreturn_t avd_irq_handler(int irq, void *data)
+ 			ctx->coded_fmt_desc->ops->submit(ctx);
+ 		goto done;
+ 	} else {
+-		dev_err(avd->dev, "H%d error", status);
+-		/* let watchdog handle */
++		/*
++		 * avd-fw forwards a VP error as the bare VP index. The VP
++		 * stops; nothing else follows for this job (seen as a 2 s
++		 * watchdog stall), so reset and fail the job right away, as
++		 * macOS does (CheckAVDHwStatus, then SoftReset/HardReset).
++		 */
++		dev_err(avd->dev, "VP%u error", status & 0xff);
++		avd_abort_job(ctx);
+ 		goto done;
+ 	}
+ 
+@@ -327,6 +378,7 @@ static void avd_device_run(void *priv)
+ 		return;
+ 	}
+ 
++	WRITE_ONCE(ctx->hw_error, false);
+ 	ret = desc->ops->run(ctx);
+ 	if (ret)
+ 		avd_job_finish(ctx, VB2_BUF_STATE_ERROR);
+diff --git a/drivers/media/platform/apple/avd/avd.h b/drivers/media/platform/apple/avd/avd.h
+index 77eb6a39e..c7fa096f8 100644
+--- a/drivers/media/platform/apple/avd/avd.h
++++ b/drivers/media/platform/apple/avd/avd.h
+@@ -241,6 +241,8 @@ struct avd_ctx {
+ 	bool decomp;
+ 
+ 	struct delayed_work watchdog_work;
++	/* set when the running job failed and is being reset */
++	bool hw_error;
+ 
+ 	void *priv;
+ 
+-- 
+2.56.0
+

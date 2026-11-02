@@ -1,0 +1,376 @@
+From e6fe5cd14fe4424181f1890d11d6ab2a6f57184e Mon Sep 17 00:00:00 2001
+From: Silicon Bakery <noreply@localhost>
+Date: Mon, 2 Nov 2026 12:27:38 +0200
+Subject: [PATCH 4/7] media: apple: avd: reject unsupported streams, fix 4:2:2
+ 10-bit and 4:0:0
+
+Checked against macOS 27.2 on a t6020 (M2 Pro), decoding test streams
+with VideoToolbox while requiring the hardware decoder:
+
+- HEVC 4:4:4 was not rejected: avd_hevc_get_image_fmt() mapped
+  chroma_format_idc 3 to 4:2:0 and set up NV12 buffers. macOS decodes
+  4:4:4 8/10-bit on this block, but the driver builds no 4:4:4
+  instruction stream. HEVC 12-bit (any chroma) fails on macOS too; 9-bit
+  and mixed luma/chroma depth have no output format here. Reject all of
+  these in the SPS check, as the H.264 path already does for 4:4:4.
+- H.264 9, 12 and 14-bit fell through to AVD_IMG_FMT_ANY and kept the
+  previous capture format. Reject them.
+- VP9 profiles 1 and 3 (4:2:2, 4:4:0, 4:4:4) do not decode on macOS at
+  all, yet the profile menu offered them. Drop them from the menu and
+  refuse frames with profile 1/3 or 12-bit in a new try_ctrl.
+- 4:2:2 10-bit came out labelled P010. The hardware writes P210 (P010
+  samples, NV16 geometry), whose CbCr plane is twice what a P010 buffer
+  holds, so the chroma ran into the compressed copy that follows it in
+  the same buffer. Use V4L2_PIX_FMT_P210 where the kernel has it (see
+  "media: v4l2: add the P210 pixel format"); without it, refuse 4:2:2
+  10-bit H.264/HEVC instead of producing a corrupt frame.
+- 4:0:0 was decoded into NV12 with no way to ask for luma only (macOS
+  hands out L008/L010). Add 4:0:0 image formats offering NV12 (still the
+  default) or GREY for 8-bit and P010 or Y16 for 10-bit; the buffers keep
+  the NV12/P010 size and pitch, since the hardware is programmed as for
+  4:2:0 and what it writes to the chroma area is not known.
+
+The capture format enumeration now lists each fourcc once.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ drivers/media/platform/apple/avd/avd-drv.c  |  1 +
+ drivers/media/platform/apple/avd/avd-h264.c | 17 +++-
+ drivers/media/platform/apple/avd/avd-hevc.c | 24 +++++-
+ drivers/media/platform/apple/avd/avd-v4l2.c | 91 +++++++++++++++++++--
+ drivers/media/platform/apple/avd/avd-vp9.c  | 26 +++++-
+ drivers/media/platform/apple/avd/avd.h      |  9 ++
+ 6 files changed, 151 insertions(+), 17 deletions(-)
+
+diff --git a/drivers/media/platform/apple/avd/avd-drv.c b/drivers/media/platform/apple/avd/avd-drv.c
+index 293517d14..a731a82f0 100644
+--- a/drivers/media/platform/apple/avd/avd-drv.c
++++ b/drivers/media/platform/apple/avd/avd-drv.c
+@@ -79,6 +79,7 @@ void fill_comp(struct avd_comp *comp, enum avd_image_fmt image_fmt, u32 width,
+ 	switch (image_fmt) {
+ 	case AVD_IMG_FMT_420_10BIT:
+ 	case AVD_IMG_FMT_422_10BIT:
++	case AVD_IMG_FMT_400_10BIT:
+ 		bit_depth = 10;
+ 		break;
+ 	default:
+diff --git a/drivers/media/platform/apple/avd/avd-h264.c b/drivers/media/platform/apple/avd/avd-h264.c
+index 7fe88c448..cb6a102be 100644
+--- a/drivers/media/platform/apple/avd/avd-h264.c
++++ b/drivers/media/platform/apple/avd/avd-h264.c
+@@ -513,10 +513,7 @@ static int avd_h264_alloc_bufs(struct avd_ctx *ctx)
+ 	struct avd_h264_ctx *h264_ctx = ctx->priv;
+ 	int ret, w, bit_depth, mb;
+ 	w = fmt_width(ctx);
+-	bit_depth = (ctx->image_fmt == AVD_IMG_FMT_420_10BIT ||
+-		     ctx->image_fmt == AVD_IMG_FMT_422_10BIT) ?
+-			    10 :
+-			    8;
++	bit_depth = avd_image_fmt_is_10bit(ctx->image_fmt) ? 10 : 8;
+ 
+ 	ret = avd_buf_alloc(dev, &h264_ctx->bufs.inst, fifo_size());
+ 	if (ret) {
+@@ -576,6 +573,14 @@ static int avd_h264_validate_sps(struct avd_ctx *ctx,
+ 	if (sps->bit_depth_luma_minus8 != sps->bit_depth_chroma_minus8)
+ 		/* Luma and chroma bit depth mismatch */
+ 		return -EINVAL;
++	if (sps->bit_depth_luma_minus8 != 0 && sps->bit_depth_luma_minus8 != 2)
++		/* 8 and 10 bit only, no output format for 9, 12 or 14 */
++		return -EINVAL;
++#ifndef V4L2_PIX_FMT_P210
++	if (sps->chroma_format_idc == 2 && sps->bit_depth_luma_minus8)
++		/* 4:2:2 10-bit is P210, which this kernel cannot name */
++		return -EINVAL;
++#endif
+ 	if (!(sps->flags & V4L2_H264_SPS_FLAG_FRAME_MBS_ONLY))
+ 		/* no interlaced support */
+ 		return -EINVAL;
+@@ -802,6 +807,10 @@ static enum avd_image_fmt avd_h264_get_image_fmt(struct avd_ctx *ctx,
+ 	if (ctrl->id != V4L2_CID_STATELESS_H264_SPS)
+ 		return AVD_IMG_FMT_ANY;
+ 
++	if (sps->chroma_format_idc == 0)
++		return sps->bit_depth_luma_minus8 ? AVD_IMG_FMT_400_10BIT :
++						    AVD_IMG_FMT_400_8BIT;
++
+ 	if (sps->bit_depth_luma_minus8 == 0) {
+ 		if (sps->chroma_format_idc == 2)
+ 			return AVD_IMG_FMT_422_8BIT;
+diff --git a/drivers/media/platform/apple/avd/avd-hevc.c b/drivers/media/platform/apple/avd/avd-hevc.c
+index be062bf09..d44f01d28 100644
+--- a/drivers/media/platform/apple/avd/avd-hevc.c
++++ b/drivers/media/platform/apple/avd/avd-hevc.c
+@@ -990,10 +990,15 @@ static enum avd_image_fmt avd_hevc_get_image_fmt(struct avd_ctx *ctx,
+ 		return AVD_IMG_FMT_ANY;
+ 
+ 	/*
+-	 * TODO: we can do up to 4:4:4 12 bit
+-	 * not sure if v4l2 supports RExt
++	 * The hardware also decodes 4:4:4 8/10-bit (macOS does), but the
++	 * driver builds no instruction stream for it; 12-bit it cannot do.
++	 * avd_hevc_validate_sps() rejects both.
+ 	 */
+ 
++	if (sps->chroma_format_idc == 0)
++		return sps->bit_depth_luma_minus8 ? AVD_IMG_FMT_400_10BIT :
++						    AVD_IMG_FMT_400_8BIT;
++
+ 	if (sps->bit_depth_luma_minus8 == 0) {
+ 		if (sps->chroma_format_idc == 2)
+ 			return AVD_IMG_FMT_422_8BIT;
+@@ -1016,6 +1021,21 @@ static int avd_hevc_validate_sps(struct avd_ctx *ctx,
+ 	    sps->pic_height_in_luma_samples > ctx->coded_fmt.fmt.pix_mp.height)
+ 		return -EINVAL;
+ 
++	/* No 4:4:4 path in the driver, see avd_hevc_get_image_fmt() */
++	if (sps->chroma_format_idc > 2)
++		return -EINVAL;
++	/* 8 and 10 bit only: macOS refuses 12-bit on this hardware too */
++	if (sps->bit_depth_luma_minus8 != 0 && sps->bit_depth_luma_minus8 != 2)
++		return -EINVAL;
++	if (sps->chroma_format_idc &&
++	    sps->bit_depth_chroma_minus8 != sps->bit_depth_luma_minus8)
++		return -EINVAL;
++#ifndef V4L2_PIX_FMT_P210
++	if (sps->chroma_format_idc == 2 && sps->bit_depth_luma_minus8)
++		/* 4:2:2 10-bit is P210, which this kernel cannot name */
++		return -EINVAL;
++#endif
++
+ 	return 0;
+ }
+ 
+diff --git a/drivers/media/platform/apple/avd/avd-v4l2.c b/drivers/media/platform/apple/avd/avd-v4l2.c
+index 40be79b1e..c00583aa0 100644
+--- a/drivers/media/platform/apple/avd/avd-v4l2.c
++++ b/drivers/media/platform/apple/avd/avd-v4l2.c
+@@ -46,9 +46,20 @@ static u32 avd_enum_decoded_fmt(struct avd_ctx *ctx, int index,
+ 		return 0;
+ 
+ 	for (i = 0; i < desc->num_decoded_fmts; i++) {
++		unsigned int j;
++
+ 		if (!avd_image_fmt_match(desc->decoded_fmts[i].image_fmt,
+ 					 image_fmt))
+ 			continue;
++		/* list a fourcc once even if several image formats use it */
++		for (j = 0; j < i; j++)
++			if (desc->decoded_fmts[j].fourcc ==
++				    desc->decoded_fmts[i].fourcc &&
++			    avd_image_fmt_match(desc->decoded_fmts[j].image_fmt,
++						image_fmt))
++				break;
++		if (j < i)
++			continue;
+ 		fmt_idx++;
+ 		if (index == fmt_idx)
+ 			return desc->decoded_fmts[i].fourcc;
+@@ -73,11 +84,31 @@ static bool avd_is_valid_fmt(struct avd_ctx *ctx, u32 fourcc,
+ 	return false;
+ }
+ 
++/*
++ * For 4:0:0 the hardware is programmed as for 4:2:0, so GREY and Y16 are
++ * offered as views of the NV12 and P010 layouts: same luma pitch, and the
++ * buffer keeps room for whatever lands in the chroma area.
++ */
++static u32 avd_layout_fourcc(u32 fourcc)
++{
++	switch (fourcc) {
++	case V4L2_PIX_FMT_GREY:
++		return V4L2_PIX_FMT_NV12;
++	case V4L2_PIX_FMT_Y16:
++		return V4L2_PIX_FMT_P010;
++	default:
++		return fourcc;
++	}
++}
++
+ static void avd_fill_decoded_pixfmt(struct avd_ctx *ctx,
+ 				    struct v4l2_pix_format_mplane *pix_mp)
+ {
+-	v4l2_fill_pixfmt_mp(pix_mp, pix_mp->pixelformat, pix_mp->width,
++	u32 fourcc = pix_mp->pixelformat;
++
++	v4l2_fill_pixfmt_mp(pix_mp, avd_layout_fourcc(fourcc), pix_mp->width,
+ 			    pix_mp->height);
++	pix_mp->pixelformat = fourcc;
+ 
+ 	ctx->comp.start_offset = pix_mp->plane_fmt[0].sizeimage;
+ 	fill_comp(&ctx->comp, ctx->image_fmt, pix_mp->width, pix_mp->height);
+@@ -223,11 +254,29 @@ static const struct avd_decoded_fmt_desc avd_hevc_decoded_fmts[] = {
+ 		.fourcc = V4L2_PIX_FMT_NV16,
+ 		.image_fmt = AVD_IMG_FMT_422_8BIT,
+ 	},
++#ifdef V4L2_PIX_FMT_P210
+ 	{
+-		/* TODO: missing P210 */
+-		.fourcc = V4L2_PIX_FMT_P010,
++		.fourcc = V4L2_PIX_FMT_P210,
+ 		.image_fmt = AVD_IMG_FMT_422_10BIT,
+ 	},
++#endif
++	{
++		/* 4:0:0: NV12 stays the default, chroma content unverified */
++		.fourcc = V4L2_PIX_FMT_NV12,
++		.image_fmt = AVD_IMG_FMT_400_8BIT,
++	},
++	{
++		.fourcc = V4L2_PIX_FMT_GREY,
++		.image_fmt = AVD_IMG_FMT_400_8BIT,
++	},
++	{
++		.fourcc = V4L2_PIX_FMT_P010,
++		.image_fmt = AVD_IMG_FMT_400_10BIT,
++	},
++	{
++		.fourcc = V4L2_PIX_FMT_Y16,
++		.image_fmt = AVD_IMG_FMT_400_10BIT,
++	},
+ };
+ 
+ static const struct avd_ctrl_desc avd_h264_ctrl_descs[] = {
+@@ -297,11 +346,29 @@ static const struct avd_decoded_fmt_desc avd_h264_decoded_fmts[] = {
+ 		.fourcc = V4L2_PIX_FMT_NV16,
+ 		.image_fmt = AVD_IMG_FMT_422_8BIT,
+ 	},
++#ifdef V4L2_PIX_FMT_P210
+ 	{
+-		/* TODO: missing P210 */
+-		.fourcc = V4L2_PIX_FMT_P010,
++		.fourcc = V4L2_PIX_FMT_P210,
+ 		.image_fmt = AVD_IMG_FMT_422_10BIT,
+ 	},
++#endif
++	{
++		/* 4:0:0: NV12 stays the default, chroma content unverified */
++		.fourcc = V4L2_PIX_FMT_NV12,
++		.image_fmt = AVD_IMG_FMT_400_8BIT,
++	},
++	{
++		.fourcc = V4L2_PIX_FMT_GREY,
++		.image_fmt = AVD_IMG_FMT_400_8BIT,
++	},
++	{
++		.fourcc = V4L2_PIX_FMT_P010,
++		.image_fmt = AVD_IMG_FMT_400_10BIT,
++	},
++	{
++		.fourcc = V4L2_PIX_FMT_Y16,
++		.image_fmt = AVD_IMG_FMT_400_10BIT,
++	},
+ };
+ 
+ static const struct avd_ctrl_desc avd_vp9_ctrl_descs[] = {
+@@ -315,7 +382,9 @@ static const struct avd_ctrl_desc avd_vp9_ctrl_descs[] = {
+ 	{
+ 		.cfg.id = V4L2_CID_MPEG_VIDEO_VP9_PROFILE,
+ 		.cfg.min = V4L2_MPEG_VIDEO_VP9_PROFILE_0,
+-		.cfg.max = V4L2_MPEG_VIDEO_VP9_PROFILE_3,
++		.cfg.max = V4L2_MPEG_VIDEO_VP9_PROFILE_2,
++		/* profiles 1 and 3 are 4:2:2/4:4:4, which the hardware lacks */
++		.cfg.menu_skip_mask = BIT(V4L2_MPEG_VIDEO_VP9_PROFILE_1),
+ 		.cfg.def = V4L2_MPEG_VIDEO_VP9_PROFILE_0,
+ 	},
+ };
+@@ -339,7 +408,11 @@ static const struct avd_decoded_fmt_desc avd_vp9_decoded_fmts[] = {
+ 		.image_fmt = AVD_IMG_FMT_422_8BIT,
+ 	},
+ 	{
++#ifdef V4L2_PIX_FMT_P210
++		.fourcc = V4L2_PIX_FMT_P210,
++#else
+ 		.fourcc = V4L2_PIX_FMT_P010,
++#endif
+ 		.image_fmt = AVD_IMG_FMT_422_10BIT,
+ 	},
+ };
+@@ -358,8 +431,12 @@ static const struct avd_decoded_fmt_desc avd_av1_decoded_fmts[] = {
+ 		.image_fmt = AVD_IMG_FMT_422_8BIT,
+ 	},
+ 	{
+-		/* TODO: missing P210 */
++#ifdef V4L2_PIX_FMT_P210
++		.fourcc = V4L2_PIX_FMT_P210,
++#else
++		/* TODO: no P210 in this kernel */
+ 		.fourcc = V4L2_PIX_FMT_P010,
++#endif
+ 		.image_fmt = AVD_IMG_FMT_422_10BIT,
+ 	},
+ };
+diff --git a/drivers/media/platform/apple/avd/avd-vp9.c b/drivers/media/platform/apple/avd/avd-vp9.c
+index 16c126e9a..21b6c35d1 100644
+--- a/drivers/media/platform/apple/avd/avd-vp9.c
++++ b/drivers/media/platform/apple/avd/avd-vp9.c
+@@ -658,10 +658,7 @@ static int avd_vp9_alloc_bufs(struct avd_ctx *ctx)
+ 	int ret, w, h, bit_depth;
+ 	w = fmt_width(ctx);
+ 	h = fmt_height(ctx);
+-	bit_depth = (ctx->image_fmt == AVD_IMG_FMT_420_10BIT ||
+-		     ctx->image_fmt == AVD_IMG_FMT_422_10BIT) ?
+-			    10 :
+-			    8;
++	bit_depth = avd_image_fmt_is_10bit(ctx->image_fmt) ? 10 : 8;
+ 
+ 	ret = avd_buf_alloc(avd, &vp9_ctx->bufs.inst, fifo_size());
+ 	if (ret)
+@@ -1024,6 +1021,26 @@ static void avd_vp9_stop(struct avd_ctx *ctx)
+ 	kfree(vp9_ctx);
+ }
+ 
++/*
++ * Profiles 1 and 3 (4:2:2, 4:4:0, 4:4:4) and 12-bit: macOS refuses them on
++ * this hardware (VTDecompressionSessionCreate fails even for software), and
++ * the driver has no output format for them.
++ */
++static int avd_vp9_try_ctrl(struct avd_ctx *ctx, struct v4l2_ctrl *ctrl)
++{
++	const struct v4l2_ctrl_vp9_frame *frame = ctrl->p_new.p_vp9_frame;
++
++	if (ctrl->id != V4L2_CID_STATELESS_VP9_FRAME)
++		return 0;
++
++	if (frame->profile != 0 && frame->profile != 2)
++		return -EINVAL;
++	if (frame->bit_depth != 8 && frame->bit_depth != 10)
++		return -EINVAL;
++
++	return 0;
++}
++
+ static enum avd_image_fmt avd_vp9_get_image_fmt(struct avd_ctx *ctx,
+ 						struct v4l2_ctrl *ctrl)
+ {
+@@ -1076,5 +1093,6 @@ const struct avd_coded_fmt_ops avd_vp9_fmt_ops = {
+ 	.run = avd_vp9_run,
+ 	.done = avd_vp9_done,
+ 	.submit = avd_vp9_submit,
++	.try_ctrl = avd_vp9_try_ctrl,
+ 	.get_image_fmt = avd_vp9_get_image_fmt,
+ };
+diff --git a/drivers/media/platform/apple/avd/avd.h b/drivers/media/platform/apple/avd/avd.h
+index c7fa096f8..f9e09a590 100644
+--- a/drivers/media/platform/apple/avd/avd.h
++++ b/drivers/media/platform/apple/avd/avd.h
+@@ -152,8 +152,17 @@ enum avd_image_fmt {
+ 	AVD_IMG_FMT_420_10BIT,
+ 	AVD_IMG_FMT_422_8BIT,
+ 	AVD_IMG_FMT_422_10BIT,
++	/* 4:0:0; the buffers keep the 4:2:0 layout the hardware writes */
++	AVD_IMG_FMT_400_8BIT,
++	AVD_IMG_FMT_400_10BIT,
+ };
+ 
++static inline bool avd_image_fmt_is_10bit(enum avd_image_fmt fmt)
++{
++	return fmt == AVD_IMG_FMT_420_10BIT || fmt == AVD_IMG_FMT_422_10BIT ||
++	       fmt == AVD_IMG_FMT_400_10BIT;
++}
++
+ struct avd_decoded_fmt_desc {
+ 	u32 fourcc;
+ 	enum avd_image_fmt image_fmt;
+-- 
+2.56.0
+

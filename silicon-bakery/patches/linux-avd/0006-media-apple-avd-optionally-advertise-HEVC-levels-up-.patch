@@ -1,0 +1,58 @@
+From 56d2ad62191d75c2b7af6e85481d66c5d54ef9e2 Mon Sep 17 00:00:00 2001
+From: Silicon Bakery <noreply@localhost>
+Date: Mon, 2 Nov 2026 12:28:04 +0200
+Subject: [PATCH 6/7] media: apple: avd: optionally advertise HEVC levels up to
+ 6.2
+
+The HEVC frame size table allows 16384x16384, but the level menu stops
+at 5.1 (4096x2304), so userspace that checks levels never tries 8K. On
+a t6020 macOS 27.2 advertises HEVC level 6.2 (IOAVDHEVCDecodeCapabilities
+level 186) and decodes 7680x4320, 8192x4320, 8192x8192 and 16384x8192
+streams in hardware.
+
+Whether this driver's scratch buffer sizing is right above 4096 wide
+has not been checked on hardware, so keep 5.1 by default and raise the
+menu to 6.2 only with the hevc_level_6 module parameter.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ drivers/media/platform/apple/avd/avd-v4l2.c | 16 ++++++++++++++++
+ 1 file changed, 16 insertions(+)
+
+diff --git a/drivers/media/platform/apple/avd/avd-v4l2.c b/drivers/media/platform/apple/avd/avd-v4l2.c
+index c00583aa0..d4084be57 100644
+--- a/drivers/media/platform/apple/avd/avd-v4l2.c
++++ b/drivers/media/platform/apple/avd/avd-v4l2.c
+@@ -19,6 +19,11 @@
+ 
+ #include "avd.h"
+ 
++static bool hevc_level_6;
++module_param(hevc_level_6, bool, 0444);
++MODULE_PARM_DESC(hevc_level_6,
++		 "Advertise HEVC levels up to 6.2 (8K) instead of 5.1 (unverified above 4K)");
++
+ static bool avd_image_fmt_match(enum avd_image_fmt fmt1,
+ 				enum avd_image_fmt fmt2)
+ {
+@@ -1067,6 +1072,17 @@ static int avd_add_ctrls(struct avd_ctx *ctx, const struct avd_ctrls *ctrls)
+ 
+ 	for (i = 0; i < ctrls->num_ctrls; i++) {
+ 		const struct v4l2_ctrl_config *cfg = &ctrls->ctrls[i].cfg;
++		struct v4l2_ctrl_config level;
++
++		/*
++		 * macOS advertises HEVC level 6.2 on this block and decodes
++		 * up to 16384x8192; the frame size table already allows it.
++		 */
++		if (cfg->id == V4L2_CID_MPEG_VIDEO_HEVC_LEVEL && hevc_level_6) {
++			level = *cfg;
++			level.max = V4L2_MPEG_VIDEO_HEVC_LEVEL_6_2;
++			cfg = &level;
++		}
+ 
+ 		v4l2_ctrl_new_custom(&ctx->ctrl_hdl, cfg, ctx);
+ 		if (ctx->ctrl_hdl.error)
+-- 
+2.56.0
+

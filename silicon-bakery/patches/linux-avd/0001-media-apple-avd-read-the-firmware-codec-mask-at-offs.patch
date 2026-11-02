@@ -1,0 +1,103 @@
+From f9ada18813563715fa387c814f91c0a11dd9398c Mon Sep 17 00:00:00 2001
+From: Silicon Bakery <noreply@localhost>
+Date: Mon, 2 Nov 2026 12:23:46 +0200
+Subject: [PATCH 1/7] media: apple: avd: read the firmware codec mask at offset
+ 0x400
+
+avd-fw places its struct avd_config ('AVDc' magic, codec mask, 62 pad
+words) in a .config section that avd-cm3.ld links at 0x400, right after
+the vector table (avd-fw v0.2, c870554: avd-cm3.ld, src/avd.h,
+src/config.c). objcopy then pads the image to its full size
+(--pad-to=0x10000 for avd-fw-v3-t1), so the last 0x20 bytes, where the
+driver looks (Janne Grunau's 2e6ef829 in the asahi branch), are
+always zero. The magic is never found and every
+codec the variant has stays enabled whatever the firmware was built
+with. The fixed 0x400 location was agreed in avd-fw PR #6.
+
+Look at 0x400 first and keep the end of the file as a fallback. avd-fw
+v0.1 has no config section (code at 0x400, zero padding at the end), so
+it keeps today's behaviour: everything enabled. Log the mask so users
+can see why a codec is missing, and refuse to probe when the mask leaves
+nothing this SoC decodes; avd_reset_coded_fmt() would dereference a
+NULL format descriptor on the first open() otherwise.
+
+Note for distributions: with this change avd-fw 0.2's default
+video-codecs=all_free leaves only VP9 on t8103..t6022.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ drivers/media/platform/apple/avd/avd-drv.c | 39 ++++++++++++++++++++--
+ 1 file changed, 37 insertions(+), 2 deletions(-)
+
+diff --git a/drivers/media/platform/apple/avd/avd-drv.c b/drivers/media/platform/apple/avd/avd-drv.c
+index a98cdd587..c5b83b0bc 100644
+--- a/drivers/media/platform/apple/avd/avd-drv.c
++++ b/drivers/media/platform/apple/avd/avd-drv.c
+@@ -24,11 +24,36 @@
+ #include "avd-inst.h"
+ #include "avd-regs.h"
+ 
++/*
++ * avd-fw links its struct avd_config (magic, codec mask, padding to 0x100
++ * bytes) at a fixed offset right after the vector table. Older trees looked
++ * for it in the last 0x20 bytes of the image; keep that as a fallback.
++ */
++#define AVD_CONFIG_OFFSET	0x400
+ #define AVD_CONFIG_SIZE		0x20
+ #define AVD_CONFIG_MAGIC	((u32)'A' | ((u32)'V' << 8) | \
+ 				 ((u32)'D' << 16) | ((u32)'c' << 24))
+ #define AVD_CONFIG_CODEC	0x4
+ 
++static const u8 *avd_find_fw_config(const struct firmware *fw)
++{
++	const u8 *cfg;
++
++	if (fw->size >= AVD_CONFIG_OFFSET + AVD_CONFIG_SIZE) {
++		cfg = fw->data + AVD_CONFIG_OFFSET;
++		if (get_unaligned_le32(cfg) == AVD_CONFIG_MAGIC)
++			return cfg;
++	}
++
++	if (fw->size >= AVD_CONFIG_SIZE) {
++		cfg = fw->data + fw->size - AVD_CONFIG_SIZE;
++		if (get_unaligned_le32(cfg) == AVD_CONFIG_MAGIC)
++			return cfg;
++	}
++
++	return NULL;
++}
++
+ static void calc_tile_meta(u32 w, u32 h, u32 bpb, u32 tile_dim,
+ 			   u32 meta_hdr_bytes, u32 *tile, u32 *meta)
+ {
+@@ -730,15 +755,25 @@ static int avd_probe(struct platform_device *pdev)
+ 		return ret;
+ 	}
+ 
+-	const u8 * fw_config = avd->fw->data + avd->fw->size - AVD_CONFIG_SIZE;
++	const u8 *fw_config = avd_find_fw_config(avd->fw);
+ 
+-	if (get_unaligned_le32(fw_config) == AVD_CONFIG_MAGIC) {
++	if (fw_config) {
+ 		u32 fw_caps = get_unaligned_le32(fw_config + AVD_CONFIG_CODEC);
+ 
+ 		avd->capabilities = fw_caps & avd->variant->capabilities;
++		dev_info(avd->dev, "firmware codec mask 0x%x, enabled 0x%x\n",
++			 fw_caps, avd->capabilities);
+ 	} else {
+ 		/* Backward compatibility to old firmware, do not upstream. */
+ 		avd->capabilities = avd->variant->capabilities;
++		dev_info(avd->dev, "firmware has no codec mask, enabled 0x%x\n",
++			 avd->capabilities);
++	}
++
++	if (!avd->capabilities) {
++		dev_err(avd->dev, "firmware enables no codec this SoC decodes\n");
++		release_firmware(avd->fw);
++		return -ENODEV;
+ 	}
+ 
+ 	ret = dma_set_mask_and_coherent(avd->dev,
+-- 
+2.56.0
+

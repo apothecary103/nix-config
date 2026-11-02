@@ -1,0 +1,142 @@
+From 274db8c47cb658cd799ed60bc68a0232f4610161 Mon Sep 17 00:00:00 2001
+From: Silicon Bakery <noreply@localhost>
+Date: Mon, 2 Nov 2026 12:28:26 +0200
+Subject: [PATCH 7/7] media: apple: avd: t6020: optionally write macOS's
+ power-on DMA settings
+
+At every power-on macOS writes a fixed set of registers before loading
+the tunables (CAvdWrapCtrlRadish::DeviceInit in the 13.5 AppleAVD kext,
+Radish being the t6020 generation). Eleven of them are in the range the
+device tree maps as "ctrl": 0x14c = 0x14, 0xe4d0/0xe4d4/0xe510/0xe514 = 0,
+0xe308 = 0xffffffff, and 0xe300 = 0x80023fff, 0xc900/0xc940/0xc980/0xc9c0
+= 0x800113ff. avd-fw's tunables (tunables_v3t1.h, identical to macOS's
+"avd" table) write 0xe300 and 0xc9x0 only under the mask 0x800f3c00, so
+bits 9:0 (0x3ff) stay at their reset value on Linux, and the other
+registers are not written at all. What the fields do is not known
+(avd-fw names the blocks W_SW_PIX and R_PIPE_INSN).
+
+Add the table to the t6020 variant and write it after each boot when the
+macos_init module parameter is set; tunables applied by the firmware
+before do not touch these bits, so the end state matches macOS. Off by
+default until it has been compared on hardware.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ drivers/media/platform/apple/avd/avd-drv.c | 22 ++++++++++++++++++++++
+ drivers/media/platform/apple/avd/avd-hw.c  | 22 ++++++++++++++++++++++
+ drivers/media/platform/apple/avd/avd.h     |  9 +++++++++
+ 3 files changed, 53 insertions(+)
+
+diff --git a/drivers/media/platform/apple/avd/avd-drv.c b/drivers/media/platform/apple/avd/avd-drv.c
+index a1f6ab05d..95b448243 100644
+--- a/drivers/media/platform/apple/avd/avd-drv.c
++++ b/drivers/media/platform/apple/avd/avd-drv.c
+@@ -648,6 +648,26 @@ static const struct avd_variant avd_t8112_variant = {
+ 	.submit_queue_status_offset = 0x5c,
+ };
+ 
++/*
++ * The writes of macOS 13.5's CAvdWrapCtrlRadish::DeviceInit that fall into
++ * the "ctrl" range (0x2_8710_0000). Its other writes (0x2_8740_0018 wrapper
++ * clock gating, 0x2_8707_0000 PIODMA, 0x2_8700_2004) are outside what the
++ * device tree maps. [KEXT13.5]
++ */
++static const struct avd_reg_init avd_t6020_init[] = {
++	{ 0x014c, 0x00000014 },
++	{ 0xe4d0, 0x00000000 },
++	{ 0xe4d4, 0x00000000 },
++	{ 0xe510, 0x00000000 },
++	{ 0xe514, 0x00000000 },
++	{ 0xe308, 0xffffffff },
++	{ 0xe300, 0x80023fff },	/* tunable sets 0x80023c00 under 0x800f3c00 */
++	{ 0xc900, 0x800113ff },	/* tunable sets 0x80011000 under 0x800f3c00 */
++	{ 0xc940, 0x800113ff },
++	{ 0xc980, 0x800113ff },
++	{ 0xc9c0, 0x800113ff },
++};
++
+ static const struct avd_variant avd_t6020_variant = {
+ 	.vp_slots = {
+ 		[AVD_CODEC_HEVC] = 4,
+@@ -665,6 +685,8 @@ static const struct avd_variant avd_t6020_variant = {
+ 	.submit_offset = 0x30,
+ 	.submit_queue_max_offset = 0x34,
+ 	.submit_queue_status_offset = 0x5c,
++	.init = avd_t6020_init,
++	.num_init = ARRAY_SIZE(avd_t6020_init),
+ };
+ 
+ static const struct avd_variant avd_t8122_variant = {
+diff --git a/drivers/media/platform/apple/avd/avd-hw.c b/drivers/media/platform/apple/avd/avd-hw.c
+index a3987ac45..9ca395e53 100644
+--- a/drivers/media/platform/apple/avd/avd-hw.c
++++ b/drivers/media/platform/apple/avd/avd-hw.c
+@@ -3,9 +3,16 @@
+ #include "linux/dev_printk.h"
+ #include <linux/iopoll.h>
+ 
++#include <linux/module.h>
++
+ #include "avd.h"
+ #include "avd-regs.h"
+ 
++static bool macos_init;
++module_param(macos_init, bool, 0644);
++MODULE_PARM_DESC(macos_init,
++		 "After each boot, also write the DMA settings macOS writes at power-on (t6020 only, experimental)");
++
+ /* The plan is to move this to the cm3 */
+ 
+ #define AVD_V3_VP_INSN_FIFO_IOVA	0x4068
+@@ -61,6 +68,21 @@ int avd_boot(struct avd_dev *avd)
+ 	if (ret)
+ 		return ret;
+ 
++	/*
++	 * The firmware has applied its tunables by now. They change these
++	 * registers only under masks that leave the bits written here alone,
++	 * so the result matches macOS, which writes them before its tunables.
++	 */
++	if (macos_init && avd->variant->init) {
++		const struct avd_reg_init *init = avd->variant->init;
++		unsigned int i;
++
++		for (i = 0; i < avd->variant->num_init; i++)
++			writel_relaxed(init[i].value, avd->ctrl + init[i].offset);
++		dev_info_once(avd->dev, "applied %u macOS init writes\n",
++			      avd->variant->num_init);
++	}
++
+ 	return 0;
+ }
+ 
+diff --git a/drivers/media/platform/apple/avd/avd.h b/drivers/media/platform/apple/avd/avd.h
+index d58d4df0f..aa73d16a4 100644
+--- a/drivers/media/platform/apple/avd/avd.h
++++ b/drivers/media/platform/apple/avd/avd.h
+@@ -179,6 +179,12 @@ struct avd_coded_fmt_desc {
+ 	unsigned int capability;
+ };
+ 
++/* a register write macOS does at power-on, offset from the "ctrl" range */
++struct avd_reg_init {
++	u32 offset;
++	u32 value;
++};
++
+ struct avd_variant {
+ 	unsigned int vp_slots[4];
+ 	unsigned int fifo_slots;
+@@ -193,6 +199,9 @@ struct avd_variant {
+ 	u32 submit_queue_max_offset;
+ 	u32 submit_queue_status_offset;
+ 	unsigned int quirks;
++	/* optional, applied after boot with the macos_init parameter */
++	const struct avd_reg_init *init;
++	unsigned int num_init;
+ };
+ 
+ struct avd_dev {
+-- 
+2.56.0
+

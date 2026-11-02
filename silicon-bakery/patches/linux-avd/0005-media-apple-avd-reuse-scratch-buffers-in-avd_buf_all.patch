@@ -1,0 +1,85 @@
+From b2967a57df90074ec67ec518d43efd9355ca9139 Mon Sep 17 00:00:00 2001
+From: Silicon Bakery <noreply@localhost>
+Date: Mon, 2 Nov 2026 12:27:52 +0200
+Subject: [PATCH 5/7] media: apple: avd: reuse scratch buffers in avd_buf_alloc
+
+The reuse test was inverted: "!buf->cpu && size < buf->size" can never
+hold, since avd_buf_free() zeroes the struct, so every call freed and
+re-allocated a coherent DMA buffer. HEVC does this for four to six
+scratch buffers on every frame and H.264 for every slice, each time with
+an IOMMU map and unmap.
+
+Reuse the buffer when it is large enough. Two callers depended on the
+old behaviour:
+- the H.264 slice code reads the slice length back from buf->size, so
+  record the requested length separately (buf->len) and use that;
+- dma_alloc_coherent() returns zeroed memory and the hardware may rely
+  on zeroed above-row context, so clear a reused buffer.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ drivers/media/platform/apple/avd/avd-drv.c  | 15 ++++++++++-----
+ drivers/media/platform/apple/avd/avd-h264.c |  2 +-
+ drivers/media/platform/apple/avd/avd.h      |  3 ++-
+ 3 files changed, 13 insertions(+), 7 deletions(-)
+
+diff --git a/drivers/media/platform/apple/avd/avd-drv.c b/drivers/media/platform/apple/avd/avd-drv.c
+index a731a82f0..a1f6ab05d 100644
+--- a/drivers/media/platform/apple/avd/avd-drv.c
++++ b/drivers/media/platform/apple/avd/avd-drv.c
+@@ -104,15 +104,20 @@ void fill_comp(struct avd_comp *comp, enum avd_image_fmt image_fmt, u32 width,
+ 
+ int avd_buf_alloc(struct avd_dev *avd, struct avd_buf *buf, size_t size)
+ {
+-	if (!buf->cpu && size < buf->size)
+-		return 0;
+-	else if (buf->cpu)
+-		avd_buf_free(avd, buf);
+-
+ 	if (size <= 0)
+ 		return -ENOMEM;
+ 
++	if (buf->cpu && size <= buf->size) {
++		/* same contents a fresh dma_alloc_coherent() would have */
++		memset(buf->cpu, 0, buf->size);
++		buf->len = size;
++		return 0;
++	} else if (buf->cpu) {
++		avd_buf_free(avd, buf);
++	}
++
+ 	buf->size = size;
++	buf->len = size;
+ 	buf->cpu =
+ 		dma_alloc_coherent(avd->dev, buf->size, &buf->addr, GFP_KERNEL);
+ 	return buf->cpu ? 0 : -ENOMEM;
+diff --git a/drivers/media/platform/apple/avd/avd-h264.c b/drivers/media/platform/apple/avd/avd-h264.c
+index cb6a102be..c9dff6e0f 100644
+--- a/drivers/media/platform/apple/avd/avd-h264.c
++++ b/drivers/media/platform/apple/avd/avd-h264.c
+@@ -392,7 +392,7 @@ static void stream_slice(struct avd_ctx *ctx, struct avd_h264_run *run)
+ 	const struct v4l2_ctrl_h264_sps *sps = run->sps;
+ 	const struct v4l2_ctrl_h264_slice_params *sl = run->slice_params;
+ 	struct avd_h264_ctx *h264_ctx = ctx->priv;
+-	u32 payload_len = h264_ctx->active_slice->size;
++	u32 payload_len = h264_ctx->active_slice->len;
+ 	bool en_mode = (pps->flags & V4L2_H264_PPS_FLAG_ENTROPY_CODING_MODE) ==
+ 		       0;
+ 	const u8 *data = h264_ctx->active_slice->cpu;
+diff --git a/drivers/media/platform/apple/avd/avd.h b/drivers/media/platform/apple/avd/avd.h
+index f9e09a590..d58d4df0f 100644
+--- a/drivers/media/platform/apple/avd/avd.h
++++ b/drivers/media/platform/apple/avd/avd.h
+@@ -234,7 +234,8 @@ struct avd_job {
+ struct avd_buf {
+ 	void *cpu;
+ 	dma_addr_t addr;
+-	size_t size;
++	size_t size;	/* allocated */
++	size_t len;	/* asked for by the last avd_buf_alloc() */
+ };
+ 
+ struct avd_ctx {
+-- 
+2.56.0
+
