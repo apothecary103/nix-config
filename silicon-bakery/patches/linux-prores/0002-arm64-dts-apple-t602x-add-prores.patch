@@ -1,0 +1,73 @@
+From: Silicon Bakery <noreply@localhost>
+Subject: [PATCH 2/2] arm64: dts: apple: t602x: add the ProRes engine and its DART
+
+Add die 0's ProRes engine (apr0) and its t8110 DART to t602x-die0.dtsi,
+disabled, and enable them on t6020 (M2 Pro). Values from the macOS 13.5
+j414sap ADT (/arm-io/apr0 "apr,d0", /arm-io/dart-apr0) and Asahi's t602x
+ps_scodec; see docs/prores-port.txt for the provenance of each value.
+The nodes are appended at the ends of both files so this applies with or
+without patches/linux-ave. Nothing in-tree binds "apple,t6020-prores".
+Compiled with dtc for t6020-j414s; not booted.
+
+---
+diff --git a/arch/arm64/boot/dts/apple/t6020.dtsi b/arch/arm64/boot/dts/apple/t6020.dtsi
+index 500726e69..c3a277b37 100644
+--- a/arch/arm64/boot/dts/apple/t6020.dtsi
++++ b/arch/arm64/boot/dts/apple/t6020.dtsi
+@@ -36,3 +36,12 @@ &gpu {
+ 	apple,ppm-filter-time-constant-ms = <32>;
+ 	apple,ppm-ki = <28.0>;
+ };
++
++/* The M2 Pro's ProRes engine (out-of-tree apple-prores driver) */
++&prores_dart {
++	status = "okay";
++};
++
++&prores {
++	status = "okay";
++};
+diff --git a/arch/arm64/boot/dts/apple/t602x-die0.dtsi b/arch/arm64/boot/dts/apple/t602x-die0.dtsi
+index f928a122a..34b113fe8 100644
+--- a/arch/arm64/boot/dts/apple/t602x-die0.dtsi
++++ b/arch/arm64/boot/dts/apple/t602x-die0.dtsi
+@@ -1186,4 +1186,39 @@ pcie0_dart_3: iommu@597000000 {
+ 		power-domains = <&ps_apcie_gp_sys>;
+ 		status = "disabled";
+ 	};
++
++	/*
++	 * ProRes engine "apr0" and its DART, die 0. From the macOS 13.5 j414sap
++	 * ADT (/arm-io/apr0 "apr,d0", /arm-io/dart-apr0): CPU address = ADT bus
++	 * address + 0x200000000, AIC numbers as in the ADT, DART stream 1 and
++	 * the ADT's DVA window (vm-base 1 TiB). Powered and reset through the
++	 * SCODEC pmgr device (0x34), which the ADT's function-device_reset
++	 * names. The second reg is the SCODEC wrapper: the driver only drains
++	 * its transaction limiters before a reset. Driven by the out-of-tree
++	 * apple-prores driver. Disabled here: t6021/t6022 also have a second
++	 * engine on die 0's south pmgr that this does not describe; t6020.dtsi
++	 * enables it.
++	 */
++	prores_dart: iommu@311028000 {
++		compatible = "apple,t6020-dart", "apple,t8110-dart";
++		reg = <0x3 0x11028000 0x0 0x4000>;
++		#iommu-cells = <5>;
++		interrupt-parent = <&aic>;
++		interrupts = <AIC_IRQ 0 1557 IRQ_TYPE_LEVEL_HIGH>;
++		power-domains = <&ps_scodec>;
++		status = "disabled";
++	};
++
++	prores: video-codec@311000000 {
++		compatible = "apple,t6020-prores";
++		reg = <0x3 0x11000000 0x0 0x4000>,
++			<0x3 0x10000000 0x0 0x1000000>;
++		reg-names = "core", "wrapper";
++		interrupt-parent = <&aic>;
++		interrupts = <AIC_IRQ 0 1558 IRQ_TYPE_LEVEL_HIGH>;
++		power-domains = <&ps_scodec>;
++		resets = <&ps_scodec>;
++		iommus = <&prores_dart 1 0x100 0x0 0x1 0x0>;
++		status = "disabled";
++	};
+ };
