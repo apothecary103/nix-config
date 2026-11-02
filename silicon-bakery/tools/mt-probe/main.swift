@@ -30,13 +30,14 @@ struct MTTouch {
   var handID: Int32
   var normalized: MTVector
   var zTotal: Float
-  var field9: Int32
+  var force: Float  // grams (record 0x1a)
   var angle: Float
   var majorAxis: Float
   var minorAxis: Float
   var millimetres: MTVector
-  var field14: Int32
-  var field15: Int32
+  var field14: Int16  // record 0x1c
+  var pad: Int16
+  var field15: Float  // record 0x18, scaled (tilt)
   var zDensity: Float
 }
 
@@ -117,11 +118,13 @@ let frameCallback: MTFrameCallback = { _, data, count, timestamp, frame in
     for i in 0..<Int(count) {
       let t = buffer[i]
       touches.append([
-        "id": t.pathIndex, "state": t.state, "finger": t.fingerID,
+        "id": t.pathIndex, "state": t.state, "finger": t.fingerID, "hand": t.handID,
         "x": t.normalized.position.x, "y": t.normalized.position.y,
         "vx": t.normalized.velocity.x, "vy": t.normalized.velocity.y,
         "mmx": t.millimetres.position.x, "mmy": t.millimetres.position.y,
-        "major": t.majorAxis, "minor": t.minorAxis, "z": t.zTotal, "density": t.zDensity,
+        "major": t.majorAxis, "minor": t.minorAxis, "angle": t.angle,
+        "z": t.zTotal, "density": t.zDensity, "force": t.force,
+        "f14": t.field14, "f15": t.field15,
       ])
     }
   }
@@ -148,6 +151,11 @@ final class ProbeView: NSView {
   private func button(_ e: NSEvent, _ kind: String) {
     recorder?.write(["kind": kind, "t": e.timestamp, "button": e.buttonNumber, "clicks": e.clickCount])
   }
+  // When keys go down and up, for typing-related palm rejection; never which.
+  override func keyDown(with e: NSEvent) {
+    if !e.isARepeat { recorder?.write(["kind": "key", "t": e.timestamp, "down": true]) }
+  }
+  override func keyUp(with e: NSEvent) { recorder?.write(["kind": "key", "t": e.timestamp, "down": false]) }
   override func mouseDown(with e: NSEvent) { button(e, "down") }
   override func mouseUp(with e: NSEvent) { button(e, "up") }
   override func rightMouseDown(with e: NSEvent) { button(e, "down") }
@@ -171,7 +179,11 @@ final class ProbeView: NSView {
          lifting your fingers between strokes, for about 30 seconds.
       3. Three-finger drag (if it is on): drag across the window with three
          fingers a few times, lifting them at the end of each drag.
-      4. Close the window.
+      4. Palms: type in this window for a minute as you normally would (the
+         text is not recorded, only when keys go down), with your hands
+         resting on the trackpad as they do; then move the pointer with one
+         finger while the other hand rests, and rest a thumb on the pad.
+      5. Close the window.
       """
     (text as NSString).draw(
       at: NSPoint(x: 24, y: 24),

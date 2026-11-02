@@ -30,7 +30,7 @@ TOUCHING = 4  # MultitouchSupport touch state while a finger is down
 
 
 def load(path):
-    header, frames, moves, scrolls, buttons = {}, [], [], [], []
+    header, frames, moves, scrolls, buttons, keys = {}, [], [], [], [], []
     for line in open(path):
         e = json.loads(line)
         k = e["kind"]
@@ -44,8 +44,64 @@ def load(path):
             scrolls.append(e)
         elif k in ("down", "up"):
             buttons.append(e)
+        elif k == "key":
+            keys.append(e)
     frames.sort(key=lambda f: f["t"])
-    return header, frames, moves, scrolls, buttons
+    return header, frames, moves, scrolls, buttons, keys
+
+
+def touch_tracks(frames, size):
+    """Every touch from first contact to lift, with what it looked like and
+    what macOS's frame data says about it: the firmware's finger and hand
+    identity, which is macOS's palm verdict."""
+    w, h = size
+    live, done = {}, []
+    for f in frames:
+        seen = set()
+        for i, t in enumerate(f["touches"]):
+            if t["state"] != TOUCHING:
+                continue
+            tid = t.get("id", i)
+            seen.add(tid)
+            x, y = t["x"] * w, t["y"] * h
+            tr = live.get(tid)
+            if tr is None:
+                tr = live[tid] = {"start": f["t"], "x0": t["x"], "y0": t["y"], "mx0": x, "my0": y,
+                                      "travel": 0.0, "major": 0.0, "minor": 0.0, "z": 0.0, "density": 0.0, "force": 0.0,
+                                      "fields": {}}
+            tr["travel"] = max(tr["travel"], math.hypot(x - tr["mx0"], y - tr["my0"]))
+            for k in ("major", "minor", "z", "density", "force"):
+                tr[k] = max(tr[k], t.get(k, 0.0))
+            for k in ("finger", "hand", "f14"):
+                if k in t:
+                    tr["fields"].setdefault(k, {}).setdefault(t[k], 0)
+                    tr["fields"][k][t[k]] += 1
+            tr["end"] = f["t"]
+        for i in [i for i in live if i not in seen]:
+            done.append(live.pop(i))
+    done.extend(live.values())
+    for tr in done:
+        tr["fields"] = {k: max(v, key=v.get) for k, v in tr["fields"].items()}
+    return done
+
+
+def macos_verdict(tr):
+    """macOS's own: a contact the trackpad's firmware does not identify as a
+    finger (1 thumb to 5 little finger) is rejected (_mthid_pathWasRejected)."""
+    finger = tr["fields"].get("finger")
+    if finger is None:
+        return ""
+    return "finger" if 1 <= finger <= 5 else "rejected"
+
+
+def bakery_verdict(tr, key_downs):
+    """What patches/libinput 0001-typing-palms decides for a touch, from where
+    it lands (assuming MultitouchSupport's normalised y runs up from the edge
+    nearest the user): resting if it starts in the bottom 4 %, or in the outer
+    5 % either side within 2.5 s of a key press; released after 4 mm."""
+    typing = any(0 <= tr["start"] - k <= 2.5 for k in key_downs)
+    resting = tr["y0"] < 0.04 or (typing and (tr["x0"] < 0.05 or tr["x0"] > 0.95))
+    return "rest" if resting and tr["travel"] <= 4.0 else ("released" if resting else "finger")
 
 
 def three_finger_drag_release(frames, buttons):
@@ -154,7 +210,7 @@ def main():
     rec, profile_path = sys.argv[1], sys.argv[2]
     write = "--write" in sys.argv
     profile = json.load(open(profile_path))
-    header, frames, moves, scrolls, buttons = load(rec)
+    header, frames, moves, scrolls, buttons, keys = load(rec)
     tp = profile["trackpad"]
     s = tp["sensor"]
     size = (s["widthHundredthsMM"] / 100, s["heightHundredthsMM"] / 100)
@@ -248,6 +304,41 @@ def main():
         ms = statistics.median(delays) * 1000
         print(f"\nthree-finger drag ends {ms:.0f} ms after the fingers lift ({len(delays)} drags)")
         measured["threeFingerDragReleaseMs"] = round(ms)
+
+    # Palms: every touch's shape and place, macOS's fields for it, and what the
+    # bakery's rules make of it, for tuning them against macOS's own verdict.
+    tracks = touch_tracks(frames, size)
+    key_downs = [k["t"] for k in keys if k.get("down")]
+    if tracks:
+        out = os.path.splitext(rec)[0] + ".touches.csv"
+        cols = ["start", "end", "x0", "y0", "travel", "major", "minor", "z", "density", "force",
+                "finger", "hand", "f14", "typing", "bakery", "macos"]
+        with open(out, "w") as f:
+            f.write(",".join(cols) + "\n")
+            for tr in tracks:
+                row = dict(tr, **tr["fields"])
+                row["typing"] = int(any(0 <= tr["start"] - k <= 2.5 for k in key_downs))
+                row["bakery"] = bakery_verdict(tr, key_downs)
+                row["macos"] = macos_verdict(tr)
+                f.write(",".join(str(row.get(c, "")) for c in cols) + "\n")
+        print(f"\n{len(tracks)} touches ({len(key_downs)} key presses) written to {out}")
+        groups = {}
+        for tr in tracks:
+            key = (tr["fields"].get("finger"), tr["fields"].get("hand"))
+            groups.setdefault(key, []).append(tr)
+        agreement = {}
+        for tr in tracks:
+            key = (macos_verdict(tr), bakery_verdict(tr, key_downs))
+            agreement[key] = agreement.get(key, 0) + 1
+        print("  macOS verdict vs the bakery's rest zones (before firmware palms):")
+        for (mac, ours), n in sorted(agreement.items()):
+            print(f"    macOS {mac or '?':8}  bakery {ours:8}  {n}")
+        print("  finger hand   n   major  minor      z   travel mm  bakery rest")
+        for (finger, hand), trs in sorted(groups.items(), key=lambda g: -len(g[1])):
+            med = lambda k: statistics.median(t[k] for t in trs)
+            rest = sum(bakery_verdict(t, key_downs) == "rest" for t in trs)
+            print(f"  {finger!s:>6} {hand!s:>4} {len(trs):3d} {med('major'):7.2f} {med('minor'):6.2f}"
+                  f" {med('z'):6.2f} {med('travel'):10.1f} {rest:6d}")
 
     if write and measured:
         measured["recording"] = os.path.basename(rec)
