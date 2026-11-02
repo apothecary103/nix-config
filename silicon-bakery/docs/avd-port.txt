@@ -1,0 +1,281 @@
+AVD (Apple Video Decoder) on t6020 / M2 Pro (MacBook Pro 14" Mac14,9, j414s)
+============================================================================
+Silicon Bakery, 2026-11-02. Written on the Mac14,9 under macOS 27.2.
+STATUS: the patches compile (clang 21, -W1, against asahi-7.2.14-1 with the
+NixOS config plus CONFIG_VIDEO_APPLE_AVD=m, on macOS) and apply in order on
+the tag. Nothing here has been built with Nix for aarch64 or run on Linux.
+Labels:
+
+  [LIVE]      measured on this Mac under macOS 27.2 (VideoToolbox probes,
+              IORegistry, pmgr device table)
+  [KEXT13.5]  the Asahi stub's macOS 13.5 AppleAVD kext (symbols present)
+  [KEXT27]    macOS 27.2's AppleAVD kext
+  [ASAHI]     AsahiLinux/linux asahi-7.2.14-1 (drivers/media/platform/apple/avd,
+              t602x DTs), avd-fw v0.2 (c870554), asahi-va-driver 2.0
+  [INF]       inference, not verified
+  [HW]        only a run on the machine can settle it
+
+Files, as they sit in Silicon Bakery:
+  patches/linux-avd/0001..0007   kernel-style series against asahi-7.2.14-1
+  pkgs/apple-avd.nix             builds the driver from kernel.src with the
+                                 driver patches as apple-avd-bakery.ko
+  tools/avd-bench                Linux benchmark on the macOS probe's clips
+  docs/avd-port.txt              this file
+No Apple binary or table is in the repository; the few register values in
+0007 carry their source.
+
+
+1. What t6020's AVD is
+----------------------
+- ADT /arm-io/avd0: compatible avd,t8103 + avd,t6020, avd-version 4, reg
+  0x2_8600_0000 len 0x1404000, interrupts 1088, 1089, pmgr power/clock gates
+  0x1d6, 0x1d7, 0x1d8, clock-ids 0x15d, reset = pmgr ASRT 0x3d,
+  decode-samples-per-second 0x1b703, h264-playback-level 0x2a. [LIVE]
+- Generation "Radish" (hwType 0x13c), not t8112's "Dahlia": the firmware
+  size macOS reports (44972) matches the 27.2 Radish image. Asahi treats both
+  alike (avd-fw-v3-t1, revision 4, 4 HEVC + 4 H.264 + 1 VP9 VPs, 15
+  instruction FIFOs). [KEXT13.5][KEXT27][ASAHI]
+- Linux DT node avd@287080000 maps only: code 0x2_8708_0000+0x10000,
+  sram 0x2_8709_0000+0x10000, mbox 0x2_870a_0000+0x4000, ctrl
+  0x2_8710_0000+0x10000; IRQ 1089 is the one the driver requests. [ASAHI]
+- Asahi's firmware is a ~1 KB shim (apply tunables, enable NVIC, forward VP
+  done 0x100|n, VP error n, PP done 0x1000, unknown IRQ 0x10000|n then WFI
+  forever). All decoding logic is in the kernel. [ASAHI]
+
+
+2. The patches
+--------------
+Apply order is the file order. 0003 is the only one outside the driver
+directory; pkgs/apple-avd.nix skips it.
+
+0001 read the firmware codec mask at offset 0x400
+  Bug: avd-fw links struct avd_config ('AVDc', codecs, 62 pad words) at 0x400
+  (avd-cm3.ld) and objcopy pads to 0x10000, so the kernel's end-of-file read
+  never finds it and every codec stays on. [ASAHI] Fix: 0x400 first, end of
+  file as fallback, log the mask, refuse probe on an empty mask (avoids a
+  NULL dereference on open()). avd-fw 0.1 (what nixpkgs has today) has no
+  config: unchanged behaviour.
+  CONSEQUENCE: with avd-fw 0.2 at its default video-codecs=all_free, t6020
+  then offers VP9 only. media.decodeCodecs (default "all") must reach avd-fw.
+  Expected dmesg: "avd 287080000.avd: firmware codec mask 0x7, enabled 0x7"
+  (avd-fw 0.2 built with all) or "firmware has no codec mask, enabled 0x7"
+  (0.1). 0x1 HEVC, 0x2 H.264, 0x4 VP9.
+
+0002 fail a job at once on VP error or a stuck queue
+  Bug: a VP error message only logged "H%d error"; an unknown-IRQ message
+  disabled the mailbox; a full VP queue broke out of submission without the
+  END command. All three ended in the 2 s watchdog + reset. [ASAHI] macOS
+  recovers immediately (CheckAVDHwStatus -> SoftReset -> HardReset). [KEXT13.5]
+  Fix: run the watchdog's reset+fail path with no delay (single owner via
+  cancel_delayed_work), ignore late messages for the failed job, poll a full
+  queue up to 100 ms, drain the mailbox even with no job running.
+  Expected dmesg on a corrupt frame: "VP<n> error" then "decode failed,
+  resetting" and the next frame decodes within milliseconds; no "Frame
+  processing timed out!" unless the hardware really hangs.
+
+0003 media: v4l2: add the P210 pixel format (kernel rebuild)
+  V4L2 at 7.2.14 has no 4:2:2 10-bit semi-planar fourcc (videodev2.h has
+  NV16, NV20 = packed 10-bit, P010, P012). Adds V4L2_PIX_FMT_P210 'P210'
+  (same code as DRM_FORMAT_P210), format info (bpp 2/4, hdiv 2, vdiv 1),
+  description and documentation. Userspace also needs to learn it
+  (asahi-va-driver maps nothing to 4:2:2 today; GStreamer/FFmpeg need the
+  V4L2 fourcc mapping).
+
+0004 reject unsupported streams, fix 4:2:2 10-bit and 4:0:0
+  - HEVC 4:4:4 went to NV12 buffers; HEVC 12-bit/9-bit and mixed depths were
+    not rejected. Now -EINVAL at S_EXT_CTRLS (SPS try). [ASAHI][LIVE: macOS
+    refuses HEVC 12-bit; decodes 4:4:4 8/10 but the driver has no path]
+  - H.264 9/12/14-bit rejected (fell through to ANY). Interlaced H.264 was
+    already rejected (frame_mbs_only), as on macOS. [LIVE]
+  - VP9 profile menu now 0 and 2; frames with profile 1/3 or 12-bit are
+    rejected in a new try_ctrl. macOS cannot decode profile 1/3 at all. [LIVE]
+  - 4:2:2 10-bit: the hardware writes P210; labelled P010, the buffer was
+    sized for 4:2:0 (v4l2-common P010 = 3*w*h bytes against 4*w*h needed), so
+    chroma overran into the appended compressed copy. With 0003: P210.
+    Without it: refused. [ASAHI; the overlap is computed, not observed]
+  - 4:0:0: new image formats offer NV12 (default, unchanged) or GREY; P010 or
+    Y16 for 10-bit (Y10 in V4L2 is LSB-aligned, the hardware writes
+    MSB-aligned like P010, so Y16). Buffers keep the 4:2:0 size and pitch.
+    What the hardware writes to the chroma area of a 4:0:0 frame is [HW].
+  - Capture formats are listed once each.
+
+0005 reuse scratch buffers in avd_buf_alloc
+  Bug: "!buf->cpu && size < buf->size" never holds, so every call freed and
+  re-allocated coherent DMA memory (HEVC: 4-6 buffers per frame; H.264: per
+  slice). Fixed; the H.264 slice length moved to buf->len (it was read back
+  from buf->size); reused buffers are zeroed like a fresh allocation.
+
+0006 optionally advertise HEVC levels up to 6.2
+  macOS: HEVC level 6.2 (IOAVDHEVCDecodeCapabilities level 186), and decodes
+  7680x4320, 8192x4320, 8192x8192, 16384x8192 in hardware. [LIVE] The driver's
+  frame size table already allows 16384, the level menu stops at 5.1.
+  Parameter: apple_avd_bakery.hevc_level_6=1. Scratch sizing above 4096 is [HW].
+
+0007 t6020: optionally write macOS's power-on DMA settings
+  CAvdWrapCtrlRadish::DeviceInit [KEXT13.5] writes, offsets from
+  0x2_8600_0000; "mapped" = inside the DT's ctrl range:
+    0x1400018 = 1           wrapper clock-gate enable   NOT mapped (0x2_8740_0018)
+    0x1070000 = 0           PIODMA config               NOT mapped (0x2_8707_0000)
+    0x110014c = 0x14                                    mapped (ctrl+0x14c)
+    0x110e4d0, e4d4, e510, e514 = 0                     mapped
+    0x110e308 = 0xffffffff                              mapped
+    0x110e300 = 0x80023fff                              mapped
+    0x110c900, c940, c980, c9c0 = 0x800113ff            mapped
+    0x1002004 = 0x10, read back                         NOT mapped (0x2_8700_2004)
+  (DevicePwrOn before it: 0x1000000 = 0x7fff, NOT mapped.)
+  avd-fw's tunables write e300 and c9x0 only under mask 0x800f3c00, so bits
+  9:0 (0x3ff) stay at reset on Linux; the others are not written at all.
+  Parameter apple_avd_bakery.macos_init=1 writes the eleven mapped values
+  after each firmware boot. Off by default. Dahlia (t8112) writes 0xffffffff
+  at e4d0..e514 and 2 at 0x14c instead, so the table is t6020-only.
+
+
+3. Tunables macOS writes that Asahi does not [KEXT13.5, out/tunables_cmp]
+------------------------------------------------------------------------
+loadTunables on Radish = four tables, each written and read back:
+  avd           147 entries  identical to avd-fw tunables_v3t1.h (and to
+                             Dahlia's). Applied by avd-fw.
+  avd_wrap_ctrl 1   0x1400018 AVDWRAPCTRL_AVDCTRL_CLOCKGATEENABLE m=1 v=1
+                    NOT mapped (wrapper 0x2_8740_0000)
+  avd_piodma    6   0x1070000 APIODMA_CFG m=2 v=0
+                    0x1070010/14/18 DMACFGMEMSRC/DAT/DST m=0x7ffffff v=0xfff3
+                    0x107001c/20 DMACFGPIORD/PIOWR m=0x1ffff v=0xfff0
+                    NOT mapped (PIODMA 0x2_8707_0000); Linux does not use the
+                    PIODMA engine (CPU writel instead)
+  avd_mcw       3   0x1004000 MCW_CTL_STS m=0x1f00 v=0x1000
+                    0x1004004 ACTIVE_CHIP_MAP m=3 v=1
+                    0x1004008 ACTIVE_MCC_MAP m=0xff v=0xff
+                    NOT mapped (MCW 0x2_8700_4000); Radish-only
+None of these is patched: they need new reg entries in the binding and the
+DT, and a reading of the reset values first. Proposed (not done): extend
+apple,avd.yaml with optional "wrap", "piodma", "mcw" regions, read them under
+a read-only module stage, compare with macOS's values, then write.
+
+
+4. Clock/voltage (DVFS) vote
+----------------------------
+macOS [KEXT13.5][KEXT27][LIVE]:
+- AppleAVDCoreControl adds up clients' pixel rate and picks a perf state
+  against thresholds x0.9: 497.7M / 788.0M / 1202.7M px/s; forces the top
+  state when a client's rolling fps falls under the stream fps.
+- 27.2 AppleAVDPower::setPerfState drives the provider (pmgr) power API on
+  the AVD's clock indices. On t6020 those are pmgr devices 0x1d6 AVD-SYS-V
+  (parents AVD_SYS 0x3d and AFR 0x17c), 0x1d7 AVD-SOC-VNOM and 0x1d8
+  AVD-SOC-VMAX. VNOM/VMAX have no parent and no power-state register
+  (addr_off 0) and flags 0x12000112 / 0x12000212: byte 3 = 0x12 looks like a
+  SoC voltage-vote client id (ISP 0x0d, DP 0x0f/0x10, VENC 0x11, SCODEC 0x15
+  use the same pattern), byte 1 = level (1 nominal, 2 max). [LIVE pmgr table;
+  meaning INF]
+Linux [ASAHI]: pmgr-pwrstate handles register-backed devices only;
+apple-pmgr-misc sets fabric/DCS min p-states; pmp-report (APPLE_USE_PMP,
+patches/linux-pmp) tells the PMP that AVD is on. Nothing votes SoC voltage
+for AVD. Whether the voltage state matters at all is unknown: compare
+avd-bench tp with macOS first (single stream; macOS H.264 1080p 471 fps,
+HEVC 1080p 759, HEVC10 2160p 286, VP9 2160p 148).
+Design, once a vote mechanism is found:
+  a) RE the 13.5 pmgr kext (kc135/kexts) path that enables a virtual device
+     with flag 0x12: which register (pmgr "soc-dvfs" vote block or a PMP
+     message) it writes for levels 1/2.
+  b) Model it as a genpd with performance states (pmgr-vvote), referenced
+     by the AVD node as a second power domain "perf"; the driver calls
+     dev_pm_genpd_set_performance_state() from device_run: level 2 when the
+     sum over open contexts of width*height*fps (fps from the OUTPUT queue's
+     timestamps) exceeds 0.9 x 788.0M, level 1 above 0.9 x 497.7M, 0
+     otherwise; drop on autosuspend.
+  c) Until then: none. Do not write pmgr registers blind.
+
+
+5. Several streams at once (design only, not patched)
+-----------------------------------------------------
+Today: one v4l2_m2m_dev, so one job device-wide; fifo_idx always 0; the VP is
+always the codec's first. macOS: 4 parallel VPs per codec, 64 sessions;
+HEVC 1080p 715 fps for one stream, 2593 for four. [LIVE]
+Hardware facts for revision 4 (t8112/t6020) [ASAHI avd-hw.c, avd-drv.c]:
+  ctrl+0x150 + 4*f   instruction FIFO f IOVA low (f = 0..14)
+  ctrl+0x30c + 4*f   IOVA high (64-bit DMA, no LSR quirk on t6020)
+  ctrl+0x18c/0x1c8/0x204 + 4*f   FIFO mask / cache / xfer (driver writes 0)
+  ctrl+0x0c + 4*vp   VP command port (EXEC + instruction words)
+  ctrl+0x34 + 4*vp   VP queue capacity; ctrl+0x5c + 4*vp  VP queue level
+  ctrl+0x30          PP command port (EXEC | FIFO_IDX | FIFO_MASK(15))
+  ctrl+0xfc + 4*vp   VP->CM3 IRQ mask (unk|err|done); ctrl+0x120 PP mask
+  VP numbering: HEVC 0-3, H.264 4-7, VP9 8 (sum of vp_slots before the codec)
+  EXEC word: 0x2b<<24 | FIFO_IDX<<4 | START(bit 9) | END(bit 10)
+  Messages: VP done 0x100|vp, VP error vp, PP done 0x1000 (no index: one PP).
+Plan:
+  1. Lanes: N = 4 v4l2_m2m_dev instances ("lanes") instead of one. avd_open
+     binds the new context to the lane with the fewest contexts
+     (v4l2_m2m_ctx_init(lane->m2m_dev, ...)); only lane 0 registers the media
+     controller. Each lane runs its own job serially, as today.
+  2. Lane i owns FIFO i and VP base(codec)+i (VP9 has one VP: VP9 contexts all
+     go to lane 0 or wait on a per-VP mutex).
+  3. The PP is shared and PP-done carries no index: keep a device FIFO of
+     jobs whose VP finished and whose PP was kicked; attribute each 0x1000 to
+     the oldest. Kick the PP for the next job only after the previous PP-done
+     if ordering turns out not to hold [HW]. VP done/error route by VP index
+     to the lane.
+  4. Per-lane watchdog and hw_error; a reset (block-wide) fails every lane's
+     running job.
+  5. Later, ≥2 frames in flight per context (needs reference handling care).
+  Risk: whether PP work from two FIFOs can interleave is not known, and
+  macOS cannot be traced here (one machine). Test with avd-bench conc.
+
+
+6. Bring-up on the Mac (no second machine)
+------------------------------------------
+Logs: the journal is persistent on NixOS; after a hang and forced reboot read
+`journalctl -k -b -1`. pstore: CONFIG_PSTORE=y, PSTORE_RAM=m and
+EFI_VARS_PSTORE=y in the config, but the Apple DTs have no ramoops
+reserved-memory node, arm64 has no memmap=, and Asahi's U-Boot offers no
+persistent EFI variables, so neither backend works without a DT patch; not
+used. The decoder is a module that never touches hardware until a video is
+opened, so a hang is unlikely; run `sync` before each risky step anyway.
+
+Step 0, before switching (stock apple_avd):
+  journalctl -k -b | grep -i avd       # "booting hw version: ...."
+  v4l2-ctl --list-devices; vainfo
+  copy the clips (below), then: tools/avd-bench -d <clips> all > stock.txt
+Step 1, the patched module (media.decodeFixes, see the Nix wiring):
+  lsmod | grep apple_avd               # only apple_avd_bakery
+  journalctl -k -b | grep -i 'codec mask'
+  tools/avd-bench -d <clips> all > bakery.txt; diff stock.txt bakery.txt
+  Expect: same throughput or slightly better (0005), support table rows
+  "no" now fail fast instead of producing garbage, no 2 s stalls.
+Step 2, error handling: decode a corrupted clip, e.g.
+  head -c 2000000 tp_hevc_1080p.mp4 > /tmp/cut.mp4
+  dd if=/dev/urandom of=/tmp/cut.mp4 bs=1 seek=500000 count=20000 conv=notrunc
+  time ffmpeg -hwaccel vaapi -hwaccel_output_format vaapi -i /tmp/cut.mp4 -f null -
+  Expect "VP<n> error" / "decode failed, resetting" in dmesg and no
+  multi-second pause; "Frame processing timed out!" means a real hang.
+Step 3, options, one at a time, each with avd-bench tp:
+  sudo modprobe -r apple_avd_bakery; sudo modprobe apple_avd_bakery macos_init=1
+  sudo modprobe -r apple_avd_bakery; sudo modprobe apple_avd_bakery hevc_level_6=1
+    then avd-bench support (the hevc_7680x4320 .. 16384x8192 rows)
+Failure meanings:
+  probe fails "firmware enables no codec ..."  avd-fw built without any codec
+    this SoC has; fix media.decodeCodecs.
+  vainfo shows only VP9                         avd-fw 0.2 all_free reached
+    the kernel; set decodeCodecs = [ "all" ].
+  "instruction queue stuck full"                VP not consuming: reset follows.
+  "Driver 'avd' is already registered"          both modules loaded; the
+    blacklist is missing.
+
+Clips: the macOS probe made them (probe/gen.sh, gen2.sh); tools/avd-bench
+holds their sha256. Copy on macOS:
+  mkdir -p "/Volumes/Maomao HDD/avd-clips"
+  cp /Volumes/NixScratch/ame-re/ghidra-avd/probe/s/*.mp4 "/Volumes/Maomao HDD/avd-clips/"
+(56 files, ~220 MB, ffmpeg testsrc2 output, no Apple data). Under Linux the
+exFAT disk mounts read-write; `tools/avd-bench -d "/run/media/$USER/Maomao
+HDD/avd-clips" check` must print "mismatched 0".
+
+
+7. Open points
+--------------
+- [HW] everything at run time; the series was compile-checked only.
+- [HW] what 4:0:0 leaves in the chroma area; whether 4:2:2 8-bit's compressed
+  copy (fill_comp sizes chroma for 4:2:0) also overruns.
+- [HW] HEVC above 4096 wide with this driver's scratch sizing.
+- [HW] effect of macos_init.
+- DVFS mechanism (section 4) and PP ordering (section 5).
+- macOS writes DeviceInit before its tunables; 0007 writes after the
+  firmware's. Equivalent only because the tunable masks exclude bits 9:0
+  (checked against tunables_v3t1.h).

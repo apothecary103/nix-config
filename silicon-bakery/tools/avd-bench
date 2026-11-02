@@ -1,0 +1,325 @@
+#!/usr/bin/env bash
+# avd-bench: measure the AVD hardware decoder under Linux on the same clips
+# the macOS VideoToolbox probe used, and print the macOS numbers next to them.
+# Runs on the Mac14,9 under NixOS (docs/avd-port.txt, section 6).
+#
+#   avd-bench [-d CLIPDIR] [-n RUNS] check|support|tp|conc|v4l2|all
+#
+#   check    verify the clips' sha256 against the macOS originals
+#   support  decode every feature clip through VA-API: hw / sw-fallback / fail
+#   tp       single-stream throughput, VA-API (ffmpeg -hwaccel vaapi)
+#   conc     1/2/4/8 parallel VA-API decodes, aggregate fps
+#   v4l2     throughput and 4:2:2/10-bit clips through GStreamer's V4L2
+#            stateless decoders (no libva in the path)
+#   all      check, support, tp, conc, v4l2
+#
+# The clips are made on macOS by probe/gen.sh and gen2.sh (ffmpeg 9.0.2
+# testsrc2, libx264/libx265/libvpx/svt-av1). Copy them from macOS onto the
+# exFAT Maomao HDD:
+#   mkdir -p "/Volumes/Maomao HDD/avd-clips"
+#   cp /Volumes/NixScratch/ame-re/ghidra-avd/probe/s/*.mp4 "/Volumes/Maomao HDD/avd-clips/"
+# and under Linux point -d at that folder on the mounted disk (for example
+# /run/media/$USER/Maomao\ HDD/avd-clips), or copy it to local storage first;
+# reading from the HDD only matters for the first, uncached run.
+#
+# fps here = frames / wall time of the whole ffmpeg or gst-launch process,
+# including demuxing and decoder setup; the macOS probe timed the decode loop
+# over samples already in memory, so short clips read a little low here.
+# Needs: ffmpeg with VA-API, libva (LIBVA_DRIVER_NAME=asahi), coreutils, awk;
+# for v4l2: gst-launch-1.0 with gst-plugins-bad (v4l2codecs) and -good (qtdemux).
+set -u
+
+CLIPDIR=${AVD_CLIPS:-./avd-clips}
+RUNS=3
+
+usage() { sed -n '2,25p' "$0" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
+
+while getopts "d:n:h" o; do
+  case $o in
+    d) CLIPDIR=$OPTARG ;;
+    n) RUNS=$OPTARG ;;
+    h) usage 0 ;;
+    *) usage 1 ;;
+  esac
+done
+shift $((OPTIND - 1))
+MODE=${1:-all}
+
+# sha256 of the clips as generated on macOS (2026-11-02).
+SUMS='96c04a97964e8b2007001ab8d6edf949176da6ff9ee4948b674955ad4c7efdbd  av1_main.mp4
+ac3ac579bd262c362ba7b46ea0304b3c21eff316f6902ce505d4b049c591dcbe  av1_main10.mp4
+533521381d05edf3d23fc89a05973ba54ea2f37465a45d113ccd5fca399ebf9f  h264_32x32.mp4
+5bc593499bac4440b3e886e96998f9753cc0f1cb22fa5e6ce888580939c1a5ac  h264_4096x2304.mp4
+9d3a00983d22ef5be5cb9e802b683cf336642ed30b7f3bd2d31018a89baaa898  h264_4096x4096.mp4
+93a2f213cc1cb10876b32859c98b0cb50bfee888fe5e5a2c192a3bbe43a9b834  h264_5120x2880.mp4
+1010c215119252962492875f5f4974c1bffbcd61ce2e28b3cd20f0491341c222  h264_64x64.mp4
+24fe9c94f154539ffe2c9d9ac6bfb145ab6cd612f7c630908e2b265ee40563a0  h264_8192x4320.mp4
+36e5f4a04e918b979524515ca48f4a390ec6414b6013488e857675f5dea02446  h264_8192x8192.mp4
+923e86c64746df20b1919ff7d0bbb3f505bdfb25be01eabef4babf108988ed58  h264_base.mp4
+2c812d58ae42f831fcefefbb94f5d0df646999e00e1e463ef05fecfadb26e2d3  h264_cavlc444intra.mp4
+5a43e1d79e6d9616dca8c863a50650e83b55f90093532eef00885fb396eb44f8  h264_fakeint.mp4
+5a10f61dbc2beb7fdeb05607b505071f7c05cf0b25a40ec3dae723f11ca741f0  h264_gray.mp4
+4a187ac98c0d53a8e607f273bf2c8f58c334c643c6cee9939525481ef356cff0  h264_high.mp4
+467c68851516dbf084b58b3797bf6fc3e10f456ca81d234558ac8b05fd423780  h264_high10.mp4
+a19ffe8402fa207f702a16755e7c9f37d28ed56c245f12fb615204cbf89b6d24  h264_high422.mp4
+16556a300511a7f6f32acc27a381e8105e3aaaed8b26df4f0684b38ecbf714c6  h264_high422_10.mp4
+0eb667328b1f41c6e23fc57dfb704d29628dfd27b564546fc97c9d6780dc17c5  h264_high422intra10.mp4
+86cd9d31a5f52fe31bc8e02a652353b80472e25ef26383bdf508c3a3ccdc9a5b  h264_high444.mp4
+878568543fbc55f89bceb93810db2865c7a729c494b9b6c98438ec91eea9dccb  h264_high444_10.mp4
+667ec5ce9a73c1519c985b21f13b618a2c9823db17aaeaf4bc607c6044b72b7f  h264_lossless.mp4
+d506f7835939b107a97aeeac15f0da4c26621ca140a82fe95ae07571f876d11a  h264_main.mp4
+159e053c1b039db70ed7142133da81c80281a4dc36e0695952617034bf05e949  h264_mbaff.mp4
+47c88e035affe58d1eaa535b40b82cbe56227bc58d03aadd92b941d3b3d9e235  h264_mslice_fmo_none.mp4
+38dc903bcce878db589b6301be4e7385376b04aaf1cccd5ec40f470091fa4acd  hevc_16384x8192.mp4
+7f67624741b93fa11f58470ba4b46747811df107a389b237e22f8fe5d2ae736d  hevc_16x16.mp4
+e89678c3ec0fece9340e24860dd1172b6286554a8c5871c2110b83cd9e5c46e8  hevc_3840x2160_main10.mp4
+6aecf1d4e1656c09c3f59e76cb2a84e061a9c7b22f5886a1fda7f96d2b8e4343  hevc_422_10.mp4
+7889d03baa372662166e6843badb1eea6b3eecd38041f696e23efdbbe22ebd2c  hevc_422_12.mp4
+65b9464f8e60e42261ca84d889157d3206337d090839a879767d1a0126b8e822  hevc_422_8.mp4
+8db3201c3086f9ac4d51360b94fa87bda073370bca6cf963f07db77a25a63f87  hevc_444_10.mp4
+445b06c64ee9eb04a7e14a9c15e9c39b920e9aefdc83ffefeac12a0352ba0d71  hevc_444_12.mp4
+4a5972c47615c44f43cb974cd2d74ede2160a43a6d1a72184fbbc4d7c4381065  hevc_444_8.mp4
+05799116bf4d9752f4bb5b152c137041781070bbae81e2716779b19804867b0c  hevc_7680x4320_120.mp4
+bbe0be752680caee4e53423283437756438192fef0672088e105ef1128363859  hevc_8192x4320.mp4
+a6ebe2e6d290d353031c67cef7835f1ca6cf20ba80e6b61345ddb19baacc7555  hevc_8192x8192.mp4
+fd08d5207c2c028f616a636519b1cab022cc240cea394ed897c6fe5613ab552e  hevc_gray10.mp4
+b2c9a0295ecd8af4a410ce67e3f2db93e245b6c1e500e0736c32cbc806c9a2f8  hevc_gray12.mp4
+e4bf274d9f6206338270f058c0435166b862f6382a4364be650d8ef475a0e820  hevc_gray8.mp4
+6ed58df83a22cebd791d25f5aad096a8cbe131b8bfe968a83ed5e54863f25575  hevc_interlaced_sei.mp4
+a18f89d4c51c8f7e222095213b2637036496e450aed072f2eb5f68940261d0de  hevc_main.mp4
+b3db4b40eebe2eecbc5fc9dee3c4c69355572372dcbafe4e9e3b7b9db2b9bfb7  hevc_main10.mp4
+c84710e14dd44a2b023b7cf5ca22b69fe1aaf832643759a5925e0901d39efb8c  hevc_main12.mp4
+f0d22e9983843b91d43eed489e986765929bffd4011aa83745b09b649cbaf62b  hevc_odd_1922x1082.mp4
+a139acfdb7a71223692bded3949383c6ab8da95d6a8b5d2b3ca08c16490fd349  tp_h264_1080p.mp4
+41dfca56d22a14bb3820eeca5e3d3df03b02fd98bc12945ba0279043cfb6f1a8  tp_h264_2160p.mp4
+e3d141cd57433fc6437558b51679f22715566b56f2693084e95b45abd88c16a8  tp_hevc10_2160p.mp4
+ed7f3d88080928c6c91930530d0f056b1cb21f51793cf7af3b548ec5b2a8af0a  tp_hevc_1080p.mp4
+bf44e62b9e94ff7c79e9881dc7ca9dc550466019d38f8ad707dcfefb5021dbbe  tp_vp9_2160p.mp4
+06e7fdc683764dc11454697ebd126f538d19fed0a6256d3e56ab1a9cd4c490a3  vp9_4096x2304.mp4
+527eca55dd760661af3211c11e75c95fc6995f0b74e179bc9264546409a28b09  vp9_8192x4352.mp4
+6a90290dd5d6bc77c4ee46b08754ff84010389199bfa8d3eafd95e21c3cf2f43  vp9_p0.mp4
+5277ad448e5e736190d09ad83f0e7632432b7dc86a58d1da0609946a864a2782  vp9_p1_422.mp4
+a850800195315111258029445f262c2d9eba15d6cc5f593b75e17edcdb044ee0  vp9_p1_444.mp4
+f7c803d25cf70e698a4a515372045fd7991acdc442ab236b94e4c8e40024c4d3  vp9_p2_10.mp4
+54ac7704887ad4680df73b4bc3a1c6815d1dc1ed51349d276af88e1342329cd5  vp9_p3_444_10.mp4'
+
+# Throughput clips: name frames macOS-fps (single session, VideoToolbox,
+# macOS 27.2, best of two runs, probe/results_tp.txt).
+TP='tp_h264_1080p 300 471.5
+tp_h264_2160p 120 86.1
+tp_hevc_1080p 300 759.3
+tp_hevc10_2160p 120 286.3
+tp_vp9_2160p 120 148.0'
+
+# Concurrency: clip frames, then macOS aggregate fps for 1 2 4 8 sessions
+# (probe/results_conc.txt).
+CONC='tp_h264_1080p 300 473.4 960.0 1137.4 1161.5
+tp_hevc_1080p 300 714.7 1415.9 2592.7 2816.2
+tp_hevc10_2160p 120 284.5 541.4 697.6 708.5'
+
+# Feature clips: name, what macOS 27.2 did with the hardware required
+# (probe/results_main.txt), what the patched Linux driver should do.
+SUPPORT='h264_base hw hw
+h264_main hw hw
+h264_high hw hw
+h264_high10 hw v4l2-only
+h264_high422 hw v4l2-only
+h264_high422_10 hw v4l2-only(P210-kernel)
+h264_high422intra10 hw v4l2-only(P210-kernel)
+h264_high444 hw no
+h264_high444_10 hw no
+h264_lossless hw no
+h264_cavlc444intra hw no
+h264_gray hw v4l2-only
+h264_mbaff no no
+h264_fakeint no no
+h264_mslice_fmo_none hw hw
+h264_64x64 hw hw
+h264_32x32 no no
+h264_4096x2304 hw hw
+h264_4096x4096 hw hw
+h264_5120x2880 no no
+hevc_main hw hw
+hevc_main10 hw hw
+hevc_main12 no no
+hevc_422_8 hw v4l2-only
+hevc_422_10 hw v4l2-only(P210-kernel)
+hevc_422_12 no no
+hevc_444_8 hw no
+hevc_444_10 hw no
+hevc_444_12 no no
+hevc_gray8 hw v4l2-only
+hevc_gray10 hw v4l2-only
+hevc_gray12 no no
+hevc_16x16 no no
+hevc_odd_1922x1082 hw hw
+hevc_3840x2160_main10 hw hw
+hevc_7680x4320_120 hw hevc_level_6?
+hevc_8192x4320 hw hevc_level_6?
+hevc_8192x8192 hw hevc_level_6?
+hevc_16384x8192 hw hevc_level_6?
+vp9_p0 hw hw
+vp9_p2_10 hw hw
+vp9_p1_422 no no
+vp9_p1_444 no no
+vp9_p3_444_10 no no
+vp9_4096x2304 hw hw
+av1_main no no
+av1_main10 no no'
+
+clip() { printf '%s/%s.mp4' "$CLIPDIR" "$1"; }
+
+now() { date +%s.%N; }
+
+have() { command -v "$1" >/dev/null 2>&1; }
+
+do_check() {
+  echo "== clip check in $CLIPDIR"
+  [ -d "$CLIPDIR" ] || { echo "no such directory: $CLIPDIR (see -d)"; return 1; }
+  local bad=0 missing=0 ok=0 sum name actual
+  while read -r sum name; do
+    if [ ! -f "$CLIPDIR/$name" ]; then
+      missing=$((missing + 1)); continue
+    fi
+    actual=$(sha256sum "$CLIPDIR/$name" | cut -d' ' -f1)
+    if [ "$actual" = "$sum" ]; then ok=$((ok + 1)); else
+      echo "MISMATCH $name"; bad=$((bad + 1)); fi
+  done <<<"$SUMS"
+  echo "ok $ok, mismatched $bad, missing $missing (of $(echo "$SUMS" | wc -l | tr -d " "))"
+  [ "$bad" -eq 0 ]
+}
+
+# ffmpeg VA-API decode to nowhere. Prints "<status> <frames> <seconds>".
+# status: hw, sw-fallback (VA refused the stream), fail (ffmpeg error).
+ff_decode() {
+  local f=$1 log t0 t1 frames status
+  log=$(mktemp)
+  t0=$(now)
+  ffmpeg -nostdin -hide_banner -loglevel info -stats \
+    -hwaccel vaapi -hwaccel_output_format vaapi -hwaccel_device "${AVD_VA_DEVICE:-/dev/dri/renderD128}" \
+    -i "$f" -map 0:v:0 -f null - >"$log" 2>&1
+  local rc=$?
+  t1=$(now)
+  frames=$(tr '\r' '\n' <"$log" | awk '/frame=/{for(i=1;i<=NF;i++) if($i ~ /^frame=/){v=$i; sub("frame=","",v); if(v=="") v=$(i+1); n=v}} END{print n+0}')
+  if grep -qiE 'Failed setup for format vaapi|hwaccel initiali[sz]ation returned error|No support for codec|Failed to get pixel format' "$log"; then
+    status=sw-fallback
+  elif [ $rc -ne 0 ]; then
+    status=fail
+  else
+    status=hw
+  fi
+  [ -n "${AVD_KEEP_LOGS:-}" ] && cp "$log" "/tmp/avd-bench-$(basename "$f").log"
+  rm -f "$log"
+  awk -v s="$status" -v n="$frames" -v a="$t0" -v b="$t1" 'BEGIN{printf "%s %d %.3f\n", s, n, b-a}'
+}
+
+do_support() {
+  echo "== support (VA-API; v4l2-only rows are checked by 'v4l2')"
+  printf '%-24s %-6s %-26s %-12s %s\n' clip macOS "expected (patched Linux)" result frames
+  local name mac lin f r
+  while read -r name mac lin; do
+    f=$(clip "$name"); [ -f "$f" ] || { printf '%-24s missing\n' "$name"; continue; }
+    r=$(ff_decode "$f")
+    printf '%-24s %-6s %-26s %-12s %s\n' "$name" "$mac" "$lin" "${r%% *}" "$(echo "$r" | cut -d' ' -f2)"
+  done <<<"$SUPPORT"
+}
+
+do_tp() {
+  echo "== single-stream throughput, VA-API, best of $RUNS"
+  printf '%-18s %8s %10s %8s\n' clip frames linux-fps macOS-fps
+  local name n mac f best r fps
+  while read -r name n mac; do
+    f=$(clip "$name"); [ -f "$f" ] || { echo "$name missing"; continue; }
+    best=0
+    for _ in $(seq "$RUNS"); do
+      r=$(ff_decode "$f")
+      case $r in hw*) ;; *) echo "$name: ${r%% *}"; best=0; break ;; esac
+      fps=$(echo "$r" | awk '{ if ($3 > 0) printf "%.1f", $2 / $3; else print 0 }')
+      best=$(awk -v a="$best" -v b="$fps" 'BEGIN{print (b > a) ? b : a}')
+    done
+    printf '%-18s %8s %10s %8s\n' "$name" "$n" "$best" "$mac"
+  done <<<"$TP"
+}
+
+do_conc() {
+  echo "== concurrent VA-API decodes, aggregate fps (frames x N / wall time)"
+  printf '%-18s %4s %10s %10s\n' clip N linux macOS
+  local name n m1 m2 m4 m8 f k t0 t1 mac pids
+  while read -r name n m1 m2 m4 m8; do
+    f=$(clip "$name"); [ -f "$f" ] || { echo "$name missing"; continue; }
+    for k in 1 2 4 8; do
+      case $k in 1) mac=$m1 ;; 2) mac=$m2 ;; 4) mac=$m4 ;; 8) mac=$m8 ;; esac
+      pids=()
+      t0=$(now)
+      for _ in $(seq $k); do
+        ffmpeg -nostdin -hide_banner -loglevel error -hwaccel vaapi -hwaccel_output_format vaapi \
+          -hwaccel_device "${AVD_VA_DEVICE:-/dev/dri/renderD128}" -i "$f" -map 0:v:0 -f null - &
+        pids+=($!)
+      done
+      wait "${pids[@]}"
+      t1=$(now)
+      awk -v nm="$name" -v k=$k -v n="$n" -v a="$t0" -v b="$t1" -v m="$mac" \
+        'BEGIN{printf "%-18s %4d %10.1f %10s\n", nm, k, n * k / (b - a), m}'
+    done
+  done <<<"$CONC"
+}
+
+# GStreamer V4L2 stateless decode. Prints "<rc> <seconds>".
+gst_decode() {
+  local f=$1 parse dec t0 t1 rc
+  case $(basename "$f") in
+    *h264*) parse=h264parse; dec=v4l2slh264dec ;;
+    *hevc*) parse=h265parse; dec=v4l2slh265dec ;;
+    *vp9*) parse=vp9parse; dec=v4l2slvp9dec ;;
+    *) echo "skip 0"; return ;;
+  esac
+  t0=$(now)
+  gst-launch-1.0 -q filesrc location="$f" ! qtdemux ! $parse ! $dec ! fakesink sync=false >/dev/null 2>&1
+  rc=$?
+  t1=$(now)
+  awk -v r=$rc -v a="$t0" -v b="$t1" 'BEGIN{printf "%d %.3f\n", r, b - a}'
+}
+
+do_v4l2() {
+  echo "== V4L2 stateless decoders (GStreamer), no libva"
+  have gst-launch-1.0 || { echo "gst-launch-1.0 not found"; return 1; }
+  gst-inspect-1.0 v4l2slh264dec >/dev/null 2>&1 || echo "note: v4l2slh264dec missing (gst-plugins-bad v4l2codecs)"
+  printf '%-18s %8s %10s %8s\n' clip frames linux-fps macOS-fps
+  local name n mac f r
+  while read -r name n mac; do
+    f=$(clip "$name"); [ -f "$f" ] || continue
+    r=$(gst_decode "$f")
+    if [ "${r%% *}" = 0 ]; then
+      printf '%-18s %8s %10s %8s\n' "$name" "$n" "$(echo "$r" | awk -v n="$n" '{printf "%.1f", n / $2}')" "$mac"
+    else
+      printf '%-18s failed (rc %s)\n' "$name" "${r%% *}"
+    fi
+  done <<<"$TP"
+  echo "-- formats VA-API cannot reach (4:2:2, H.264 10-bit, 4:0:0); ok = pipeline ran to the end"
+  for name in h264_high10 h264_high422 h264_high422_10 h264_high422intra10 h264_gray \
+    hevc_422_8 hevc_422_10 hevc_gray8 hevc_gray10 hevc_444_8 hevc_main12 vp9_p1_444; do
+    f=$(clip "$name"); [ -f "$f" ] || continue
+    r=$(gst_decode "$f")
+    printf '%-24s %s\n' "$name" "$([ "${r%% *}" = 0 ] && echo ok || echo "refused/failed (rc ${r%% *})")"
+  done
+}
+
+header() {
+  echo "avd-bench $(date -Is) on $(uname -r)"
+  [ -d /sys/module/apple_avd_bakery ] && echo "module: apple_avd_bakery (Silicon Bakery)"
+  lsmod 2>/dev/null | awk '/^apple_avd/{print "loaded: " $1}'
+  for p in /sys/module/apple_avd_bakery/parameters/*; do
+    [ -r "$p" ] && echo "param $(basename "$p")=$(cat "$p")"
+  done
+  have vainfo && vainfo 2>/dev/null | grep -E 'VAProfile' | sed 's/^/  /'
+}
+
+case $MODE in
+  check) do_check ;;
+  support) header; do_support ;;
+  tp) header; do_tp ;;
+  conc) header; do_conc ;;
+  v4l2) header; do_v4l2 ;;
+  all) header; do_check; do_support; do_tp; do_conc; do_v4l2 ;;
+  *) usage 1 ;;
+esac
