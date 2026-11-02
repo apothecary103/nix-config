@@ -1,0 +1,200 @@
+#!/usr/bin/env bash
+# scaler-test: exercise the apple-scaler V4L2 mem2mem device on Linux and
+# compare its output with ffmpeg's swscale (PSNR). Silicon Bakery.
+#
+#   scaler-test [-d /dev/videoN] [-k] [-o DIR] [TEST...]
+#     -d   device (default: the first one whose driver is apple-scaler)
+#     -k   keep the work directory
+#     -o   work directory (default: mktemp under /tmp)
+#     -l   list tests
+#   TEST   names from -l; default: all
+#
+# Needs v4l2-ctl (v4l-utils), ffmpeg, gst-launch-1.0 (gst-plugins-good v4l2).
+# Inputs come from ffmpeg's testsrc2 and are converted to each source format
+# by ffmpeg first, so the reference and the device read the same pixels.
+# Thresholds are PSNR in dB over all components (ffmpeg psnr "average"):
+# a format conversion without scaling should be close to swscale (>= 40),
+# a scaled one only similar (different filters and phase conventions, >= 28).
+# A test FAILs below its threshold; values are printed either way, and the
+# raw files are kept with -k for a closer look (ffplay -f rawvideo ...).
+set -u
+
+DEV=""
+KEEP=0
+WORK=""
+while getopts "d:ko:lh" o; do
+	case $o in
+	d) DEV=$OPTARG ;;
+	k) KEEP=1 ;;
+	o) WORK=$OPTARG ;;
+	l) LIST=1 ;;
+	*) sed -n '2,22p' "$0"; exit 0 ;;
+	esac
+done
+shift $((OPTIND - 1))
+
+# name | src fmt WxH | dst fmt WxH | extra | ffmpeg filter (scale= options get the
+# destination size and format added) | min PSNR (0: run only)
+# extra: SRC:k=v,... appended to the OUTPUT format, CROP:/COMPOSE:l,t,w,h, CTRL:c=v,
+# anything else is appended to the CAPTURE format.
+# fmt names are V4L2 fourccs; colour: BT.709 limited for YUV, full for RGB unless set.
+TESTS=(
+"copy-ar24|AR24 640x480|AR24 640x480||null|60"
+"copy-nv12|NV12 640x480|NV12 640x480||null|60"
+"nv12-to-ar24|NV12 1280x720|AR24 1280x720||scale=in_color_matrix=bt709:in_range=tv:out_range=pc|40"
+"nv12-to-ab24|NV12 1280x720|AB24 1280x720||scale=in_color_matrix=bt709:in_range=tv:out_range=pc|40"
+"nv21-to-xr24|NV21 640x480|XR24 640x480||scale=in_color_matrix=bt709:in_range=tv:out_range=pc|40"
+"p010-to-ar24|P010 1280x720|AR24 1280x720||scale=in_color_matrix=bt709:in_range=tv:out_range=pc|38"
+"yuyv-to-ar24|YUYV 640x480|AR24 640x480||scale=in_color_matrix=bt709:in_range=tv:out_range=pc|40"
+"uyvy-to-ar24|UYVY 640x480|AR24 640x480||scale=in_color_matrix=bt709:in_range=tv:out_range=pc|40"
+"nv16-to-nv12|NV16 640x480|NV12 640x480||null|40"
+"nv24-to-nv12|NV24 640x480|NV12 640x480||null|40"
+"ar24-to-nv12|AR24 1280x720|NV12 1280x720|ycbcr=709,quantization=lim-range|scale=out_color_matrix=bt709:in_range=pc:out_range=tv|40"
+"ar24-to-yuyv|AR24 640x480|YUYV 640x480|ycbcr=709,quantization=lim-range|scale=out_color_matrix=bt709:in_range=pc:out_range=tv|40"
+"ar24-to-rgbp|AR24 640x480|RGBP 640x480||null|35"
+"ar24-to-ar30|AR24 640x480|AR30 640x480||null|45"
+"ar24-to-grey|AR24 640x480|GREY 640x480|quantization=full-range|scale=in_range=pc:out_range=pc|40"
+"nv12-601-to-ar24|NV12 640x480|AR24 640x480|SRC:colorspace=smpte170m,ycbcr=601,quantization=lim-range|scale=in_color_matrix=bt601:in_range=tv:out_range=pc|40"
+"nv12-full-to-ar24|NV12 640x480|AR24 640x480|SRC:quantization=full-range|scale=in_color_matrix=bt709:in_range=pc:out_range=pc|40"
+"down-1080-720|NV12 1920x1080|AR24 1280x720||scale=in_color_matrix=bt709:in_range=tv:out_range=pc|30"
+"down-4k-1080|NV12 3840x2160|NV12 1920x1080||null|30"
+"up-480-1080|NV12 640x480|AR24 1440x1080||scale=in_color_matrix=bt709:in_range=tv:out_range=pc|30"
+"down-12x-2pass|AR24 3840x2160|AR24 320x180||null|26"
+"crop|AR24 1280x720|AR24 640x360|CROP:320,180,640,360|crop=640:360:320:180|60"
+"compose|AR24 640x360|AR24 1280x720|COMPOSE:320,180,640,360|pad=1280:720:320:180|0"
+"rotate-90|AR24 640x480|AR24 480x640|CTRL:rotate=90|transpose=clock|60"
+"rotate-180|AR24 640x480|AR24 640x480|CTRL:rotate=180|hflip,vflip|60"
+"rotate-270|AR24 640x480|AR24 480x640|CTRL:rotate=270|transpose=cclock|60"
+"hflip|AR24 640x480|AR24 640x480|CTRL:horizontal_flip=1|hflip|60"
+"vflip|AR24 640x480|AR24 640x480|CTRL:vertical_flip=1|vflip|60"
+)
+
+if [ "${LIST:-0}" = 1 ]; then
+	for t in "${TESTS[@]}"; do echo "${t%%|*}"; done
+	echo gst-v4l2convert
+	exit 0
+fi
+
+ffpix() {
+	case $1 in
+	AR24) echo bgra ;; XR24) echo bgr0 ;; AB24) echo rgba ;; XB24) echo rgb0 ;;
+	RGBP) echo rgb565le ;; AR30) echo x2rgb10le ;; YUYV) echo yuyv422 ;;
+	UYVY) echo uyvy422 ;; NV12) echo nv12 ;; NV21) echo nv21 ;; NV16) echo nv16 ;;
+	NV24) echo nv24 ;; P010) echo p010le ;; GREY) echo gray ;;
+	*) echo "unknown fourcc $1" >&2; exit 2 ;;
+	esac
+}
+
+# bytes per line of plane 0, tightly packed
+bpl() {
+	case $1 in
+	AR24|XR24|AB24|XB24|AR30) echo $(($2 * 4)) ;;
+	RGBP|YUYV|UYVY|P010) echo $(($2 * 2)) ;;
+	*) echo "$2" ;;
+	esac
+}
+
+if [ -z "$DEV" ]; then
+	for v in /dev/video*; do
+		if v4l2-ctl -d "$v" --info 2>/dev/null | grep -q "Driver name *: apple-scaler"; then
+			DEV=$v
+			break
+		fi
+	done
+fi
+[ -n "$DEV" ] || { echo "no apple-scaler device (modprobe apple_scaler?)"; exit 1; }
+echo "device $DEV"
+
+[ -n "$WORK" ] || WORK=$(mktemp -d /tmp/scaler-test.XXXXXX)
+mkdir -p "$WORK"
+[ "$KEEP" = 1 ] || trap 'rm -rf "$WORK"' EXIT
+
+psnr() { # fmt WxH a b
+	ffmpeg -hide_banner -loglevel info -f rawvideo -pix_fmt "$1" -s "$2" -i "$3" \
+		-f rawvideo -pix_fmt "$1" -s "$2" -i "$4" -lavfi psnr -f null - 2>&1 |
+		awk '/PSNR/ { for (i = 1; i <= NF; i++) if ($i ~ /^average:/) { sub("average:", "", $i); print $i } }'
+}
+
+PASS=0 FAIL=0 SKIP=0
+run_one() {
+	local name=$1 src=$2 dst=$3 extra=$4 vf=$5 min=$6
+	local sf=${src% *} ss=${src#* } df=${dst% *} ds=${dst#* }
+	local sw=${ss%x*} sh=${ss#*x} dw=${ds%x*} dh=${ds#*x}
+	local sp dp in=$WORK/$name.in out=$WORK/$name.out ref=$WORK/$name.ref
+	local srcx="" dstx="" args=() v
+	sp=$(ffpix "$sf") dp=$(ffpix "$df")
+
+	case $extra in
+	SRC:*) srcx=",${extra#SRC:}" ;;
+	CROP:*) IFS=, read -r l t w h <<<"${extra#CROP:}"
+		args+=(--set-selection-output "target=crop,left=$l,top=$t,width=$w,height=$h") ;;
+	COMPOSE:*) IFS=, read -r l t w h <<<"${extra#COMPOSE:}"
+		args+=(--set-selection "target=compose,left=$l,top=$t,width=$w,height=$h") ;;
+	CTRL:*) args+=(--set-ctrl "${extra#CTRL:}") ;;
+	"") ;;
+	*) dstx=",$extra" ;;
+	esac
+
+	ffmpeg -hide_banner -loglevel error -y -f lavfi -i "testsrc2=size=${sw}x${sh}:rate=1" \
+		-frames:v 1 -vf "format=$sp" -f rawvideo "$in" || { echo "SKIP $name (ffmpeg input)"; SKIP=$((SKIP + 1)); return; }
+
+	# the destination of a compose test starts black; the device writes only the rect
+	if v4l2-ctl -d "$DEV" \
+		--set-fmt-video-out "width=$sw,height=$sh,pixelformat=$sf,bytesperline=$(bpl "$sf" "$sw")$srcx" \
+		--set-fmt-video "width=$dw,height=$dh,pixelformat=$df,bytesperline=$(bpl "$df" "$dw")$dstx" \
+		"${args[@]}" \
+		--stream-out-mmap --stream-mmap --stream-count 1 \
+		--stream-from "$in" --stream-to "$out" >"$WORK/$name.log" 2>&1; then :; else
+		echo "FAIL $name: v4l2-ctl failed (see $WORK/$name.log)"; FAIL=$((FAIL + 1)); return
+	fi
+	if [ "$min" = 0 ]; then
+		[ -s "$out" ] && { echo "PASS $name (ran; compose area not compared)"; PASS=$((PASS + 1)); } ||
+			{ echo "FAIL $name: no output"; FAIL=$((FAIL + 1)); }
+		return
+	fi
+	# one swscale call does size, matrix/range and format, so no second
+	# conversion with default (BT.601) matrices sneaks in
+	case $vf in
+	scale=*) vf="scale=${dw}:${dh}:flags=lanczos:${vf#scale=},format=$dp" ;;
+	*) vf="$vf,scale=${dw}:${dh}:flags=lanczos,format=$dp" ;;
+	esac
+	ffmpeg -hide_banner -loglevel error -y -f rawvideo -pix_fmt "$sp" -s "${sw}x${sh}" -i "$in" \
+		-vf "$vf" -f rawvideo "$ref" || { echo "SKIP $name (ffmpeg reference)"; SKIP=$((SKIP + 1)); return; }
+	v=$(psnr "$dp" "${dw}x${dh}" "$out" "$ref")
+	[ -n "$v" ] || v=0
+	if [ "$v" = inf ] || awk -v a="$v" -v b="$min" 'BEGIN { exit !(a >= b) }'; then
+		echo "PASS $name: PSNR $v dB (>= $min)"; PASS=$((PASS + 1))
+	else
+		echo "FAIL $name: PSNR $v dB (< $min)"; FAIL=$((FAIL + 1))
+	fi
+}
+
+run_gst() {
+	local out=$WORK/gst.out
+	if gst-launch-1.0 -q videotestsrc num-buffers=30 pattern=smpte \
+		! video/x-raw,format=NV12,width=1920,height=1080 \
+		! v4l2convert ! video/x-raw,format=BGRx,width=1280,height=720 \
+		! filesink location="$out" >"$WORK/gst.log" 2>&1 &&
+	   [ "$(stat -c %s "$out")" = $((1280 * 720 * 4 * 30)) ]; then
+		echo "PASS gst-v4l2convert (30 frames NV12 1080p -> BGRx 720p)"; PASS=$((PASS + 1))
+	else
+		echo "FAIL gst-v4l2convert (see $WORK/gst.log; with several converters the element is v4l2videoNconvert)"
+		FAIL=$((FAIL + 1))
+	fi
+}
+
+for t in "${TESTS[@]}"; do
+	IFS='|' read -r name src dst extra vf min <<<"$t"
+	if [ $# -gt 0 ]; then
+		case " $* " in *" $name "*) ;; *) continue ;; esac
+	fi
+	run_one "$name" "$src" "$dst" "$extra" "$vf" "$min"
+done
+if [ $# -eq 0 ] || case " $* " in *" gst-v4l2convert "*) true ;; *) false ;; esac; then
+	run_gst
+fi
+
+echo "passed $PASS, failed $FAIL, skipped $SKIP"
+[ "$KEEP" = 1 ] && echo "files in $WORK"
+dmesg 2>/dev/null | grep apple-scaler | tail -5
+[ "$FAIL" = 0 ]
