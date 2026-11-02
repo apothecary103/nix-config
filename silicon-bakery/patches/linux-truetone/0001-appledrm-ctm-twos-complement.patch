@@ -1,0 +1,35 @@
+drm/apple: hand DCP the CRTC's CTM in two's complement
+
+DRM's CTM is S31.32 sign-magnitude; DCP takes two's complement 32.32 at
+matrix location 9 (macOS's True Tone matrix there reads back as such, with
+0xffffffffff74c365 for -0.0021). The memcpy turned every negative
+coefficient into a huge positive one.
+
+diff --git a/drivers/gpu/drm/apple/iomfb_template.c b/drivers/gpu/drm/apple/iomfb_template.c
+index c22131a..96397a9 100644
+--- a/drivers/gpu/drm/apple/iomfb_template.c
++++ b/drivers/gpu/drm/apple/iomfb_template.c
+@@ -17,6 +17,7 @@
+ #include <linux/pm_runtime.h>
+ #include <linux/slab.h>
+ 
++#include <drm/drm_color_mgmt.h>
+ #include <drm/drm_fb_dma_helper.h>
+ #include <drm/drm_fourcc.h>
+ #include <drm/drm_framebuffer.h>
+@@ -1446,7 +1447,14 @@ void DCP_FW_NAME(iomfb_flush)(struct apple_dcp *dcp, struct drm_crtc *crtc, stru
+ 
+ 		if (crtc_state->ctm) {
+ 			struct drm_color_ctm *ctm = (struct drm_color_ctm *)crtc_state->ctm->data;
+-			memcpy(mat.matrix, ctm->matrix, sizeof(mat.matrix));
++			int i;
++
++			/*
++			 * DRM's S31.32 is sign-magnitude; DCP takes two's
++			 * complement 32.32 (what macOS reads back from it).
++			 */
++			for (i = 0; i < ARRAY_SIZE(mat.matrix); i++)
++				mat.matrix[i] = drm_color_ctm_s31_32_to_qm_n(ctm->matrix[i], 32, 32);
+ 		} else {
+ 			mat.matrix[0] = mat.matrix[4] = mat.matrix[8] = 1LLU << 32;
+ 		}
