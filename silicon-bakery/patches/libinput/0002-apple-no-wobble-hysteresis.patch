@@ -1,4 +1,4 @@
-Keep hysteresis off on Apple trackpads, as macOS has none.
+Keep libinput's wobble hysteresis off on Apple trackpads.
 
 libinput turns on a hysteresis margin of a quarter of the resolution (a
 quarter millimetre) the first time a touch wobbles left, right and left
@@ -8,7 +8,7 @@ movement under the margin is swallowed and every change of direction loses
 it: the fine, slow adjustments macOS passes on report by report. These
 trackpads filter their contacts in firmware and report no fuzz, so only the
 wobble detector could turn hysteresis on; for ModelAppleTouchpad it no
-longer does.
+longer does. (macOS has a deadband of its own, a different one: 0003.)
 
 diff --git a/src/evdev-mt-touchpad.c b/src/evdev-mt-touchpad.c
 index 583e5b2..b3fa717 100644

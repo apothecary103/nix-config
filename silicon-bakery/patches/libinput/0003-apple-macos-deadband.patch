@@ -1,0 +1,125 @@
+Apple trackpads: macOS's 0.169 mm position deadband, from the first touch.
+
+macOS has a hysteresis after all, and 0002's premise that it has none was
+wrong. HSTouchHIDService (macOS 27.2, the user-space gesture engine for the
+built-in trackpad) passes every touch's position through
+MTParserPath_::applyAbsolutePixelHysteresis (0x70b6c) before any pointer or
+scroll delta is taken: on each axis on its own, the centre stays put until
+the finger is more than the margin away from it, then trails the finger by
+the margin, and the deltas are the centre's steps. The margin is
+MTPathFilterParameters_ +0x38 = 2.66 px of 1/400 in = 0.16891 mm (+0x3c)
+for the built-in pad (initPathFilterParams 0x8089c, constant at 0x109088),
+and it is always on. A finger therefore has to travel 0.169 mm on an axis
+before it moves anything, and a change of direction absorbs twice that.
+
+So instead of the wobble detector switching libinput's elliptical quarter
+millimetre on for good at some point, Apple trackpads get macOS's per-axis
+0.169 mm deadband from the start (17 units a side at the 100 per mm the
+bakery's kernel advertises). Taps measure their movement from the
+deadbanded position, as macOS counts tap motion only in emitted counts.
+
+Not ported: during the first 48 ms after touchdown (fading out by 312 ms,
+and only until the touch first escapes the band) macOS also drags the
+centre along with the finger by up to 0.8 mm per frame, scaled by an
+instability measure that includes pressure and size changes
+(pullHysteresisCenterHidingUnstablePixelDeltasXY 0x7083c,
+measureInstability 0x711a0), so the settling of a landing finger moves
+nothing. Nor is the position rounded to whole 1/400 in steps, which only
+matters together with macOS's per-event acceleration.
+
+--- a/src/evdev-mt-touchpad.c
++++ b/src/evdev-mt-touchpad.c
+@@ -226,16 +226,45 @@
+ 	}
+ }
+ 
++/* macOS's deadband (MTParserPath_::applyAbsolutePixelHysteresis): each axis
++ * on its own, the centre stays put until the finger is more than the margin
++ * away from it on that axis, and then trails the finger by the margin. */
++static inline struct device_coords
++tp_hysteresis_per_axis(const struct device_coords *in,
++		       const struct device_coords *center,
++		       const struct device_coords *margin)
++{
++	struct device_coords out = *center;
++
++	if (in->x - center->x > margin->x)
++		out.x = in->x - margin->x;
++	else if (center->x - in->x > margin->x)
++		out.x = in->x + margin->x;
++
++	if (in->y - center->y > margin->y)
++		out.y = in->y - margin->y;
++	else if (center->y - in->y > margin->y)
++		out.y = in->y + margin->y;
++
++	return out;
++}
++
+ static inline void
+ tp_motion_hysteresis(struct tp_dispatch *tp, struct tp_touch *t)
+ {
+ 	if (!tp->hysteresis.enabled)
+ 		return;
+ 
+-	if (t->history.count > 0)
+-		t->point = evdev_hysteresis(&t->point,
+-					    &t->hysteresis.center,
+-					    &tp->hysteresis.margin);
++	if (t->history.count > 0) {
++		if (tp->hysteresis.per_axis)
++			t->point = tp_hysteresis_per_axis(&t->point,
++							  &t->hysteresis.center,
++							  &tp->hysteresis.margin);
++		else
++			t->point = evdev_hysteresis(&t->point,
++						    &t->hysteresis.center,
++						    &tp->hysteresis.margin);
++	}
+ 
+ 	t->hysteresis.center = t->point;
+ }
+@@ -3689,14 +3718,26 @@
+ 	tp->hysteresis.margin.x = xmargin;
+ 	tp->hysteresis.margin.y = ymargin;
+ 	tp->hysteresis.enabled = (ax->fuzz || ay->fuzz);
++	tp->hysteresis.per_axis = false;
+ 
+-	/* Apple's trackpads filter their contacts in firmware, and macOS moves
+-	 * the pointer by every report, however small. A finger resting still on
+-	 * them can still read as a left-right-left wobble, and the hysteresis
+-	 * that switches on then stays on for good, swallowing every movement
+-	 * under a quarter millimetre: the fine adjustments macOS keeps. */
++	/* Apple's trackpads: no wobble detector turning libinput's quarter
++	 * millimetre ellipse on halfway through, but macOS's own deadband from
++	 * the first touch. HSTouchHIDService passes every touch through
++	 * MTParserPath_::applyAbsolutePixelHysteresis before taking any delta:
++	 * per axis, with a margin of 2.66 px of 1/400 in (0.169 mm) on the
++	 * built-in pad (MTPathFilterParameters_ +0x38/+0x3c), always on, and
++	 * pointer and scroll then move by every step past it. */
+ 	tp->hysteresis.detect_wobbling =
+ 		!evdev_device_has_model_quirk(tp->device, QUIRK_MODEL_APPLE_TOUCHPAD);
++	if (!tp->hysteresis.detect_wobbling && ax->resolution > 0 &&
++	    ay->resolution > 0) {
++		const double deadband_mm = 0.16891;
++
++		tp->hysteresis.margin.x = max(1, (int)round(deadband_mm * ax->resolution));
++		tp->hysteresis.margin.y = max(1, (int)round(deadband_mm * ay->resolution));
++		tp->hysteresis.per_axis = true;
++		tp->hysteresis.enabled = true;
++	}
+ 	if (tp->hysteresis.enabled)
+ 		evdev_log_debug(tp->device,
+ 				"hysteresis enabled. "
+--- a/src/evdev-mt-touchpad.h
++++ b/src/evdev-mt-touchpad.h
+@@ -347,6 +347,9 @@
+ 		bool enabled;
+ 		/* Whether jitter seen in use may turn hysteresis on. */
+ 		bool detect_wobbling;
++		/* macOS's deadband: each axis on its own, instead of the
++		 * ellipse. */
++		bool per_axis;
+ 		struct device_coords margin;
+ 		unsigned int other_event_count;
+ 		usec_t last_motion_time;
