@@ -182,6 +182,10 @@ Measurements written into the profile are picked up automatically.
   - `mesa-agx-g14x-metal-cdm-barrier`: the barrier after each compute launch
     is the one AGXMetalG14X writes on the M2 Pro/Max (5 bits) instead of
     every known bit.
+  - `mesa-hk-cdm-barrier-on-demand`: `vkCmdDispatch` leaves its barrier
+    pending until something must be ordered after it, so independent
+    dispatches overlap as in Metal's concurrent mode. Untested on hardware:
+    `hk-dispatch-bench` and the CTS groups in `docs/gpu.md` check it.
   - `mesa-hk-memory-budget`: advertises the `VK_EXT_memory_budget` support
     Honeykrisp already has (Mesa !40238).
 - `patches/linux/drm-asahi-flush-stamps-last-command`: the last render and

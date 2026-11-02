@@ -138,19 +138,61 @@ than the table looks:
   wide lines and BC/ETC2/ASTC together run under Vulkan and GL here. Metal
   has none of the first five.
 - **Independent dispatches.** Honeykrisp ends every compute launch with a
-  CDM barrier. Vulkan only orders dispatches across a pipeline barrier, so
-  a barrier that waits for the next recorded dependency would let
-  independent dispatches overlap. Metal's concurrent mode shows the hardware
-  then costs about 0.15 µs a dispatch instead of 1.3-1.5 µs. Mesa's internal
-  users (meta operations, queries, the geometry and tessellation stages)
-  rely on today's ordering and would have to ask for it explicitly. That
-  needs testing on the machine.
+  CDM barrier. Vulkan only orders dispatches across a pipeline barrier or
+  event, and Honeykrisp already ends the control stream for both.
+  `patches/mesa/mesa-hk-cdm-barrier-on-demand` therefore leaves the barrier
+  after `vkCmdDispatch` pending. The next launch that must be ordered, or
+  the end of the stream, emits it. Every internal launch is still ordered:
+  meta operations, queries, the geometry and tessellation stages. Metal's
+  concurrent mode shows what the hardware then costs: about 0.15 µs a
+  dispatch instead of 1.3-1.5 µs. Untested on hardware; see "Testing on
+  frieren".
 - **The barrier itself.** `patches/mesa/mesa-agx-g14x-metal-cdm-barrier`
   already uses Metal's own bits.
 - **Not measured yet:** CPU overhead per draw, shader code quality and frame
   pacing. These need the same workload timed under both systems;
   `tools/metal-probe` gives the Metal half of the dispatch and atomics
   numbers above.
+
+## Testing on frieren
+
+`hk-dispatch-bench` (`tools/hk-dispatch-bench`) runs the same shape as
+`tools/metal-probe/dispatch`: 4096 dispatches of 4096 threads, independent
+and with a barrier between each. It then checks ordering:
+
+- **dependent:** increments through barriers add up exactly;
+- **distinct:** unordered writes to separate slots all land;
+- **chain:** each dispatch reads the last one's result across a barrier.
+
+It exits non-zero on a wrong result. Under MoltenVK on macOS it passes all
+three, at 1.66 µs independent and 23.75 µs dependent. MoltenVK splits its
+Metal encoders at barriers, so those are not Metal's own numbers.
+
+On frieren, after rebuilding with the patched Mesa:
+
+```sh
+nix run ./silicon-bakery#hk-dispatch-bench
+# the same against nixpkgs' Mesa, for the before
+VK_ICD_FILENAMES=$(echo $(nix build --no-link --print-out-paths nixpkgs#mesa)/share/vulkan/icd.d/asahi_icd.*.json) \
+  nix run ./silicon-bakery#hk-dispatch-bench
+```
+
+Expect independent dispatches to fall towards Metal's 0.15 µs and dependent
+ones towards 1.3-1.5 µs. A failed check means a missing barrier. Then
+run the Vulkan CTS groups the patches touch (`nix shell nixpkgs#vulkan-cts`):
+
+```sh
+deqp-vk --deqp-case='dEQP-VK.compute.*'
+deqp-vk --deqp-case='dEQP-VK.synchronization*'
+deqp-vk --deqp-case='dEQP-VK.memory_model.*'
+deqp-vk --deqp-case='dEQP-VK.query_pool.*'
+deqp-vk --deqp-case='dEQP-VK.api.copy_and_blit.*'
+deqp-vk --deqp-case='dEQP-VK.tessellation.*'
+deqp-vk --deqp-case='dEQP-VK.geometry.*'
+```
+
+`hardware.siliconBakery.graphics.mesaPatches = false` goes back to stock
+Mesa if anything regresses.
 
 ## Open
 
