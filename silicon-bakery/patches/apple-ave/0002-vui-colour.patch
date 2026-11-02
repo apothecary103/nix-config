@@ -1,0 +1,386 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: "Silicon Bakery (t6020 port)" <noreply@localhost>
+Date: Mon, 2 Nov 2026 12:42:40 +0200
+Subject: [PATCH] VUI colour description from the V4L2 colorimetry
+
+Write the SPS VUI signal-type group (video_signal_type, video_format 5,
+full range, colour_description) for H.264 and HEVC from the OUTPUT
+format's colorspace / xfer_func / ycbcr_enc / quantization, mapped to
+H.273 code points. Only when the application set any of the four at
+S_FMT (enc_vui=1, the default; enc_vui=0 never): an untouched format
+keeps vui_parameters_present_flag 0, the stream every release has sent.
+
+Wire fields:
+- H.264 [FW] SPS::vui_parameters (13.5 H14S 0x18c68), SPS block at wire
+  0x105B0: present 0x109F4 (+0x444), video_signal_type 0x109F7, format
+  0x109F8, full_range 0x109FC, colour_description 0x10A00, primaries /
+  transfer / matrix 0x10A04 / 0x10A08 / 0x10A0C. The writer has no
+  aspect_ratio_idc, overscan_appropriate, timing or HRD syntax behind
+  their flags, so every other VUI flag stays 0. These are the bytes
+  macOS 13.5 user space fills with 1/5/1/2/2/2 [KEXT13.5 docs/85].
+- HEVC [FW] HEVC_SPS::vui_parameters (0x1d140), SPS-relative: present
+  +0x1C30, video_signal_type +0x1C41, format +0x1C44, full_range +0x1C48,
+  colour_description +0x1C4C, primaries/transfer/matrix +0x1C50/54/58.
+[LIVE] macOS 27.2 writes VUI 9/16/9 for an HDR10 session; no HDR SEI.
+Untested on hardware.
+---
+ driver/ave_abi.h     | 53 ++++++++++++++++++++++++++++
+ driver/ave_cmd.c     | 29 ++++++++++++++-
+ driver/ave_cmd.h     | 16 +++++++++
+ driver/ave_session.c |  3 ++
+ driver/ave_session.h |  3 ++
+ driver/ave_v4l2.c    | 84 ++++++++++++++++++++++++++++++++++++++++++++
+ 6 files changed, 187 insertions(+), 1 deletion(-)
+
+diff --git a/driver/ave_abi.h b/driver/ave_abi.h
+index 5051ca2..8fb98ed 100644
+--- a/driver/ave_abi.h
++++ b/driver/ave_abi.h
+@@ -1414,6 +1414,28 @@ struct ave_sps_layout {
+ 	u32	frame_mbs_only_flag;
+ 	u32	direct_8x8_inference_flag;
+ 	u32	vui_parameters_present_flag;	/* u8 */
++	/*
++	 * SPS::vui_parameters() (13.5 fw 0x18c68) writes, in order: +0x445
++	 * aspect_ratio_info_present u(1) with NO aspect_ratio_idc behind it,
++	 * +0x446 overscan_info_present u(1) with NO overscan_appropriate,
++	 * +0x447 video_signal_type_present u8 -> +0x448 video_format u(3),
++	 * +0x44C video_full_range u(1), +0x450 colour_description_present u8
++	 * -> +0x454/+0x458/+0x45C primaries/transfer/matrix u(8); +0x460
++	 * chroma_loc u8 (+0x464/+0x468 ue); +0x46C timing_info_present u(1)
++	 * with NO timing fields; +0x46D/+0x46E nal/vcl_hrd u(1) with no HRD;
++	 * +0x46F pic_struct; +0x470 bitstream_restriction (+0x474..+0x48C).
++	 * So only the signal-type group is safe to set: every flag whose
++	 * syntax the writer leaves out must stay 0. Absolute wire offsets
++	 * here; 0 = not known for this ABI (the builder then refuses a VUI).
++	 * macOS 13.5 user space fills +0x447/+0x448/+0x450..+0x45C with
++	 * 1/5/1/2/2/2 (docs/85, US 0x29ddc-0x29dec) and leaves the present
++	 * flag 0, so its default H.264 stream carries no VUI either.
++	 */
++	u32	vui_signal_type;		/* u8 */
++	u32	vui_video_format;		/* u32, u(3) */
++	u32	vui_full_range;			/* u32, u(1) */
++	u32	vui_colour_desc;		/* u8 */
++	u32	vui_primaries, vui_transfer, vui_matrix;	/* u32, u(8) */
+ 	u32	frame_cropping_flag;		/* u8 */
+ 	u32	crop_left, crop_right, crop_top, crop_bottom;
+ 	/*
+@@ -1696,6 +1718,21 @@ struct ave_hevc_ps_layout {
+ 	u32	tb_depth_inter, tb_depth_intra;
+ 	u32	scaling_enabled, scaling_present;	/* u8 */
+ 	u32	amp, sao, pcm, sps_tmvp, strong_intra, vui_present, sps_ext; /* u8 */
++	/*
++	 * HEVC_SPS::vui_parameters() (13.5 fw 0x1d140), SPS-relative: +0x1C31
++	 * aspect_ratio_info u8, +0x1C40 overscan_info u(1) with NO
++	 * overscan_appropriate (keep 0), +0x1C41 video_signal_type u8 ->
++	 * +0x1C44 video_format u(3), +0x1C48 full_range u(1), +0x1C4C
++	 * colour_description u8 -> +0x1C50/+0x1C54/+0x1C58 u(8); then
++	 * chroma_loc +0x1C5C, neutral/field/frame_field +0x1C68..+0x1C6A,
++	 * default display window +0x1C6B, timing +0x1C7C (num_units_in_tick
++	 * +0x1C80, time_scale +0x1C84, poc_proportional +0x1C88, hrd +0x1C90),
++	 * bitstream_restriction +0x1CBD. All left 0 but the signal-type group.
++	 * 0 = not known (the builder refuses a VUI).
++	 */
++	u32	vui_signal_type, vui_colour_desc;	/* u8 */
++	u32	vui_video_format, vui_full_range;	/* u32 */
++	u32	vui_primaries, vui_transfer, vui_matrix; /* u32 */
+ 	u32	sps_fw_creates_header;			/* u8 */
+ 	u32	sps_header_len;				/* u32 bits */
+ 	/* PPS */
+@@ -2209,6 +2246,14 @@ const struct ave_cmd_abi ave_cmd_abi_13_5 = {
+ 		.frame_mbs_only_flag		= 0x109ec,	/* [x8,#1084] 0x19898 */
+ 		.direct_8x8_inference_flag	= 0x109f0,	/* [x8,#1088] 0x198c4 */
+ 		.vui_parameters_present_flag	= 0x109f4,	/* ldrb #1092 0x19924 */
++		/* SPS+0x447.. (fw SPS::vui_parameters 0x18c68, see the layout) */
++		.vui_signal_type		= 0x109f7,
++		.vui_video_format		= 0x109f8,
++		.vui_full_range			= 0x109fc,
++		.vui_colour_desc		= 0x10a00,
++		.vui_primaries			= 0x10a04,
++		.vui_transfer			= 0x10a08,
++		.vui_matrix			= 0x10a0c,
+ 		.frame_cropping_flag		= 0x10a40,	/* ldrb #1168 0x198d8 */
+ 		.crop_left			= 0x10a44,	/* [x8,#1172] 0x198f0 */
+ 		.crop_right			= 0x10a48,	/* [x8,#1176] 0x198fc */
+@@ -2468,6 +2513,14 @@ const struct ave_cmd_abi ave_cmd_abi_13_5 = {
+ 		.sps_tmvp		= 0x1c2c,
+ 		.strong_intra		= 0x1c2d,
+ 		.vui_present		= 0x1c30,
++		/* fw HEVC_SPS::vui_parameters 0x1d140 (see the layout) */
++		.vui_signal_type	= 0x1c41,
++		.vui_video_format	= 0x1c44,
++		.vui_full_range		= 0x1c48,
++		.vui_colour_desc	= 0x1c4c,
++		.vui_primaries		= 0x1c50,
++		.vui_transfer		= 0x1c54,
++		.vui_matrix		= 0x1c58,
+ 		.sps_ext		= 0x1cd8,
+ 		.sps_fw_creates_header	= 0x1ce9,	/* fw 0x84f4c-0x84f90 */
+ 		.sps_header_len		= 0x1cec,
+diff --git a/driver/ave_cmd.c b/driver/ave_cmd.c
+index 850e8b2..bbcfb5a 100644
+--- a/driver/ave_cmd.c
++++ b/driver/ave_cmd.c
+@@ -690,6 +690,9 @@ int ave_cmd_build_start_avc(const struct ave_cmd_abi *abi, u8 *buf, size_t len,
+ 		return -EINVAL;
+ 	if (s->scaling_flat && abi->sps.scaling_4x4 == AVE_OFF_NONE)
+ 		return -EINVAL;
++	if (s->vui.present && (!sps->vui_signal_type || !sps->vui_matrix ||
++			       sps->vui_signal_type == AVE_OFF_NONE))
++		return -EINVAL;
+ 	if ((s->poc_type0 && abi->sps.log2_max_poc_lsb_m4 == AVE_OFF_NONE) ||
+ 	    s->max_refs > 4 ||
+ 	    (s->ref_spacing_p && abi->start_avc.ref_spacing == AVE_OFF_NONE) ||
+@@ -765,7 +768,17 @@ int ave_cmd_build_start_avc(const struct ave_cmd_abi *abi, u8 *buf, size_t len,
+ 	wr32(&w, sps->pic_height_in_map_units_minus1, ch / AVE_MB_SIZE - 1);
+ 	wr32(&w, sps->frame_mbs_only_flag, 1);
+ 	wr32(&w, sps->direct_8x8_inference_flag, 1);
+-	wr8(&w, sps->vui_parameters_present_flag, 0);	/* 13.5 VUI has no timing */
++	/* 13.5's VUI writer has no timing/HRD/aspect syntax: colour only */
++	wr8(&w, sps->vui_parameters_present_flag, s->vui.present);
++	if (s->vui.present) {
++		wr8(&w, sps->vui_signal_type, 1);
++		wr32(&w, sps->vui_video_format, s->vui.video_format & 7);
++		wr32(&w, sps->vui_full_range, s->vui.full_range);
++		wr8(&w, sps->vui_colour_desc, 1);
++		wr32(&w, sps->vui_primaries, s->vui.primaries);
++		wr32(&w, sps->vui_transfer, s->vui.transfer);
++		wr32(&w, sps->vui_matrix, s->vui.matrix);
++	}
+ 	/* CropUnitX = CropUnitY = 2 for 4:2:0 progressive */
+ 	dw = s->crop_width ? s->crop_width : s->width;
+ 	dh = s->crop_height ? s->crop_height : s->height;
+@@ -1040,6 +1053,9 @@ int ave_cmd_build_start_hevc(const struct ave_cmd_abi *abi, u8 *buf,
+ 		return -EINVAL;
+ 	if (!ave_hevc_level_ok(h->level_idc))
+ 		return -EINVAL;
++	if (s->vui.present && (!p->vui_present || !p->vui_signal_type ||
++			       !p->vui_matrix))
++		return -EINVAL;
+ 	/* :5118 - bits [4:2] 0 fails it for 4:2:0; >4 means nothing known. */
+ 	fmt = (h->input_format_word >> 2) & 7;
+ 	if (!fmt || fmt > 4)
+@@ -1173,6 +1189,17 @@ int ave_cmd_build_start_hevc(const struct ave_cmd_abi *abi, u8 *buf,
+ 	wr8(&w, sps + p->scaling_enabled, 0);
+ 	wr8(&w, sps + p->sao, h->sao);
+ 	wr8(&w, sps + p->sps_tmvp, h->sps_tmvp);
++	if (s->vui.present) {
++		/* colour only; every other VUI flag stays 0 (ave_abi.h) */
++		wr8(&w, sps + p->vui_present, 1);
++		wr8(&w, sps + p->vui_signal_type, 1);
++		wr32(&w, sps + p->vui_video_format, s->vui.video_format & 7);
++		wr32(&w, sps + p->vui_full_range, s->vui.full_range);
++		wr8(&w, sps + p->vui_colour_desc, 1);
++		wr32(&w, sps + p->vui_primaries, s->vui.primaries);
++		wr32(&w, sps + p->vui_transfer, s->vui.transfer);
++		wr32(&w, sps + p->vui_matrix, s->vui.matrix);
++	}
+ 	wr8(&w, sps + p->sps_fw_creates_header, 1);	/* == PPS's */
+ 	wr32(&w, sps + p->sps_header_len, 0);
+ 
+diff --git a/driver/ave_cmd.h b/driver/ave_cmd.h
+index 3deb875..eaa5875 100644
+--- a/driver/ave_cmd.h
++++ b/driver/ave_cmd.h
+@@ -61,6 +61,20 @@ struct ave_buf {
+ 	u32	size;
+ };
+ 
++/*
++ * The SPS VUI signal-type group (Silicon Bakery): video_signal_type with
++ * colour_description, H.273 code points. present = false (the default)
++ * writes nothing and keeps vui_parameters_present_flag 0, the stream every
++ * release has sent. Nothing else in the VUI is written: the 13.5 writers
++ * leave out the syntax behind several flags (ave_abi.h).
++ */
++struct ave_vui {
++	bool	present;
++	bool	full_range;		/* video_full_range_flag */
++	u8	video_format;		/* 0..5; 5 = unspecified (macOS) */
++	u8	primaries, transfer, matrix;	/* colour_description */
++};
++
+ /*
+  * A fixed-QP, I-frame-only, 8-bit 4:2:0, single-slice progressive AVC session.
+  */
+@@ -96,6 +110,8 @@ struct ave_avc_session {
+ 	u32	key_interval;		/* >= 1; 1 = every frame is an IDR */
+ 	u8	profile_idc;		/* 66, 77 or 100 */
+ 	u8	level_idc;		/* 10..62 (not 1b) */
++	/* SPS VUI colour signalling, both codecs (HEVC: vp.vui) */
++	struct ave_vui	vui;
+ 	bool	cabac;			/* entropy_coding_mode_flag; not with 66 */
+ 	/*
+ 	 * B-frame groundwork (docs/81). poc_type0: SPS pic_order_cnt_type 0
+diff --git a/driver/ave_session.c b/driver/ave_session.c
+index 35779a1..5fc093b 100644
+--- a/driver/ave_session.c
++++ b/driver/ave_session.c
+@@ -1101,6 +1101,7 @@ struct ave_sess_bufs {
+ 	u32		fps_num, fps_den;
+ 	u32		qp_min, qp_max;	/* 0,0 = the module parameters */
+ 	u32		req_slots;	/* coded slots to publish at Start_AVC */
++	struct ave_vui	vui;		/* SPS VUI colour group; .present 0 = none */
+ 	/*
+ 	 * docs/81 "V4L2 implementation" (ave_enc_cfg). All 0 in the
+ 	 * self-test, which keeps its module parameters.
+@@ -2243,6 +2244,7 @@ static int ave_session_start_prep(struct ave_device *ave,
+ 
+ 	s->width = bufs->width;
+ 	s->height = bufs->height;
++	s->vui = bufs->vui;
+ 	s->crop_width = bufs->crop_w;
+ 	s->crop_height = bufs->crop_h;
+ 	s->src_mode = (u16)session_src_mode;
+@@ -5625,6 +5627,7 @@ int ave_enc_start(struct ave_device *ave, const struct ave_enc_cfg *cfg)
+ 	bufs->fps_num = cfg->fps_num;
+ 	bufs->fps_den = cfg->fps_den;
+ 	bufs->req_slots = cfg->slots;
++	bufs->vui = cfg->vui;
+ 	/*
+ 	 * docs/81 "V4L2 implementation": two references in the DPB (3 slots)
+ 	 * and both ME units (docs/94) for B frames or two-reference P frames.
+diff --git a/driver/ave_session.h b/driver/ave_session.h
+index 072775a..c864a8c 100644
+--- a/driver/ave_session.h
++++ b/driver/ave_session.h
+@@ -16,6 +16,7 @@
+ #define __AVE_SESSION_H__
+ 
+ struct ave_device;
++#include "ave_cmd.h"	/* struct ave_vui */
+ 
+ /*
+  * Run the opening command sequence. Returns 0 if every step was accepted by
+@@ -99,6 +100,8 @@ struct ave_enc_cfg {
+ 	 */
+ 	u32	bframes;		/* B frames between anchors, 0..2 */
+ 	u32	p_refs;			/* references per P frame, 1..2; 0 = 1 */
++	/* SPS VUI colour signalling (Silicon Bakery); .present 0 = none */
++	struct ave_vui vui;
+ };
+ int ave_enc_start(struct ave_device *ave, const struct ave_enc_cfg *cfg);
+ int ave_enc_encode(struct ave_device *ave, u32 n, bool idr,
+diff --git a/driver/ave_v4l2.c b/driver/ave_v4l2.c
+index 535b931..ff741c0 100644
+--- a/driver/ave_v4l2.c
++++ b/driver/ave_v4l2.c
+@@ -69,6 +69,16 @@ static bool rc_nondrop;
+ module_param(rc_nondrop, bool, 0444);
+ MODULE_PARM_DESC(rc_nondrop, "send the frame rate as the non-droppable frame rate (wire 0xFF48; macOS-equivalent) instead of 1");
+ 
++/*
++ * Silicon Bakery: SPS VUI colour signalling from the OUTPUT colorimetry. 1
++ * (default): only when the application set any colorimetry field at S_FMT
++ * (an untouched format keeps the community's VUI-less SPS); 0: never.
++ */
++static bool enc_vui = true;
++module_param(enc_vui, bool, 0644);
++MODULE_PARM_DESC(enc_vui,
++		 "write VUI colour_description from the OUTPUT format's colorimetry when the application set it (default 1; 0 = never, the community stream)");
++
+ /*
+  * A test aid for docs/81's forced-key-frame run: v4l2-ctl cannot set
+  * FORCE_KEY_FRAME in the middle of a stream, so this does it for every Nth
+@@ -155,6 +165,8 @@ struct ave_ctx {
+ 	struct v4l2_fract	timeperframe;
+ 	/* The application's colorimetry: set on OUTPUT, echoed on CAPTURE. */
+ 	u32			colorspace, ycbcr_enc, quantization, xfer_func;
++	/* the application gave any of the four at S_FMT(OUTPUT): VUI */
++	bool			colorimetry_set;
+ 	u32			qp, qp_p, qp_b;	/* P/B: 0 = qp */
+ 	u32			profile_idc;	/* 66, 77 or 100 */
+ 	u32			level_idc;
+@@ -394,6 +406,12 @@ static int ave_s_fmt(struct file *file, void *priv, struct v4l2_format *f)
+ 
+ 	if (vb2_is_busy(vq))
+ 		return -EBUSY;
++	if (V4L2_TYPE_IS_OUTPUT(f->type))
++		ctx->colorimetry_set =
++			f->fmt.pix.colorspace != V4L2_COLORSPACE_DEFAULT ||
++			f->fmt.pix.ycbcr_enc != V4L2_YCBCR_ENC_DEFAULT ||
++			f->fmt.pix.quantization != V4L2_QUANTIZATION_DEFAULT ||
++			f->fmt.pix.xfer_func != V4L2_XFER_FUNC_DEFAULT;
+ 	ave_try_fmt(file, priv, f);
+ 	if (V4L2_TYPE_IS_OUTPUT(f->type)) {
+ 		ctx->width = f->fmt.pix.width;
+@@ -912,6 +930,65 @@ static u32 ave_latch_bframes(struct ave_ctx *ctx)
+ 	return nb;
+ }
+ 
++/*
++ * V4L2 colorimetry -> H.273 code points (Rec. ITU-T H.273 tables 2-4), for
++ * the SPS VUI. DEFAULT fields resolve through the V4L2_MAP_*_DEFAULT
++ * macros, as the V4L2 spec defines them. Anything without an H.273 code
++ * (opRGB, the DCI-P3 gamma 2.6 curve) is sent as 2, "unspecified".
++ */
++static void ave_ctx_vui(const struct ave_ctx *ctx, struct ave_vui *v)
++{
++	u32 cs = ctx->colorspace ? ctx->colorspace : V4L2_COLORSPACE_REC709;
++	u32 xfer = ctx->xfer_func ? ctx->xfer_func :
++		   V4L2_MAP_XFER_FUNC_DEFAULT(cs);
++	u32 enc = ctx->ycbcr_enc ? ctx->ycbcr_enc :
++		  V4L2_MAP_YCBCR_ENC_DEFAULT(cs);
++	u32 q = ctx->quantization ? ctx->quantization :
++		V4L2_MAP_QUANTIZATION_DEFAULT(false, cs, enc);
++
++	memset(v, 0, sizeof(*v));
++	if (!enc_vui || !ctx->colorimetry_set)
++		return;
++	v->present = true;
++	v->video_format = 5;		/* unspecified, as macOS sends */
++	v->full_range = q == V4L2_QUANTIZATION_FULL_RANGE;
++	switch (cs) {
++	case V4L2_COLORSPACE_REC709:
++	case V4L2_COLORSPACE_SRGB:
++	case V4L2_COLORSPACE_JPEG:	v->primaries = 1; break;
++	case V4L2_COLORSPACE_470_SYSTEM_M: v->primaries = 4; break;
++	case V4L2_COLORSPACE_470_SYSTEM_BG: v->primaries = 5; break;
++	case V4L2_COLORSPACE_SMPTE170M:	v->primaries = 6; break;
++	case V4L2_COLORSPACE_SMPTE240M:	v->primaries = 7; break;
++	case V4L2_COLORSPACE_BT2020:	v->primaries = 9; break;
++	case V4L2_COLORSPACE_DCI_P3:	v->primaries = 11; break;
++	default:			v->primaries = 2; break;
++	}
++	switch (xfer) {
++	case V4L2_XFER_FUNC_709:
++		v->transfer = cs == V4L2_COLORSPACE_SMPTE170M ? 6 :
++			      cs == V4L2_COLORSPACE_BT2020 ? 14 : 1;
++		break;
++	case V4L2_XFER_FUNC_SRGB:	v->transfer = 13; break;
++	case V4L2_XFER_FUNC_SMPTE240M:	v->transfer = 7; break;
++	case V4L2_XFER_FUNC_NONE:	v->transfer = 8; break;
++	case V4L2_XFER_FUNC_SMPTE2084:	v->transfer = 16; break;
++	default:			v->transfer = 2; break;
++	}
++	switch (enc) {
++	case V4L2_YCBCR_ENC_601:
++	case V4L2_YCBCR_ENC_XV601:
++		v->matrix = cs == V4L2_COLORSPACE_470_SYSTEM_BG ? 5 : 6;
++		break;
++	case V4L2_YCBCR_ENC_709:
++	case V4L2_YCBCR_ENC_XV709:	v->matrix = 1; break;
++	case V4L2_YCBCR_ENC_BT2020:	v->matrix = 9; break;
++	case V4L2_YCBCR_ENC_BT2020_CONST_LUM: v->matrix = 10; break;
++	case V4L2_YCBCR_ENC_SMPTE240M:	v->matrix = 7; break;
++	default:			v->matrix = 2; break;
++	}
++}
++
+ static int ave_start_streaming(struct vb2_queue *q, unsigned int count)
+ {
+ 	struct ave_ctx *ctx = vb2_get_drv_priv(q);
+@@ -990,6 +1067,13 @@ static int ave_start_streaming(struct vb2_queue *q, unsigned int count)
+ 		 */
+ 		if (nb && !cfg.qp_b)
+ 			cfg.qp_b = min_t(u32, cfg.qp + AVE_B_QP_OFFSET, 51);
++		ave_ctx_vui(ctx, &cfg.vui);
++		if (cfg.vui.present)
++			dev_info(av->ave->dev,
++				 "v4l2: SPS VUI colour: primaries %u transfer %u matrix %u %s range\n",
++				 cfg.vui.primaries, cfg.vui.transfer,
++				 cfg.vui.matrix,
++				 cfg.vui.full_range ? "full" : "limited");
+ 
+ 		ret = ave_enc_start(av->ave, &cfg);
+ 		if (!ret) {
