@@ -25,6 +25,7 @@ Where Silicon Bakery stands against Asahi upstream, surveyed 2026-11-02.
 | linux-pmp | none; Asahi keeps `APPLE_USE_PMP` opt-in until the PMP driver is upstream |
 | mesa/mesa-hk-no-compressed-input-attachments | not reported upstream; compression code unchanged through 26.3.0-rc3 and main |
 | mesa/mesa-agx-g14x-metal-cdm-barrier | ours, from AGXMetalG14X; Mesa !44041 (open) drops the same bits but also unk_10/12 |
+| mesa/mesa-hk-cdm-barrier-on-demand | ours; applies after mesa-agx-g14x-metal-cdm-barrier; untested on hardware |
 | mesa/mesa-hk-memory-budget | Mesa !40238, open since 2026-03-05 (a duplicate, !41293, was closed) |
 | linux/drm-asahi-flush-stamps-last-command | AsahiLinux/linux#633, open, no fix posted |
 | libinput, libinput-1.32 | ours; 1.32 (nixpkgs#564171, open) needs the -1.32 set, picked by version |

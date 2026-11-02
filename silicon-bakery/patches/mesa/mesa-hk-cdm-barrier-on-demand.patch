@@ -1,0 +1,163 @@
+hk: leave the barrier after vkCmdDispatch pending
+
+Every compute launch ends with a CDM barrier, so dispatches with nothing
+between them still run one after another. Vulkan orders them only across
+a pipeline barrier or event, and those already end the control stream.
+vkCmdDispatch now leaves its barrier pending: the next launch that must be
+ordered (every internal one: meta operations, queries, the geometry and
+tessellation stages) or the end of the stream emits it, and dispatches in
+between may overlap. This is what Metal's concurrent dispatch mode does;
+on an M2 Pro it costs 0.14 us a dispatch against 1.3-1.5 us serial.
+Scratch is per hardware subgroup slot, so overlapping kernels don't share
+it.
+
+Applies after mesa-agx-g14x-metal-cdm-barrier.
+
+diff --git a/src/asahi/vulkan/hk_cmd_buffer.h b/src/asahi/vulkan/hk_cmd_buffer.h
+index b8f16d3..2d94b93 100644
+--- a/src/asahi/vulkan/hk_cmd_buffer.h
++++ b/src/asahi/vulkan/hk_cmd_buffer.h
+@@ -384,6 +384,11 @@ struct hk_cs {
+       uint32_t calls, cmds, flushes, merged;
+    } stats;
+ 
++   /* A vkCmdDispatch was launched without a CDM barrier after it. The next
++    * launch that must be ordered, or the end of the stream, emits it.
++    */
++   bool barrier_pending;
++
+    /* Timestamp writes. Currently just compute end / fragment end. We could
+     * flesh this out later if we want finer info. (We will, but it's not
+     * required for conformance.)
+@@ -684,6 +689,9 @@ hk_cs_destroy(struct hk_cs *cs)
+ 
+ void hk_dispatch_imm_writes(struct hk_cmd_buffer *cmd, struct hk_cs *cs);
+ 
++struct hk_device;
++void hk_cdm_cache_flush(struct hk_device *dev, struct hk_cs *cs);
++
+ static void
+ hk_cmd_buffer_end_compute_internal(struct hk_cmd_buffer *cmd,
+                                    struct hk_cs **ptr)
+@@ -691,6 +699,15 @@ hk_cmd_buffer_end_compute_internal(struct hk_cmd_buffer *cmd,
+    if (*ptr) {
+       struct hk_cs *cs = *ptr;
+ 
++      /* Whatever follows this stream, once merged or submitted, may depend on
++       * the dispatches in it: a pipeline barrier ends the stream to order
++       * them.
++       */
++      if (cs->barrier_pending) {
++         hk_ensure_cs_has_space(cmd, cs, AGX_CDM_BARRIER_LENGTH);
++         hk_cdm_cache_flush(hk_cmd_buffer_device(cmd), cs);
++      }
++
+       /* This control stream may write immediates as it ends. Queue the writes
+        * now that we're done emitting everything else.
+        */
+@@ -827,8 +844,6 @@ uint32_t hk_upload_usc_words(struct hk_cmd_buffer *cmd, struct hk_shader *s,
+ void hk_usc_upload_spilled_rt_descs(struct agx_usc_builder *b,
+                                     struct hk_cmd_buffer *cmd);
+ 
+-void hk_cdm_cache_flush(struct hk_device *dev, struct hk_cs *cs);
+-
+ void hk_dispatch_with_usc_launch(struct hk_device *dev, struct hk_cs *cs,
+                                  struct agx_cdm_launch_word_0_packed launch,
+                                  uint32_t usc, struct agx_grid grid,
+diff --git a/src/asahi/vulkan/hk_cmd_dispatch.c b/src/asahi/vulkan/hk_cmd_dispatch.c
+index 8667010..937f2d3 100644
+--- a/src/asahi/vulkan/hk_cmd_dispatch.c
++++ b/src/asahi/vulkan/hk_cmd_dispatch.c
+@@ -53,27 +53,51 @@ hk_cdm_cache_flush(struct hk_device *dev, struct hk_cs *cs)
+    else
+       cs->current = agx_cdm_barrier(cs->current, dev->dev.chip);
+    cs->stats.flushes++;
++   cs->barrier_pending = false;
+ }
+ 
+-void
+-hk_dispatch_with_usc_launch(struct hk_device *dev, struct hk_cs *cs,
+-                            struct agx_cdm_launch_word_0_packed launch,
+-                            uint32_t usc, struct agx_grid grid,
+-                            struct agx_workgroup wg)
++/*
++ * Launch a compute kernel. Unless it is unordered, everything before it in the
++ * stream finishes first and everything after it waits for it: internal
++ * dispatches (meta operations, queries, geometry and tessellation stages)
++ * depend on that.
++ *
++ * vkCmdDispatch is unordered: Vulkan orders dispatches only across a pipeline
++ * barrier or event, which end the control stream, so its barrier is left
++ * pending and dispatches with nothing between them may run concurrently, as
++ * they do in Metal's concurrent dispatch mode.
++ */
++static void
++launch_kernel(struct hk_device *dev, struct hk_cs *cs,
++              struct agx_cdm_launch_word_0_packed launch, uint32_t usc,
++              struct agx_grid grid, struct agx_workgroup wg, bool ordered)
+ {
+    hk_ensure_cs_has_space(cs->cmd, cs, 0x2000 /* TODO */);
+    cs->stats.cmds++;
+ 
++   if (ordered && cs->barrier_pending)
++      hk_cdm_cache_flush(dev, cs);
++
+    cs->current =
+       agx_cdm_launch(cs->current, dev->dev.chip, grid, wg, launch, usc);
+ 
+-   hk_cdm_cache_flush(dev, cs);
++   if (ordered)
++      hk_cdm_cache_flush(dev, cs);
++   else
++      cs->barrier_pending = true;
+ }
+ 
+ void
+-hk_dispatch_with_usc(struct hk_device *dev, struct hk_cs *cs,
+-                     struct agx_shader_info *info, uint32_t usc,
+-                     struct agx_grid grid, struct agx_workgroup local_size)
++hk_dispatch_with_usc_launch(struct hk_device *dev, struct hk_cs *cs,
++                            struct agx_cdm_launch_word_0_packed launch,
++                            uint32_t usc, struct agx_grid grid,
++                            struct agx_workgroup wg)
++{
++   launch_kernel(dev, cs, launch, usc, grid, wg, true);
++}
++
++static struct agx_cdm_launch_word_0_packed
++pack_launch_word(struct agx_shader_info *info)
+ {
+    struct agx_cdm_launch_word_0_packed launch;
+    agx_pack(&launch, CDM_LAUNCH_WORD_0, cfg) {
+@@ -84,7 +108,16 @@ hk_dispatch_with_usc(struct hk_device *dev, struct hk_cs *cs,
+       cfg.preshader_register_count = info->nr_preamble_gprs;
+    }
+ 
+-   hk_dispatch_with_usc_launch(dev, cs, launch, usc, grid, local_size);
++   return launch;
++}
++
++void
++hk_dispatch_with_usc(struct hk_device *dev, struct hk_cs *cs,
++                     struct agx_shader_info *info, uint32_t usc,
++                     struct agx_grid grid, struct agx_workgroup local_size)
++{
++   launch_kernel(dev, cs, pack_launch_word(info), usc, grid, local_size,
++                 true);
+ }
+ 
+ static void
+@@ -119,7 +152,12 @@ dispatch(struct hk_cmd_buffer *cmd, struct agx_grid grid)
+       grid.count[2] *= local_size.z;
+    }
+ 
+-   hk_dispatch_with_local_size(cmd, cs, s, grid, local_size);
++   struct hk_device *dev = hk_cmd_buffer_device(cmd);
++   uint32_t usc = hk_upload_usc_words(cmd, s, s->only_linked);
++
++   hk_reserve_scratch(cmd, cs, s);
++   launch_kernel(dev, cs, pack_launch_word(&s->b.info), usc, grid, local_size,
++                 false);
+    cs->stats.calls++;
+ }
+ 
