@@ -14,11 +14,10 @@ diff --git a/arch/arm64/boot/dts/apple/t6020.dtsi b/arch/arm64/boot/dts/apple/t6
 index 500726e69..c3a277b37 100644
 --- a/arch/arm64/boot/dts/apple/t6020.dtsi
 +++ b/arch/arm64/boot/dts/apple/t6020.dtsi
-@@ -36,3 +36,12 @@ &gpu {
- 	apple,ppm-filter-time-constant-ms = <32>;
- 	apple,ppm-ki = <28.0>;
+@@ -17,6 +17,15 @@
+ 	compatible = "apple,t6020", "apple,arm-platform";
  };
-+
+ 
 +/* The M2 Pro's ProRes engine (out-of-tree apple-prores driver) */
 +&prores_dart {
 +	status = "okay";
@@ -27,6 +26,10 @@ index 500726e69..c3a277b37 100644
 +&prores {
 +	status = "okay";
 +};
++
+ /delete-node/ &pmgr_south;
+ /delete-node/ &pmp_report_dispext2;
+ /delete-node/ &pmp_report_dispext3;
 diff --git a/arch/arm64/boot/dts/apple/t602x-die0.dtsi b/arch/arm64/boot/dts/apple/t602x-die0.dtsi
 index f928a122a..34b113fe8 100644
 --- a/arch/arm64/boot/dts/apple/t602x-die0.dtsi
