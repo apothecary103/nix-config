@@ -1,0 +1,245 @@
+drm/apple: ambient_matrix for the integrated panel's True Tone
+
+macOS's CoreBrightness sets the panel's True Tone matrix at DCP matrix
+location 9, independent of the compositor. Give the panel's DCP an
+ambient_matrix attribute (nine signed 2^-32 units, row major; "0" drops it)
+that is applied after the CRTC's CTM at that location, and push it with an
+idle commit the way the backlight does, so a daemon (bakery-truetoned) can
+ramp it at display rate.
+
+The iomfb_template.c hunk has one line of trailing context on purpose: it
+applies with and without patches/linux-vrr.
+
+diff --git a/drivers/gpu/drm/apple/dcp-internal.h b/drivers/gpu/drm/apple/dcp-internal.h
+index a2e992b..6cb85c6 100644
+--- a/drivers/gpu/drm/apple/dcp-internal.h
++++ b/drivers/gpu/drm/apple/dcp-internal.h
+@@ -232,6 +232,17 @@ struct apple_dcp {
+ 	/* integrated panel if present */
+ 	struct dcp_panel panel;
+ 
++	/*
++	 * Ambient adaptation (True Tone) for the integrated panel: a matrix
++	 * userspace sets through the ambient_matrix attribute, two's
++	 * complement 32.32 like DCP's, applied after the CRTC's CTM at the
++	 * matrix location macOS's CoreBrightness uses. Protected by the
++	 * CRTC's mutex.
++	 */
++	s64 ambient_matrix[9];
++	bool ambient_valid;
++	bool ambient_update;
++
+ 	struct apple_dcp_afkep *systemep;
+ 	struct completion systemep_done;
+ 
+@@ -269,6 +280,8 @@ void dcp_drm_crtc_page_flip(struct apple_dcp *dcp, ktime_t now);
+ 
+ int dcp_backlight_register(struct apple_dcp *dcp);
+ int dcp_backlight_update(struct apple_dcp *dcp);
++int dcp_ambient_register(struct apple_dcp *dcp);
++void dcp_ambient_apply(struct apple_dcp *dcp, void *matrix);
+ bool dcp_has_panel(struct apple_dcp *dcp);
+ 
+ #define DCP_AUDIO_MAX_CHANS 15
+diff --git a/drivers/gpu/drm/apple/dcp.c b/drivers/gpu/drm/apple/dcp.c
+index 71fe156..d13c80d 100644
+--- a/drivers/gpu/drm/apple/dcp.c
++++ b/drivers/gpu/drm/apple/dcp.c
+@@ -719,6 +719,8 @@ static void dcp_work_register_backlight(struct work_struct *work)
+ 	if (ret) {
+ 		dev_err(dcp->dev, "Unable to register backlight device\n");
+ 		dcp->brightness.maximum = 0;
++	} else if (dcp_ambient_register(dcp)) {
++		dev_warn(dcp->dev, "Unable to register ambient_matrix\n");
+ 	}
+ 
+ out_unlock:
+diff --git a/drivers/gpu/drm/apple/dcp_backlight.c b/drivers/gpu/drm/apple/dcp_backlight.c
+index 8531b51..090de25 100644
+--- a/drivers/gpu/drm/apple/dcp_backlight.c
++++ b/drivers/gpu/drm/apple/dcp_backlight.c
+@@ -9,6 +9,9 @@
+ #include <linux/backlight.h>
+ #include <linux/completion.h>
+ #include <linux/delay.h>
++#include <linux/device.h>
++#include <linux/string.h>
++#include <linux/sysfs.h>
+ #include "linux/jiffies.h"
+ 
+ #include "dcp.h"
+@@ -245,3 +248,164 @@ int dcp_backlight_register(struct apple_dcp *dcp)
+ 
+ 	return 0;
+ }
++
++/*
++ * Ambient adaptation: macOS's CoreBrightness sets the panel's True Tone
++ * matrix at DCP matrix location 9, the location this driver gives the CRTC's
++ * CTM. The ambient matrix is applied after the CTM: out = ambient * ctm.
++ */
++static s64 dcp_ambient_mul(s64 a, s64 b)
++{
++	/* 32.32 * 32.32 with |a| < 4: keep 16 fractional bits of each */
++	b = clamp_t(s64, b, -(4LL << 32), 4LL << 32);
++	return (a >> 16) * (b >> 16);
++}
++
++/* matrix: the request's nine u64s, which sit unaligned in a packed struct */
++void dcp_ambient_apply(struct apple_dcp *dcp, void *matrix)
++{
++	s64 in[9], out[9];
++	int i, j, k;
++
++	dcp->ambient_update = false;
++	if (!dcp->ambient_valid)
++		return;
++
++	memcpy(in, matrix, sizeof(in));
++
++	for (i = 0; i < 3; i++) {
++		for (j = 0; j < 3; j++) {
++			s64 sum = 0;
++
++			for (k = 0; k < 3; k++)
++				sum += dcp_ambient_mul(dcp->ambient_matrix[3 * i + k],
++						       in[3 * k + j]);
++			out[3 * i + j] = sum;
++		}
++	}
++	memcpy(matrix, out, sizeof(out));
++}
++
++static int dcp_ambient_commit(struct apple_dcp *dcp)
++{
++	struct drm_atomic_commit *commit;
++	struct drm_crtc_state *crtc_state;
++	struct drm_modeset_acquire_ctx ctx;
++	struct drm_crtc *crtc = &dcp->crtc->base;
++	int ret;
++
++	commit = drm_atomic_commit_alloc(crtc->dev);
++	if (!commit)
++		return -ENOMEM;
++
++	drm_modeset_acquire_init(&ctx, DRM_MODESET_ACQUIRE_INTERRUPTIBLE);
++	commit->acquire_ctx = &ctx;
++retry:
++	ret = drm_modeset_lock(&crtc->mutex, &ctx);
++	if (ret)
++		goto out;
++
++	if (!dcp->ambient_update)
++		goto out;
++
++	crtc_state = drm_atomic_get_crtc_state(commit, crtc);
++	if (IS_ERR(crtc_state)) {
++		ret = PTR_ERR(crtc_state);
++		goto out;
++	}
++
++	crtc_state->color_mgmt_changed |= true;
++
++	ret = drm_atomic_commit(commit);
++out:
++	if (ret == -EDEADLK) {
++		drm_atomic_commit_clear(commit);
++		ret = drm_modeset_backoff(&ctx);
++		if (!ret)
++			goto retry;
++	}
++
++	drm_atomic_commit_put(commit);
++	drm_modeset_drop_locks(&ctx);
++	drm_modeset_acquire_fini(&ctx);
++
++	return ret;
++}
++
++static ssize_t ambient_matrix_show(struct device *dev,
++				   struct device_attribute *attr, char *buf)
++{
++	struct apple_dcp *dcp = dev_get_drvdata(dev);
++	s64 m[9] = { 1LL << 32, 0, 0, 0, 1LL << 32, 0, 0, 0, 1LL << 32 };
++	int ret;
++
++	ret = drm_modeset_lock_single_interruptible(&dcp->crtc->base.mutex);
++	if (ret)
++		return ret;
++	if (dcp->ambient_valid)
++		memcpy(m, dcp->ambient_matrix, sizeof(m));
++	drm_modeset_unlock(&dcp->crtc->base.mutex);
++
++	return sysfs_emit(buf, "%lld %lld %lld %lld %lld %lld %lld %lld %lld\n",
++			  m[0], m[1], m[2], m[3], m[4], m[5], m[6], m[7], m[8]);
++}
++
++/*
++ * Nine signed integers, row major, in units of 2^-32 (DCP's two's
++ * complement 32.32), or "0" to drop the matrix.
++ */
++static ssize_t ambient_matrix_store(struct device *dev,
++				    struct device_attribute *attr,
++				    const char *buf, size_t count)
++{
++	struct apple_dcp *dcp = dev_get_drvdata(dev);
++	s64 m[9];
++	bool valid;
++	int i, n, ret;
++
++	n = sscanf(buf, "%lld %lld %lld %lld %lld %lld %lld %lld %lld",
++		   &m[0], &m[1], &m[2], &m[3], &m[4], &m[5], &m[6], &m[7], &m[8]);
++	if (n == 1 && m[0] == 0)
++		valid = false;
++	else if (n == 9)
++		valid = true;
++	else
++		return -EINVAL;
++
++	for (i = 0; valid && i < 9; i++)
++		if (m[i] <= -(4LL << 32) || m[i] >= (4LL << 32))
++			return -ERANGE;
++
++	ret = drm_modeset_lock_single_interruptible(&dcp->crtc->base.mutex);
++	if (ret)
++		return ret;
++	if (valid)
++		memcpy(dcp->ambient_matrix, m, sizeof(m));
++	dcp->ambient_valid = valid;
++	dcp->ambient_update = true;
++	drm_modeset_unlock(&dcp->crtc->base.mutex);
++
++	if (dcp->valid_mode) {
++		ret = dcp_ambient_commit(dcp);
++		if (ret)
++			return ret;
++	}
++
++	return count;
++}
++
++static DEVICE_ATTR_RW(ambient_matrix);
++
++static struct attribute *dcp_ambient_attrs[] = {
++	&dev_attr_ambient_matrix.attr,
++	NULL,
++};
++
++static const struct attribute_group dcp_ambient_group = {
++	.attrs = dcp_ambient_attrs,
++};
++
++int dcp_ambient_register(struct apple_dcp *dcp)
++{
++	return devm_device_add_group(dcp->dev, &dcp_ambient_group);
++}
+diff --git a/drivers/gpu/drm/apple/iomfb_template.c b/drivers/gpu/drm/apple/iomfb_template.c
+index 96397a9..100e6ef 100644
+--- a/drivers/gpu/drm/apple/iomfb_template.c
++++ b/drivers/gpu/drm/apple/iomfb_template.c
+@@ -1458,4 +1458,5 @@ void DCP_FW_NAME(iomfb_flush)(struct apple_dcp *dcp, struct drm_crtc *crtc, stru
+ 		} else {
+ 			mat.matrix[0] = mat.matrix[4] = mat.matrix[8] = 1LLU << 32;
+ 		}
++		dcp_ambient_apply(dcp, mat.matrix);
+ 
