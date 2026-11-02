@@ -12,6 +12,7 @@
         200
       ]
     },
-    "positionUnitsPerMM": 100
+    "positionUnitsPerMM": 100,
+    "reportIntervalMicroseconds": 8157
   }
 }

@@ -179,7 +179,9 @@ let
     };
 
   frameRate = 67.0;
-  # Seconds and milliseconds between trackpad reports.
+  # Milliseconds between trackpad reports. The IORegistry says 8000 us; the
+  # firmware's clock runs 1.97 % slow, and frames really come 8.157 ms apart
+  # (a profile's linux.json carries the measured value).
   intervalMs = tp.reportIntervalMicroseconds / 1000.0;
 
   # Finger speed (in/s) to counts per report at a resolution in dots per inch.
