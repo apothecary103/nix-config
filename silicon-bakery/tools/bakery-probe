@@ -10,8 +10,8 @@ Run it on macOS, on the Mac the profile is for:
 What can only be measured on Linux (palm sizes in evdev units, say) goes in
 profiles/<model>/linux.json by hand.
 
-Everything comes from the IORegistry (`ioreg -a`), `defaults` and `sysctl`;
-nothing is written. Fixed-point values (16.16, as IOHIDFamily keeps them) are
+Everything comes from the IORegistry (`ioreg -a`), `defaults`, `sysctl` and
+CoreBrightness's `corebrightnessdiag status-info`; nothing is written. Fixed-point values (16.16, as IOHIDFamily keeps them) are
 left as the integers macOS publishes, so the curves built from them on Linux
 are bit-for-bit the ones macOS starts from.
 """
@@ -110,6 +110,37 @@ def soc():
     return None
 
 
+def find_key(node, key):
+    """The first value of `key` anywhere in a nested plist, None if absent."""
+    stack = [node]
+    while stack:
+        node = stack.pop()
+        if isinstance(node, dict):
+            if key in node:
+                return node[key]
+            stack.extend(node.values())
+        elif isinstance(node, list):
+            stack.extend(node)
+    return None
+
+
+def true_tone():
+    """True Tone as CoreBrightness runs it on the built-in panel."""
+    try:
+        out = run("/usr/libexec/corebrightnessdiag", "status-info")
+        status = plistlib.loads(out[: out.rindex(b"</plist>") + len(b"</plist>")])
+    except (OSError, ValueError, subprocess.CalledProcessError, plistlib.InvalidFileException):
+        return None
+    return {
+        "enabled": find_key(status, "ColorAdaptationEnabled"),
+        # Index into CFX's mode strengths (1 is 0.2, macOS's default).
+        "mode": find_key(status, "ColorAdaptationMode"),
+        # 16.16, the panel's a*b* shift at full strength (DCP's HarmonyShiftA/B).
+        "shiftA": find_key(status, "HarmonyShiftA"),
+        "shiftB": find_key(status, "HarmonyShiftB"),
+    }
+
+
 def main():
     model = run("sysctl", "-n", "hw.model").decode().strip()
     version = run("sw_vers", "-productVersion").decode().strip()
@@ -171,6 +202,9 @@ def main():
         "pointer": {
             # Double-click interval in nanoseconds.
             "clickTime": live_hid_parameter("HIDClickTime"),
+        },
+        "display": {
+            "trueTone": true_tone(),
         },
     }
 
