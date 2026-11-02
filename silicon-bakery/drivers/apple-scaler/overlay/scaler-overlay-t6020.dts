@@ -1,0 +1,50 @@
+// SPDX-License-Identifier: GPL-2.0-only
+/*
+ * Runtime overlay: the t6020 (M2 Pro) M2Scaler and its DART, the same nodes
+ * as patches/linux-scaler/0001-scaler-dt-t6020.patch. Values from the macOS
+ * 13.5 j414sap ADT and the live 27.2 IODeviceTree [ADT]; CPU address = ADT
+ * bus address + 0x200000000. Plain dtc input (no cpp): AIC cells are
+ * <type die irq flags> = <0 0 N 4>.
+ *
+ * Phandles of nodes outside the overlay are sentinels 0xa7e000NN that
+ * scaler_overlay_mod.c replaces with the live ones before applying (the base
+ * DT has no __symbols__):
+ *   0xa7e00013  the AIC
+ *   0xa7e00021  ps_msr0          (label "msr0")
+ *   0xa7e00022  ps_msr0_ase_core (label "msr0_ase_core")
+ */
+/dts-v1/;
+/plugin/;
+
+/ {
+	fragment@0 {
+		target-path = "/soc";
+
+		__overlay__ {
+			#address-cells = <2>;
+			#size-cells = <2>;
+
+			scaler_dart: iommu@40b200000 {
+				compatible = "apple,t6020-dart", "apple,t8110-dart";
+				reg = <0x4 0x0b200000 0x0 0x4000>;
+				#iommu-cells = <1>;
+				interrupt-parent = <0xa7e00013>;
+				interrupts = <0 0 1187 4>;
+				power-domains = <0xa7e00021>;
+			};
+
+			scaler@40b000000 {
+				compatible = "apple,t6020-scaler";
+				reg = <0x4 0x0b000000 0x0 0x28000>,
+				      <0x4 0x0b210000 0x0 0x4000>,
+				      <0x4 0x0b204000 0x0 0x4000>;
+				reg-names = "scaler", "apiodma", "dpe";
+				interrupt-parent = <0xa7e00013>;
+				interrupts = <0 0 1186 4>, <0 0 1188 4>;
+				power-domains = <0xa7e00021>, <0xa7e00022>;
+				resets = <0xa7e00021>;
+				iommus = <&scaler_dart 0>, <&scaler_dart 1>;
+			};
+		};
+	};
+};

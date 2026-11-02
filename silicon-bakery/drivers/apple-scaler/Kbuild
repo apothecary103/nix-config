@@ -1,0 +1,3 @@
+# SPDX-License-Identifier: GPL-2.0-only
+obj-m += apple-scaler.o
+apple-scaler-y := apple_scaler_drv.o apple_scaler_hw.o apple_scaler_math.o

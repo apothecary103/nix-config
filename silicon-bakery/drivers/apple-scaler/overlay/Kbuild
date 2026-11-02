@@ -1,0 +1,3 @@
+# SPDX-License-Identifier: GPL-2.0-only
+obj-m += scaler-overlay.o
+scaler-overlay-y := scaler_overlay_mod.o
