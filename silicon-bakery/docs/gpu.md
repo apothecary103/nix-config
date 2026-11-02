@@ -31,6 +31,22 @@ Nothing from Apple is in this repository; only numbers and conclusions.
   masks per chip; t6020's `0xc000d00` and t6021/t6022's equal
   `hw/t602x.rs`. So do `shared2_tab` (0x800, 0x1555, -1...), `shared3_tab`
   (125..., 7500) and `unk_87c` (500), all in the same table.
+- **AnalogTempSensorController address.** The kext's firmware mapping setup
+  derives it from AICSWInt's base, 0x28e106000, by GPU variant: 0x10 (G14S)
+  adds 0x35a000, giving 0x28e460000; 0x11 (G14C) adds 0x372000, giving
+  0x28e478000; 0x12 (G14D) maps two, 0x28e478000 and 0x228e478000, from its
+  constant table. `hw/t602x.rs` has the same three. m1n1's Python
+  `agx/initdata.py` gives t6020 0x28e478000, which is wrong but only used by
+  its hypervisor tooling.
+- **Fast-die thermal loop.** macOS reads `gpu-fast-die0-target`,
+  `-release-temp`, `-prop-tgt-delta` and the gains from the ADT, defaulting
+  to 80 °C release, a delta of 0 and a ki of 400 (j414s has no
+  `release-temp`, so 80, as in the kernel). It then overwrites the target
+  with 110.0 °C and the next field with 5.0 whenever the chip has fast-die
+  sensor masks, as t6020 does, so the ADT's 94 never reaches the firmware.
+  Times 100, these are the kernel's `unk_8cc` (11000) and `unk_87c` (500).
+  The same routine sets t6020's sensor mask (0xc000d00) and the 8.2 and 6.9
+  coefficients of `unk_coef_a`.
 - **Tiler heap (parameter buffer).** The kernel's limits are macOS's to the
   byte: 862,322,688 (`AGXParameterBufferMaxSize`) and 287,440,896 without
   memoryless (`...NeverMemless`), growing to 3x the used size after an
@@ -65,16 +81,10 @@ Nothing from Apple is in this repository; only numbers and conclusions.
 
 ## Open
 
-- **AnalogTempSensorController address.** `hw/t602x.rs` maps 0x28e460000 for
-  t6020 and 0x28e478000 for t6021/t6022. The 13.5 kext's G14X table has only
-  0x28e478000 (and 0x228e478000 for the second die), and nothing in the kext
-  reads that table directly, so whether t6020 is chosen elsewhere is not
-  settled. Check on the machine before changing it: the firmware reads its
-  temperatures there.
-- **fast-die0 release temperature.** The kernel defaults it to 80 °C. The
-  ADT gives `gpu-fast-die0-target` and `-alarm-threshold` as 94 and
-  `gpu-sochot-temp` as 111, which the kernel doesn't read. How macOS turns
-  them into the firmware's fields needs the kext's initdata builder.
+- **Lifetime servo.** `LifetimeServoFastDieTemperatureTarget` and its setter
+  are `setProperties` keys, so userspace on macOS can retarget the fast-die
+  loop at run time. Linux has no equivalent. Whether anything on macOS sets
+  it is not known.
 - **Known gaps, from upstream** (not fixed here):
   - No compute preemption (AsahiLinux/linux#417): a long compute job stalls
     the desktop.
