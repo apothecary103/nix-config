@@ -1,0 +1,23 @@
+# SPDX-License-Identifier: GPL-2.0-only
+obj-m += apple-jpeg.o
+apple-jpeg-y := apple-jpeg-drv.o apple-jpeg-hw.o
+
+# The JPEG header parser: the kernel's v4l2-jpeg.ko when CONFIG_V4L2_JPEG_HELPER
+# is set (a hidden symbol, only present when a driver such as VIDEO_HANTRO
+# selects it), else a bundled copy of it (v4l2-jpeg-bundled.c, asahi-7.2.14-1)
+# linked into apple-jpeg.ko under renamed, unexported symbols.
+ifeq ($(CONFIG_V4L2_JPEG_HELPER),)
+apple-jpeg-y += v4l2-jpeg-bundled.o
+ccflags-y += -DAPPLE_JPEG_BUNDLED_V4L2_JPEG \
+	-Dv4l2_jpeg_parse_header=apple_jpeg_bundled_parse_header \
+	-Dv4l2_jpeg_zigzag_scan_index=apple_jpeg_bundled_zigzag_scan_index \
+	-Dv4l2_jpeg_ref_table_luma_qt=apple_jpeg_bundled_ref_table_luma_qt \
+	-Dv4l2_jpeg_ref_table_chroma_qt=apple_jpeg_bundled_ref_table_chroma_qt \
+	-Dv4l2_jpeg_ref_table_luma_dc_ht=apple_jpeg_bundled_ref_table_luma_dc_ht \
+	-Dv4l2_jpeg_ref_table_luma_ac_ht=apple_jpeg_bundled_ref_table_luma_ac_ht \
+	-Dv4l2_jpeg_ref_table_chroma_dc_ht=apple_jpeg_bundled_ref_table_chroma_dc_ht \
+	-Dv4l2_jpeg_ref_table_chroma_ac_ht=apple_jpeg_bundled_ref_table_chroma_ac_ht
+endif
+
+# Bring-up aid: runtime DT overlay (jpeg0/jpeg1 + DARTs), see apple-jpeg-overlay.c
+obj-m += apple-jpeg-overlay.o

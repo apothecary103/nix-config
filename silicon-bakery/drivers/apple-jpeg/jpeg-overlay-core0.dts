@@ -1,0 +1,51 @@
+// SPDX-License-Identifier: GPL-2.0-only
+/*
+ * Runtime overlay for apple-jpeg-overlay.ko: t6020 (M2 Pro) jpeg0 and its
+ * DART, the same nodes as patches/linux-jpeg (status okay). Not yet run.
+ *
+ * From the macOS 13.5 j414sap ADT [ADT]: /arm-io/jpeg0 reg (bus)
+ * 0x18d000000+0x8000 (codec 0x4000 + its DART), interrupt 1177, compatible
+ * "jpeg,t6020", hw-type e0010; /arm-io/dart-jpeg0 "dart,t8110", interrupt 1178,
+ * sid 0, 16K pages. CPU address = bus + 0x200000000. Power gates JPG0-V and
+ * JPG0-DART are aliases of JPG = Asahi's ps_jpg (pmgr 0x1b8). The "axi"
+ * pair is the AXI wrapper's ctrl/status outside the ADT node
+ * (RadishFunctions::setupAXIRegisterOffset) [KEXT13.5]. AIC numbers equal
+ * the ADT's on t602x, 4 cells, die 0.
+ *
+ * The base tree has no __symbols__: 0x4a500001 stands for the AIC and
+ * 0x4a500002 for ps_jpg (label "jpg"); apple-jpeg-overlay.ko replaces them
+ * with live phandles. Compile WITHOUT -@.
+ */
+/dts-v1/;
+/plugin/;
+
+/ {
+	fragment@0 {
+		target-path = "/soc";
+
+		__overlay__ {
+			#address-cells = <2>;
+			#size-cells = <2>;
+
+			jpeg0_dart: iommu@38d004000 {
+				compatible = "apple,t6020-dart", "apple,t8110-dart";
+				reg = <0x3 0x8d004000 0x0 0x4000>;
+				#iommu-cells = <1>;
+				interrupt-parent = <0x4a500001>;
+				interrupts = <0 0 1178 4>;
+				power-domains = <0x4a500002>;
+			};
+
+			jpeg0: jpeg@38d000000 {
+				compatible = "apple,t6020-jpeg";
+				reg = <0x3 0x8d000000 0x0 0x4000>,
+				      <0x3 0x8c000b38 0x0 0x8>;
+				reg-names = "jpeg", "axi";
+				interrupt-parent = <0x4a500001>;
+				interrupts = <0 0 1177 4>;
+				iommus = <&jpeg0_dart 0>;
+				power-domains = <0x4a500002>;
+			};
+		};
+	};
+};
