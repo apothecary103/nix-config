@@ -58,6 +58,7 @@
           river
           kwim
           mesa
+          hk-dispatch-bench
           ;
       };
 

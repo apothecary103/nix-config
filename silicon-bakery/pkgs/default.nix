@@ -79,10 +79,15 @@ in
     # nothing else rebuilds; stock ffmpeg covers basic NV12 encodes.
     ffmpeg-ave = prev.ffmpeg.overrideAttrs (withPatches ../patches/ffmpeg);
 
-    # Honeykrisp leaving input attachments uncompressed: 10-bit Vulkan scanout
-    # flickers the panel's edges otherwise (G14S). Meant for
+    # Honeykrisp and the GL driver with patches/mesa: input attachments left
+    # uncompressed (10-bit Vulkan scanout flickers the panel's edges on G14S
+    # otherwise), Metal's compute barrier on G14X, issued only where a
+    # dispatch must be ordered, and the memory budget advertised. Meant for
     # hardware.graphics.package, so only the runtime driver changes.
     mesa = prev.mesa.overrideAttrs (withPatches ../patches/mesa);
+
+    # Compute dispatch cost and ordering checks, for testing patches/mesa.
+    hk-dispatch-bench = final.callPackage ./hk-dispatch-bench.nix { };
 
     # For boot.kernelPatches, on top of nixos-apple-silicon's linux-asahi:
     # always (patches/linux), and for display.experimentalHdr and
