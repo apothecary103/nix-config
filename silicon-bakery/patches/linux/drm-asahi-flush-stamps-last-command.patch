@@ -1,0 +1,27 @@
+drm/asahi: flush stamps on the last render and compute command again
+
+submit() counts the commands twice: first to find the last render and the
+last compute command, then to submit them with flush_stamps set on those.
+Since the UAPI rework the first pass stores a render's index in last_compute
+and a compute's in last_render, so no command ever matches and flush_stamps
+is never set. Up to asahi-6.12 it was set on the last command of each kind.
+Reported as AsahiLinux/linux#633.
+
+diff --git a/drivers/gpu/drm/asahi/queue/mod.rs b/drivers/gpu/drm/asahi/queue/mod.rs
+index 594b271..f410191 100644
+--- a/drivers/gpu/drm/asahi/queue/mod.rs
++++ b/drivers/gpu/drm/asahi/queue/mod.rs
+@@ -719,11 +719,11 @@ fn submit<'drm>(
+ 
+             match header.cmd_type as u32 {
+                 uapi::drm_asahi_cmd_type_DRM_ASAHI_CMD_RENDER => {
+-                    last_compute = nr_commands;
++                    last_render = nr_commands;
+                     nr_render += 1;
+                 }
+                 uapi::drm_asahi_cmd_type_DRM_ASAHI_CMD_COMPUTE => {
+-                    last_render = nr_commands;
++                    last_compute = nr_commands;
+                     nr_compute += 1;
+                 }
+                 _ => {}
