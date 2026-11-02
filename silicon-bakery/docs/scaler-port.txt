@@ -1,0 +1,250 @@
+M2Scaler port to t6020 / M2 Pro (MacBook Pro 14" Mac14,9, j414s)
+================================================================
+Silicon Bakery, 2026-11-02. Written on the Mac14,9 itself under macOS 27.2.
+STATUS: static port only. The driver has been compiled once at W=1 against
+asahi-7.2.14-1 (clang, arm64, warning-free); the overlay module has not been
+compiled. Nothing has been built with Nix or run on Linux. Every claim carries
+one of these labels:
+
+  [ADT]      the macOS 13.5 j414sap device tree, or this Mac's live
+             IODeviceTree under 27.2 (ioreg)
+  [KEXT13.5] AppleM2ScalerCSCDriver in the 13.5 stub kernelcache (values and
+  [KEXT27]   behaviour only; decompiles stay private, outside this repository)
+  [M1N1]     m1n1 proxyclient hw/scaler.py and experiments/scaler.py (M1 Max
+             "MSR10j", which copied, flipped, rotated and scaled RGBA)
+  [DT]       Asahi Linux device trees at tag asahi-7.2.14-1
+  [INF]      inference, not verified
+  [HW]       only a run on the machine can settle it
+
+Files:
+  drivers/apple-scaler/                 the V4L2 mem2mem driver (apple_scaler.ko)
+    apple_scaler.h                      register map with provenance
+    apple_scaler_drv.c                  platform/V4L2/m2m, formats, selection,
+                                        controls, pass planning, PM, staged probe
+    apple_scaler_hw.c                   programming of one pass, DPE, self-test
+    apple_scaler_math.c                 filters and colour matrices (integer)
+    overlay/                            scaler-overlay.ko: runtime DT overlay
+  patches/linux-scaler/0001-scaler-dt-t6020.patch
+                                        DT nodes + binding; applies after
+                                        patches/linux-ave and patches/linux-jpeg
+  pkgs/apple-scaler.nix                 out-of-tree module derivation
+  tools/scaler-test                     on-device tests (v4l2-ctl, GStreamer,
+                                        ffmpeg swscale references, PSNR)
+No Apple data is needed or included: polyphase filters (Lanczos-3, bicubic,
+bilinear; 32 phases, 9 V / 15 H taps, Q4.12) and the 3x3 colour matrices
+(BT.601/709/2020/240M, full/limited range) are computed in the driver. No
+firmware. The few register values below (tunables, cache hints, DPE start
+values) are small constants with provenance, as patches/apple-ave does.
+
+
+1. Hardware facts
+-----------------
+  scaler0, compatible "scaler,t6020"/"scaler,s5l8960x", hardware-version 14,
+  scaler-id 0 [ADT]. Version register 0x0 = 0x030c0013 (IOSurface
+  "ScalerVersion" 51118099) [ADT-27.2 ioreg][KEXT13.5]; macOS writes 1 then 0
+  to 0x0 before reading it [KEXT13.5 detectHardwareVersion].
+  Registers (CPU address = ADT bus address + 0x2_0000_0000) [ADT]:
+    0x4_0b00_0000 / 0x28000   scaler
+    0x4_0b21_0000 / 0x4000    APIODMA (register-sequence DMA; not used)
+    0x4_0b20_4000 / 0x4000    DPE (power estimator)
+    0x4_0b20_0000 / 0x4000    dart-scaler0: dart,t8110, sid 0 (data) and 1
+                              (APIODMA), 16K pages, vm-base 0x100_0000_0000
+  IRQs (AIC, numbers as in the ADT): 1186 scaler, 1188 second (unknown), 1187
+  DART [ADT]. Power: ps_msr0 (pmgr +0x3d8), ps_msr0_ase_core (+0x3f0, child of
+  ps_msr0) [DT][ADT]; reset = ps_msr0 (macOS "function-device_reset").
+  macOS class for hw14: AppleM2ScalerCSCHalMSR13; scaling/CSC as M1 Max
+  (MSR10/MSR10j), source/dest MSR14, colour manager MSR13, RDMA/WDMA MSR11,
+  DPE MSR14->MSR11 [KEXT13.5 createHalObjects]. 27.2 programs hw14 the same
+  way (direct registers; firmware only on MSR23+) [KEXT27].
+  Limits: 4..65536 px; per pass 8x up, 8x H / 4x V down, checked per plane
+  so chroma binds first [KEXT13.5 extents entry 21, checkPolyphaseScalingLimits].
+  macOS speed: 1080p 420v -> 720p BGRA 1.26 ms, 2160p x420 -> 1080p 3.1 ms.
+
+  Register map used (offsets from the scaler base; [KEXT13.5] unless marked):
+    0x004 reset (1, 0)             0x018 IRQ enable = 0x121b   0x01c status W1C
+      status: b0 done, b1 debug error (see 0x09c), b3 read, b4 write,
+      b9 decompression, b10 context switch, b12 AXI [M1N1][KEXT13.5]
+    0x080 START = 1 after 0x098 = 0xfffffffe       0x110 transform id
+    0x08c alpha override 0xffff (b31 force when src has no alpha [INF])
+    0x118/0x11c/0x120 spill buffer: only for the histogram on hw14; left 0
+    0x180 RDMA config: b0 RGB class, b1 premultiplied, b3:2 subsampling
+          (0 none, 1 4:2:2, 3 4:2:0); 0x184.. per-plane format codes
+    0x280 WDMA config (same); 0x284.. codes | 0x8000 (M1 Max used 0x800)
+    0x198.. src plane base lo/hi, 0x1d8.. strides, 0x1e8.. offsets (y<<16|x),
+    0x1f8 src swizzle, 0x1fc/0x200 src W/H, 0x234../0x244.. plane W/H;
+    0x290.. 0x2c0.. 0x2cc.. 0x2d8 0x2dc/0x2e0 0x308../0x314.. the same for dst
+    0x204..0x220 cache hints 0x7d311/0x707; 0x2e4..0x2f8 0xbd311/0xc0bd307
+          [KEXT13.5 MSR10j::configureCacheHints]
+    0x224..0x230 = 0x20, 0x2fc..0x304 = 0x04000620 (hw14; M1 Max 0x04000720)
+          [KEXT13.5 MSR14::configureTunables]; macOS's loop also writes
+          0x308, so the plane sizes are written after the tunables
+    0x380 b1:0 rotation (clockwise), b2 and b3 flips [M1N1 labels, INF]
+    0x600 legacy CSC = 0 on hw14
+    0x800 chroma upsampler (0xc off, 0xd on + 0x804..0x820 two 0.5/0.5 sets)
+    0x824 prescaler 3x3 control (b31 enable | 12 fraction bits), 0x828 pre,
+          0x834 3x3 S3.12 row-major, 0x858 post (offsets S0.16, normalised)
+    0x900 chroma downsampler: b0 H/2, b1 V/2, methods 0x10100
+    0xa00 dither: per channel min(7, 16 - dst bits) at bits 8/16/24
+    0x1000 V / 0x2000 H scaler: +0 flags (b0 enable, b1 YCbCr source),
+          +4 DDA luma S1.22, +8 DDA chroma, +0xc/+0x10 ratio luma/chroma
+          src/dst U4.22, +0x14/+0x18 inverse, +0x1c/+0x20/+0x24 alpha
+    0x1400/0x2400 coefficients: word = tap*32 + phase, low 16 luma, high 16
+          chroma; 0x1c00/0x2c00 luma(alpha) two phases per word; taps of a
+          phase sum to 4096; phase p = +p/32 (p<16) or (p-32)/32 around the
+          centre tap (V 4, H 7) [KEXT13.5; direction INF]. macOS uses at most
+          9 of the 15 H taps.
+    0x3000 histogram = 0, 0x124 = 0
+    0x3800 colour manager control (0 = bypass; b0|b1 = src2Rgb 3x3 at
+          0x3804 shift, 0x3808 pre S2.24, 0x3814 3x3 S3.12, 0x3838 post)
+    0x13800..0x1380c convert = 0, 0x13810.. convert maps (per-channel depth
+          code), 0x13c04 = 0, 0x13c10.. revert maps, 0x13c00 = 1
+    0x16000/0x16080/0x16800 ASE = 0 (off)
+    DPE: +0x400 = 1, entries i = 0..13: +0x404+4i = 1, +0x43c+8i and +0x440+8i
+          = value; +0x4 = 0x1000; +0x0 = 0x101 [KEXT13.5 IosaDPEControlMSR11]
+  Format codes (linear) [KEXT13.5 IosaRdmaControlMSR10::programDMA]:
+    32bpp 8888 0x1e, RGB565 0x08, 2101010 0x19, 'yuvs' 4:2:2 1-plane 0x1e,
+    2-plane 8-bit luma 0x01 / chroma 0x06, 10-bit (x420 = P010) 0x02 / 0x12,
+    luma only 0x01. Native 32bpp memory order is B,G,R,A; RGBA swizzle
+    0x03000102, YCbCr 2-plane 0x03000102, yuvs 0x03000201.
+    macOS refuses 32-bit ARGB and '2vuy' (UYVY) [KEXT13.5].
+  The CSC matrices macOS uses are standard: its 709 video YCbCr->RGB full
+  table decodes to 1.164 / 1.793 / -0.213 / -0.533 / 2.112 with offsets
+  -16/255 and -0.5, exactly the BT.709 formula, which the driver computes.
+
+
+2. What the driver does
+-----------------------
+  One /dev/videoN (VFL_DIR_M2M, single-planar API: both planes of NV12 etc. in
+  one buffer, chroma right after luma). OUTPUT = source, CAPTURE = result.
+  Formats (both sides): NV12 NV21 NV16 NV24 P010 YUYV UYVY GREY XR24 (DRM
+  XRGB8888) AR24 (ARGB8888) XB24 AB24 (ABGR8888) RGBP (RGB565) AR30
+  (ARGB2101010). Sizes 4..16384, steps by subsampling.
+  Selection: OUTPUT crop (source rect), CAPTURE compose (destination rect;
+  pixels outside it are not written). Controls: ROTATE 0/90/180/270 (not
+  changeable while streaming), HFLIP, VFLIP.
+  Colour: ycbcr_enc and quantization of both sides; the CAPTURE side takes
+  V4L2_PIX_FMT_FLAG_SET_CSC (enum_fmt advertises CSC_YCBCR_ENC/QUANTIZATION
+  for YUV). One 3x3 + offsets is composed from the source and destination
+  encodings; by default it is the colour manager's src2Rgb 3x3 after the
+  scaler (macOS's default path; csc_loc=1), or the prescaler 3x3 before it
+  with the chroma upsampler (csc_loc=0). Primaries and transfer function are
+  copied, not converted (no CM LUTs yet). NV21 is NV12 with the Cb/Cr
+  columns/rows of the matrix swapped.
+  Ratios beyond one pass: up to max_passes (3) passes through two
+  driver-allocated intermediates in the source format; rotation, flips and the
+  colour conversion happen in the last pass.
+  Hang handling: per-pass watchdog (timeout_ms, 1000); hang_recovery 1 = soft
+  reset (reg 0x4), 2 = also a runtime-PM power cycle (DART state restored by
+  apple-dart's runtime resume [INF]), 3 = also a pmgr reset of ps_msr0 first
+  (macOS's hangRecovery; the DART may lose its tables [INF]). Error IRQs fail
+  the buffer and soft-reset.
+  Runtime PM with 1 s autosuspend; the device is held while a context streams.
+  On resume the version register is checked again and the block re-initialised.
+  Not done: APIODMA, compressed/tiled interchange formats, HDR/CM LUTs,
+  histogram, border fill (hw14 has none), alpha blending, media controller.
+
+
+3. Device tree: overlay first, kernel patch later
+--------------------------------------------------
+  Runtime overlay: `modprobe scaler_overlay` (once per boot, no unload by
+  design, refused unless the machine is "apple,t6020" and no scaler node
+  exists). It adds /soc/iommu@40b200000 (apple,t8110-dart) and
+  /soc/scaler@40b000000, resolving the AIC and the msr0 / msr0_ase_core
+  power domains by label. apple-dart binds the DART at once; that is the
+  first Linux access to ps_msr0. RECOMMENDED for bring-up.
+  Kernel patch: patches/linux-scaler/0001-scaler-dt-t6020.patch adds the same
+  nodes to t602x-die0.dtsi (disabled) and enables them in t6020.dtsi, plus
+  Documentation/devicetree/bindings/media/apple,scaler.yaml. Apply it after
+  patches/linux-ave and patches/linux-jpeg. Only switch after the overlay path
+  has worked, and keep a copy of the old boot.bin (as docs/ave-port.txt
+  describes); with the in-tree node nothing autoloads the driver either (the
+  module has no MODULE_DEVICE_TABLE on purpose).
+
+
+4. Bring-up on this Mac alone (no second machine, no netconsole)
+-----------------------------------------------------------------
+  Logging: a hang loses the console, so make the journal persistent
+  (services.journald.storage = "persistent", NixOS default when /var/log/journal
+  exists) and read the previous boot after a forced reboot:
+    journalctl -k -b -1 | grep -E 'apple-scaler|scaler-overlay|dart'
+  Run `sync` before every risky step; use step_ms=2000 so each stage marker
+  reaches the disk before the next stage touches hardware. pstore: the Asahi
+  config has CONFIG_PSTORE=y and CONFIG_PSTORE_RAM=m, but ramoops needs a
+  reserved-memory region that m1n1/Asahi do not provide, and whether RAM
+  survives Apple's reboot path is unknown [HW]; treat it as unavailable
+  unless someone adds a ramoops reserved-memory node and tests it.
+
+  Steps (each one only after the previous one passed):
+    sync; modprobe scaler_overlay
+      scaler-overlay: aic -> phandle 0x.. (x2)
+      scaler-overlay: msr0 -> phandle 0x.. (x3)
+      scaler-overlay: msr0_ase_core -> phandle 0x.. (x1)
+      scaler-overlay: applied, ovcs_id=1
+      (apple-dart 40b200000.iommu: DART [pagesize 4000, ...] initialized)
+    sync; modprobe apple_scaler stop_after=1 step_ms=2000
+      apple-scaler 40b000000.scaler: stage 1: resources mapped
+      ... stopped after stage 1 (stop_after)      (no hardware touched)
+    stop_after=2   stage 2: powered on                (ps_msr0 + ase_core on)
+    stop_after=3   version register reads 0x30c0013
+                   hardware version 0x30c0013 (expect 0x30c0013), frame count N
+                   stage 3: version checked           (reads only)
+    stop_after=4   stage 4: reset and initialised     (first writes, DPE start)
+    stop_after=5   selftest: irq status 0x1 dbg 0x.. frames N
+                   selftest: 64x64 BGRA copy OK       (DMA via the DART, polled)
+    stop_after=6   stage 6: irq requested
+    (no stop_after) stage 7: registered
+                   /dev/videoN: M2Scaler hw-version 14
+    scaler-test -k                                   (tools/scaler-test)
+  rmmod apple_scaler between attempts is fine; the overlay stays.
+
+  Failure meanings:
+    overlay "no power domain labelled msr0": the base DT changed labels.
+    hang at stage 2: powering ps_msr0/ase_core hangs; try a DT with only
+      ps_msr0 (drop the second power domain) [HW].
+    version != 0x030c0013: wrong block or not powered; version_poke=1 (default)
+      already tried macOS's 1/0 write; do not use force_version=1 blindly.
+    hang at stage 4: a write hangs the fabric; dpe=0 skips the DPE start.
+    selftest "no completion": the job did not start or finish; check the
+      printed irq/dbg status (0x09c debug bits; mask 0x3f3d); try dpe=1/0.
+    selftest status b3/b4/b12 or DART faults in dmesg: DMA addressing or
+      stream; the data IOVAs are on stream 0.
+    selftest pixel mismatch with a pattern shift: swizzle/format code; with
+      0xaaaaaaaa left: WDMA never wrote (0x284 = 0x801e on hw14).
+    scaler-test PSNR low only when scaling: try phase_neg=1, dda_center=1,
+      kernel=1; colour tests low: csc_loc=0 vs 1; UYVY wrong: uyvy_swizzle=
+      0x00030102 (macOS has no UYVY, the default 0x02010300 is derived).
+    timeouts: hang_recovery=2 or 3 and the "timed out: irq .. running .." line.
+
+  Module parameters (apple_scaler): stop_after=, step_ms=, selftest=,
+  force_version=, version_poke=, timeout_ms=, hang_recovery=, max_passes=,
+  stride_align= (64), kernel= (0 Lanczos-3, 1 bicubic, 2 bilinear),
+  phase_neg=, dda_center=, h_taps= (9; 15 untested), csc_loc= (1), dpe= (1),
+  dither= (1), uyvy_swizzle=.
+
+
+5. Users
+--------
+  GStreamer: v4l2convert (gst-plugins-good; v4l2videoNconvert if there are
+  several converters), e.g.
+    gst-launch-1.0 videotestsrc ! video/x-raw,format=NV12,width=1920,height=1080 \
+      ! v4l2convert ! video/x-raw,format=BGRx,width=1280,height=720 ! autovideosink
+  It also does crop/compose through the selection API and rotation via
+  extra-controls="c,rotate=90".
+  ffmpeg: has no generic V4L2 m2m scale filter; use GStreamer or the
+  v4l2-ctl/stream path. ffmpeg is used here only for reference outputs.
+  libcamera: its converter interface (V4L2M2MConverter) uses a V4L2 m2m
+  device with crop/compose; a pipeline handler has to name this device, as
+  rkisp1/imx8 ones name theirs. Nothing on this Mac uses libcamera yet.
+  AVD -> AVE transcodes: decoder NV12/P010 dmabufs can be imported
+  (VB2_DMABUF on both queues) for scaling before the encoder.
+
+
+6. Open questions [HW]
+----------------------
+  - Is the DPE needed at all; does ps_msr0_ase_core have to be on.
+  - DDA alignment (macOS adds no centre term), phase direction, chroma siting.
+  - Flip bit labels; rotation direction; plane-size registers for linear.
+  - UYVY and NV21 handling, 565/2101010 convert/revert map values.
+  - Meaning of the second IRQ (1188) and of START = 3 / 0x098.
+  - Base/stride alignment for linear surfaces (none found; 64 B proposed).
+  - Whether pmgr reset of ps_msr0 resets the DART (hang_recovery=3).
