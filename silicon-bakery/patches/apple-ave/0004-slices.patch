@@ -1,0 +1,357 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: "Silicon Bakery (t6020 port)" <noreply@localhost>
+Date: Mon, 2 Nov 2026 12:42:43 +0200
+Subject: [PATCH] slices: the per-frame slice map, from MULTI_SLICE_MAX_MB
+
+V4L2_CID_MPEG_VIDEO_MULTI_SLICE_MODE = MAX_MB with MULTI_SLICE_MAX_MB:
+slices of whole MB rows (H.264) or 32-line CTB rows (HEVC), as many rows
+per slice as MAX_MB holds (one row minimum, at most 32 slices). SINGLE
+(the default) writes nothing.
+
+Wire fields:
+- [KEXT13.5] AVC_Slice::GenerateMap (0xfffffe0008f556f0) and
+  HEVC_Slice::GenerateMap (0xfffffe0008f5c164), reached from
+  AVE_Client_GenerateSlicesMap for VideoToolbox's NumberOfSlices: one
+  byte per row = slice index, 0x100 rows, in the per-frame slice-header
+  block (cmd+0x40): H.264 SH+0x472 (wire 0x4B2) with SH+0x574 (0x5B4)
+  zeroed; HEVC S+0x44C (the existing sh_map) with S+0x554 zeroed. Rows
+  per slice = (rows left + ceil(slices left / 2)) / slices left, >= 1;
+  re-derived here, not copied.
+- [FW] CAVCController::PipePrepareParam (0x47ac0) takes the slice count
+  as map[rows - 1] + 1, or ceil(MBs / SH+0x574) when that is non-zero.
+The coded header's per-slice records were already walked; the slice
+cap rises from 16 to 32 ([LIVE] macOS: NumberOfSlices 1..32, 33+
+refused). Untested on hardware.
+---
+ driver/ave_abi.h     | 22 +++++++++++++++++++-
+ driver/ave_cmd.c     | 35 +++++++++++++++++++++++++++++++-
+ driver/ave_cmd.h     | 10 ++++++++-
+ driver/ave_session.c | 43 +++++++++++++++++++++++++++++++++++++++
+ driver/ave_session.h |  6 ++++++
+ driver/ave_v4l2.c    | 48 +++++++++++++++++++++++++++++++++++++++++++-
+ 6 files changed, 160 insertions(+), 4 deletions(-)
+
+diff --git a/driver/ave_abi.h b/driver/ave_abi.h
+index 5b7da86..6801e3f 100644
+--- a/driver/ave_abi.h
++++ b/driver/ave_abi.h
+@@ -1612,6 +1612,19 @@ struct ave_process_avc_layout {
+ 	 * 0x2d30c / 0x2d3b8), so it must never be 1 later (docs/81 R11).
+ 	 */
+ 	u32	first_process;
++	/*
++	 * Silicon Bakery: the slice map in the AVC_ENCODE slice-header block
++	 * (H264_SLICE_HEADER_PARAMS at cmd+0x40). sh_slice_map: one byte per
++	 * MB row, the slice index of that row, 0x100 rows; sh_slice_mbs: u32
++	 * MBs per slice, 0 = use the row map. The kext's
++	 * AVC_Slice::GenerateMap (13.5 kext 0xfffffe0008f556f0) fills the
++	 * former and zeroes the latter for VideoToolbox's NumberOfSlices; the
++	 * firmware's PipePrepareParam (0x47ac0) takes the slice count as
++	 * map[rows - 1] + 1, or ceil(MBs / sh_slice_mbs) when that is set.
++	 * Absolute command offsets; 0 = not located.
++	 */
++	u32	sh_slice_map;
++	u32	sh_slice_mbs;
+ };
+ 
+ /*
+@@ -1842,7 +1855,12 @@ struct ave_process_hevc_layout {
+ 	u32	sh_col_from_l0;		/* u8 */
+ 	u32	sh_five_minus_merge;
+ 	u32	sh_lf_across;		/* u8 */
+-	u32	sh_map;			/* 0x100 bytes, zero for one slice */
++	/*
++	 * 0x100 bytes, zero for one slice: one byte per 32-line CTB row, the
++	 * slice index of that row (kext HEVC_Slice::GenerateMap
++	 * 0xfffffe0008f5c164, which also zeroes S+0x554).
++	 */
++	u32	sh_map;
+ 	/*
+ 	 * Two u32 right after the slice map, S+0x54C and S+0x550, which macOS
+ 	 * user space sets to 0xFFFFFFFF (str d0 = all-ones, [x21,#0x540] with
+@@ -2410,6 +2428,8 @@ const struct ave_cmd_abi ave_cmd_abi_13_5 = {
+ 		.scratch	= { 0x8e0, 0x8e8, 0x8f0, 0x900 },
+ 		.scratch_n	= 4,
+ 		.first_process	= 0x6d8,	/* kext 0xfffffe0008eab908; fw 0x2d30c */
++		.sh_slice_map	= 0x4b2,	/* SH+0x472, kext GenerateMap 0xf556f0 */
++		.sh_slice_mbs	= 0x5b4,	/* SH+0x574, fw PipePrepareParam 0x47ac0 */
+ 	},
+ 	.coded_hdr = {
+ 		/* kext AVE_PrintCodedHeader 0xfffffe0008eb6584, field offsets
+diff --git a/driver/ave_cmd.c b/driver/ave_cmd.c
+index 8acb2ba..b63f042 100644
+--- a/driver/ave_cmd.c
++++ b/driver/ave_cmd.c
+@@ -1354,9 +1354,31 @@ static int ave_pic_check(const struct ave_cmd_abi *abi,
+ 	}
+ 	if (f->n_scratch > l->scratch_n)
+ 		return -EINVAL;
++	/* a slice map: whole, starting at slice 0, steps of 0 or 1 */
++	if (f->slice_rows) {
++		u32 r;
++
++		if (!f->slice_map || f->slice_rows > 0x100 || f->slice_map[0] ||
++		    f->slice_map[f->slice_rows - 1] >= AVE_CODED_SLICE_MAX)
++			return -EINVAL;
++		for (r = 1; r < f->slice_rows; r++)
++			if (f->slice_map[r] < f->slice_map[r - 1] ||
++			    f->slice_map[r] > f->slice_map[r - 1] + 1)
++				return -EINVAL;
++	}
+ 	return 0;
+ }
+ 
++/* The slice map bytes at @off, then zeros to 0x100 (GenerateMap's memset). */
++static void ave_slice_map_fill(struct ave_wr *w, u32 off,
++			       const struct ave_avc_frame *f)
++{
++	u32 r;
++
++	for (r = 0; r < 0x100; r++)
++		wr8(w, off + r, r < f->slice_rows ? f->slice_map[r] : 0);
++}
++
+ /*
+  * Fill PICMGMT at @base. Moved verbatim out of ave_cmd_build_process_avc(),
+  * which passes l->picmgmt; HEVC passes process_hevc.picmgmt.
+@@ -1486,6 +1508,15 @@ int ave_cmd_build_process_avc(const struct ave_cmd_abi *abi, u8 *buf,
+ 	if (ret < 0)
+ 		return ret;
+ 	ave_pic_fill(&w, &abi->process_avc, abi->process_avc.picmgmt, f);
++	if (f->slice_rows) {
++		const struct ave_process_avc_layout *l = &abi->process_avc;
++
++		if (!l->sh_slice_map || l->sh_slice_map == AVE_OFF_NONE ||
++		    !l->sh_slice_mbs || l->sh_slice_mbs == AVE_OFF_NONE)
++			return ave_cmd_end_err(&w);
++		ave_slice_map_fill(&w, l->sh_slice_map, f);
++		wr32(&w, l->sh_slice_mbs, 0);
++	}
+ 	if (f->frame_type == AVE_FRAME_TYPE_B && f->direct_spatial) {
+ 		if (abi->process_avc.direct_spatial == AVE_OFF_NONE)
+ 			return -EINVAL;
+@@ -1597,7 +1628,9 @@ int ave_cmd_build_process_hevc(const struct ave_cmd_abi *abi, u8 *buf,
+ 	wr8(&w, sh + hp->sh_col_from_l0, 1);
+ 	wr32(&w, sh + hp->sh_five_minus_merge, 3);
+ 	wr8(&w, sh + hp->sh_lf_across, 0);
+-	/* sh_map stays zero: one slice (kext GenerateMap, docs/77 §3.2). */
++	/* sh_map: zero = one slice (kext GenerateMap, docs/77 §3.2) */
++	if (hf->pic.slice_rows)
++		ave_slice_map_fill(&w, sh + hp->sh_map, &hf->pic);
+ 	/* macOS's all-ones pair after the map; 0 crashes the fw (§15). */
+ 	wr32(&w, sh + hp->sh_seg_limit, 0xffffffff);
+ 	wr32(&w, sh + hp->sh_seg_limit + 4, 0xffffffff);
+diff --git a/driver/ave_cmd.h b/driver/ave_cmd.h
+index b95a81c..8485dcb 100644
+--- a/driver/ave_cmd.h
++++ b/driver/ave_cmd.h
+@@ -357,6 +357,14 @@ struct ave_avc_frame {
+ 	/* Per-frame source-neighbour scratch, [group][index]; % 64. */
+ 	u64	src_nbr[AVE_SRC_NBR_GROUPS][AVE_SRC_NBR_MAX];
+ 	u32	n_src_nbr;		/* 0 = write none */
++	/*
++	 * Silicon Bakery: the slice map (ave_process_*_layout sh_slice_map /
++	 * sh_map): slice_map[r] is the slice of MB row r (AVC) or CTB row r
++	 * (HEVC), for slice_rows rows, non-decreasing from 0 by steps of 0 or
++	 * 1. slice_rows 0 = write nothing: one slice, as every release.
++	 */
++	const u8 *slice_map;
++	u32	slice_rows;
+ 	/* Loose per-frame scratch IOVAs; 0 = write none. */
+ 	u64	scratch[AVE_PIC_SCRATCH_MAX];
+ 	u32	n_scratch;
+@@ -501,7 +509,7 @@ struct ave_hevc_frame {
+  * non-zero the payload is discontiguous, so a single memcpy of the whole
+  * buffer is wrong. docs/67 §2 and §3.
+  */
+-#define AVE_CODED_SLICE_MAX	16
++#define AVE_CODED_SLICE_MAX	32	/* macOS's NumberOfSlices limit [LIVE] */
+ 
+ struct ave_coded_slice {
+ 	u32	off;			/* from the start of the coded buffer */
+diff --git a/driver/ave_session.c b/driver/ave_session.c
+index 5481a9d..242f11f 100644
+--- a/driver/ave_session.c
++++ b/driver/ave_session.c
+@@ -1116,6 +1116,9 @@ struct ave_sess_bufs {
+ 	u32		req_slots;	/* coded slots to publish at Start_AVC */
+ 	struct ave_vui	vui;		/* SPS VUI colour group; .present 0 = none */
+ 	bool		cbr;		/* CBR arm (with bitrate); filler appended */
++	/* per-frame slice map (ave_avc_frame.slice_map); rows 0 = one slice */
++	u8		slice_map[0x100];
++	u32		slice_rows;
+ 	/*
+ 	 * docs/81 "V4L2 implementation" (ave_enc_cfg). All 0 in the
+ 	 * self-test, which keeps its module parameters.
+@@ -4088,6 +4091,11 @@ static int ave_session_process_build(struct ave_device *ave,
+ 	 */
+ 	f.frame_num = n;
+ 	f.direct_spatial = session_direct_spatial;
++	/* Silicon Bakery: the slice map, every frame (kext GenerateMap) */
++	if (bufs->slice_rows) {
++		f.slice_map = bufs->slice_map;
++		f.slice_rows = bufs->slice_rows;
++	}
+ 	/* docs/85: the groups Start_AVC latched; AVC only */
+ 	f.macos = hevc ? 0 : bufs->macos;
+ 	f.in_luma_addr = luma_iova;
+@@ -5615,6 +5623,34 @@ bool ave_enc_two_refs_supported(struct ave_device *ave, u32 codec)
+ 	return codec == AVE_ENC_CODEC_HEVC || !ave->soc->two_refs_hang;
+ }
+ 
++/*
++ * The kext's AVC_Slice / HEVC_Slice::GenerateMap (13.5 kext
++ * 0xfffffe0008f556f0 / 0xfffffe0008f5c164), re-derived: @rows rows into
++ * @n slices, each (rows left + ceil(slices left / 2)) / slices left rows,
++ * at least 1. Returns the rows mapped, 0 for one slice (the map stays
++ * unwritten and the frame is what every release sent).
++ */
++static u32 ave_sess_slice_map(u8 *map, u32 rows, u32 n)
++{
++	u32 left = rows, at = 0, id = 0;
++
++	memset(map, 0, 0x100);
++	n = min3(n, rows, (u32)AVE_CODED_SLICE_MAX);
++	if (n <= 1 || rows > 0x100)
++		return 0;
++	while (left && n) {
++		u32 k = (left + (n + 1) / 2) / n;
++
++		k = clamp_t(u32, k, 1, left);
++		memset(map + at, id, k);
++		at += k;
++		left -= k;
++		id++;
++		n--;
++	}
++	return rows;
++}
++
+ /*
+  * Open + Start_AVC or HEVC_INIT for one stream; one at a time (the caller
+  * serialises). HEVC gets what the self-test proved in h3h (docs/77 §15-§18):
+@@ -5686,6 +5722,13 @@ int ave_enc_start(struct ave_device *ave, const struct ave_enc_cfg *cfg)
+ 	bufs->req_slots = cfg->slots;
+ 	bufs->vui = cfg->vui;
+ 	bufs->cbr = cfg->cbr && cfg->bitrate;
++	bufs->slice_rows = ave_sess_slice_map(bufs->slice_map, hevc ?
++			DIV_ROUND_UP(cfg->height, 32) : DIV_ROUND_UP(cfg->height, 16),
++			cfg->slices);
++	if (bufs->slice_rows)
++		dev_info(ave->dev, "enc: %u slices over %u %s rows (slice map, kext GenerateMap)\n",
++			 bufs->slice_map[bufs->slice_rows - 1] + 1, bufs->slice_rows,
++			 hevc ? "CTB" : "MB");
+ 	/*
+ 	 * docs/81 "V4L2 implementation": two references in the DPB (3 slots)
+ 	 * and both ME units (docs/94) for B frames or two-reference P frames.
+diff --git a/driver/ave_session.h b/driver/ave_session.h
+index 8d8fcef..37d94e5 100644
+--- a/driver/ave_session.h
++++ b/driver/ave_session.h
+@@ -105,6 +105,12 @@ struct ave_enc_cfg {
+ 	 * filler NALs it accounts for (ave_abi.h bitrate_sel); false = VBR.
+ 	 */
+ 	bool	cbr;
++	/*
++	 * Silicon Bakery: slices per picture, split by whole MB rows (H.264)
++	 * or 32-line CTB rows (HEVC) as the kext's GenerateMap does. 0/1 =
++	 * one slice (nothing written); at most 32 and the row count.
++	 */
++	u32	slices;
+ 	/* SPS VUI colour signalling (Silicon Bakery); .present 0 = none */
+ 	struct ave_vui vui;
+ };
+diff --git a/driver/ave_v4l2.c b/driver/ave_v4l2.c
+index db50d55..a455797 100644
+--- a/driver/ave_v4l2.c
++++ b/driver/ave_v4l2.c
+@@ -177,6 +177,8 @@ struct ave_ctx {
+ 	u32			qp_min, qp_max;
+ 	u32			gop;
+ 	bool			force_key;
++	/* Silicon Bakery: MULTI_SLICE_MODE (SINGLE / MAX_MB) and MAX_MB */
++	u32			slice_mode, slice_max_mb;
+ 	/*
+ 	 * docs/81: VIDEO_B_FRAMES and REF_NUMBER_FOR_PFRAMES as set, and
+ 	 * MIN_BUFFERS_FOR_OUTPUT, which follows B_FRAMES. nb is B_FRAMES as
+@@ -658,6 +660,12 @@ static int ave_s_ctrl(struct v4l2_ctrl *c)
+ 	case V4L2_CID_MPEG_VIDEO_REF_NUMBER_FOR_PFRAMES:
+ 		ctx->p_refs = c->val;
+ 		break;
++	case V4L2_CID_MPEG_VIDEO_MULTI_SLICE_MODE:
++		ctx->slice_mode = c->val;
++		break;
++	case V4L2_CID_MPEG_VIDEO_MULTI_SLICE_MAX_MB:
++		ctx->slice_max_mb = c->val;
++		break;
+ 	case V4L2_CID_MPEG_VIDEO_HEVC_I_FRAME_QP:
+ 		ctx->hevc_qp = c->val;	/* one QP for I and P, as H.264 */
+ 		break;
+@@ -707,7 +715,7 @@ static int ave_init_ctrls(struct ave_ctx *ctx)
+ 	/* docs/89 §9: where two references hang, the ranges stop at 0 and 1 */
+ 	const bool two = ctx->av->two_refs;
+ 
+-	v4l2_ctrl_handler_init(h, 22);
++	v4l2_ctrl_handler_init(h, 26);
+ 	/*
+ 	 * ffmpeg sets 0 and reads it back; non-zero fails its open (docs/81
+ 	 * §3.2), so 0 stays the default. 1..2 (docs/81 "V4L2 implementation").
+@@ -762,6 +770,18 @@ static int ave_init_ctrls(struct ave_ctx *ctx)
+ 	v4l2_ctrl_new_std_menu(h, o, V4L2_CID_MPEG_VIDEO_H264_LEVEL,
+ 			       V4L2_MPEG_VIDEO_H264_LEVEL_5_2, 0,
+ 			       V4L2_MPEG_VIDEO_H264_LEVEL_4_0);
++	/*
++	 * Silicon Bakery: slices of whole MB / CTB rows (the hardware's slice
++	 * map, ave_sess_slice_map). MAX_BYTES is not offered: 13.5 has no
++	 * byte-limited slicing on the host interface.
++	 */
++	v4l2_ctrl_new_std_menu(h, o, V4L2_CID_MPEG_VIDEO_MULTI_SLICE_MODE,
++			       V4L2_MPEG_VIDEO_MULTI_SLICE_MODE_MAX_MB,
++			       ~(BIT(V4L2_MPEG_VIDEO_MULTI_SLICE_MODE_SINGLE) |
++				 BIT(V4L2_MPEG_VIDEO_MULTI_SLICE_MODE_MAX_MB)),
++			       V4L2_MPEG_VIDEO_MULTI_SLICE_MODE_SINGLE);
++	v4l2_ctrl_new_std(h, o, V4L2_CID_MPEG_VIDEO_MULTI_SLICE_MAX_MB,
++			  1, (AVE_MAX_W / 16) * (AVE_MAX_H / 16), 1, 1);
+ 	v4l2_ctrl_new_std_menu(h, o, V4L2_CID_MPEG_VIDEO_HEADER_MODE,
+ 			       V4L2_MPEG_VIDEO_HEADER_MODE_JOINED_WITH_1ST_FRAME,
+ 			       ~BIT(V4L2_MPEG_VIDEO_HEADER_MODE_JOINED_WITH_1ST_FRAME),
+@@ -990,6 +1010,31 @@ static void ave_ctx_vui(const struct ave_ctx *ctx, struct ave_vui *v)
+ 	}
+ }
+ 
++/*
++ * MULTI_SLICE_MAX_MB -> a slice count over whole rows: as many rows per
++ * slice as fit in MAX_MB (at least one: a MAX_MB below one row gets
++ * one-row slices, logged), HEVC rows being 32 lines = 2 MB rows. 0 = one.
++ */
++static u32 ave_ctx_slices(const struct ave_ctx *ctx)
++{
++	const bool hevc = ctx->codec == AVE_ENC_CODEC_HEVC;
++	u32 row_mbs = ALIGN(ctx->width, 16) / 16 * (hevc ? 2 : 1);
++	u32 rows = DIV_ROUND_UP(ctx->height, hevc ? 32 : 16);
++	u32 per;
++
++	if (ctx->slice_mode != V4L2_MPEG_VIDEO_MULTI_SLICE_MODE_MAX_MB ||
++	    !ctx->slice_max_mb || !row_mbs)
++		return 0;
++	per = ctx->slice_max_mb / row_mbs;
++	if (!per) {
++		dev_warn(ctx->av->ave->dev,
++			 "v4l2: MULTI_SLICE_MAX_MB %u is below one %s row (%u MBs); slices are one row each\n",
++			 ctx->slice_max_mb, hevc ? "CTB" : "MB", row_mbs);
++		per = 1;
++	}
++	return DIV_ROUND_UP(rows, per);
++}
++
+ static int ave_start_streaming(struct vb2_queue *q, unsigned int count)
+ {
+ 	struct ave_ctx *ctx = vb2_get_drv_priv(q);
+@@ -1078,6 +1123,7 @@ static int ave_start_streaming(struct vb2_queue *q, unsigned int count)
+ 		if (nb && !cfg.qp_b)
+ 			cfg.qp_b = min_t(u32, cfg.qp + AVE_B_QP_OFFSET, 51);
+ 		ave_ctx_vui(ctx, &cfg.vui);
++		cfg.slices = ave_ctx_slices(ctx);
+ 		if (cfg.vui.present)
+ 			dev_info(av->ave->dev,
+ 				 "v4l2: SPS VUI colour: primaries %u transfer %u matrix %u %s range\n",
