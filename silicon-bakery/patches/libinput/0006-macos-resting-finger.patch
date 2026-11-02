@@ -1,0 +1,386 @@
+Apple trackpads: macOS's resting finger, and the firmware's palms instead of strips.
+
+How macOS 27.2 keeps hands at rest out of the way, from HSTouchHIDService
+(the user-space gesture engine of the built-in trackpad):
+
+- Palms and edge contacts are the trackpad firmware's verdict, not the
+  host's. Every contact record carries a finger identity (byte 2): 1 thumb,
+  2-5 fingers, 6-11 palm, 12-14 edge contact, 15 ignored, 0 unidentified;
+  the engine counts only 1-5 as fingers (MTParserPath_::isFingerContact and
+  friends, 0x6ffe4-0x70200), and nothing else moves the pointer, takes part
+  in a gesture or tap, or counts in the click finger count (edge contacts
+  may still press the button). There are no strips, size
+  limits or typing timers for palms on the host (no keyboard input reaches
+  the engine at all; MultitouchSupport's MTDeviceDispatchKeyboardEvent is a
+  stub returning kIOReturnUnsupported). With a kernel that passes those
+  contacts on as MT_TOOL_PALM, libinput's tool-type palm detection does the
+  same, so the strips of 0001 (side strips after typing, the bottom strip)
+  now apply only to kernels that do not.
+
+- On top, the host marks at most one finger "resting" per frame, the one
+  nearest the front edge (MTPathStates_::checkForRestingThumb 0x7312c; the
+  Resting bit 0x200 of its digitizer events is this flag, 0x704ac). For
+  fingers other than the thumb, with exactly two fingers down:
+    it rests while it lies within the strip along the front edge,
+      zone = 12 mm * (H/76, or its square root below 1) + p + (p + 6) * k
+      p = (min(|touchdown difference|, 0.2 s) / 0.2 s)^0.75
+      k = clamp((major radius - 8 mm) / 10 mm, 0, 1)
+    (12.13 to 20.1 mm here, isContactOnDivingButton 0x72c94), unless the
+    other finger is beside it (under 19 mm away along y and 30 mm along x,
+    countFingersOnDivingButton 0x72fb8), or it touched down higher than
+    45 % of the pad's height (55 % with a palm below it), judged when the
+    later of the two lands;
+    it rests while the button is held down (from the frame after the
+    press, so the click itself still counts both fingers);
+    it stops resting while it moves along with the other finger: speed
+    over 10 mm/s and sqrt(v u) / ((v + u)/2 + 1 mm/s) * cos(angle) above
+    0.765, with u the faster other finger (computePathAndFingerSpeed-
+    Symmetries 0x74574, breakOutOfRestingThumbBasedOnSymmetry 0x744e0).
+  A resting finger moves nothing and counts for no gesture, tap or click,
+  so a thumb resting on the click area while the index finger points
+  points, clicks with one finger count, and drags while the button is held,
+  instead of scrolling or right-clicking. Here it is a palm state,
+  PALM_RESTING, recomputed every frame. ABS_MT_WIDTH_MAJOR is read for the
+  radius: the kernel reports the radius in 0.01 mm doubled, as a diameter.
+
+Not ported, as the kernel does not say which finger is the thumb: the
+thumb's own rules (resting anywhere in the front 45 % while the other
+fingers translate rather than pinch, MTRestZoneIntegrator_; a thumb lying
+still for 0.25 s next to one finger becoming an edge contact until it
+travels 8 mm), and the latch that keeps a finger resting once translation
+dominates. Velocities come from libinput's history rather than the
+firmware's.
+
+--- a/src/evdev-frame.h
++++ b/src/evdev-frame.h
+@@ -132,6 +132,7 @@
+ 	EVDEV_ABS_MT_TRACKING_ID = _evbit(EV_ABS, ABS_MT_TRACKING_ID),
+ 	EVDEV_ABS_MT_TOUCH_MAJOR = _evbit(EV_ABS, ABS_MT_TOUCH_MAJOR),
+ 	EVDEV_ABS_MT_TOUCH_MINOR = _evbit(EV_ABS, ABS_MT_TOUCH_MINOR),
++	EVDEV_ABS_MT_WIDTH_MAJOR = _evbit(EV_ABS, ABS_MT_WIDTH_MAJOR),
+ 	EVDEV_ABS_MT_ORIENTATION = _evbit(EV_ABS, ABS_MT_ORIENTATION),
+ 	EVDEV_ABS_MT_PRESSURE = _evbit(EV_ABS, ABS_MT_PRESSURE),
+ 	EVDEV_ABS_MT_DISTANCE = _evbit(EV_ABS, ABS_MT_DISTANCE),
+@@ -242,6 +243,7 @@
+ 	CASE_RETURN_STRING(EVDEV_ABS_MT_TRACKING_ID);
+ 	CASE_RETURN_STRING(EVDEV_ABS_MT_TOUCH_MAJOR);
+ 	CASE_RETURN_STRING(EVDEV_ABS_MT_TOUCH_MINOR);
++	CASE_RETURN_STRING(EVDEV_ABS_MT_WIDTH_MAJOR);
+ 	CASE_RETURN_STRING(EVDEV_ABS_MT_ORIENTATION);
+ 	CASE_RETURN_STRING(EVDEV_ABS_MT_PRESSURE);
+ 	CASE_RETURN_STRING(EVDEV_ABS_MT_DISTANCE);
+--- a/src/evdev-mt-touchpad.c
++++ b/src/evdev-mt-touchpad.c
+@@ -584,6 +584,11 @@
+ 		t->dirty = true;
+ 		tp->queued |= TOUCHPAD_EVENT_OTHERAXIS;
+ 		break;
++	case EVDEV_ABS_MT_WIDTH_MAJOR:
++		t->width_major = e->value;
++		t->dirty = true;
++		tp->queued |= TOUCHPAD_EVENT_OTHERAXIS;
++		break;
+ 	default:
+ 		break;
+ 	}
+@@ -871,6 +876,12 @@
+ static bool
+ tp_palm_detect_rest_triggered(struct tp_dispatch *tp, struct tp_touch *t, usec_t time)
+ {
++	/* With the trackpad's own verdict on each contact (the kernel passing
++	 * its palms and edge contacts on as MT_TOOL_PALM), no strips: macOS
++	 * has none on the host, the firmware tells palms apart. */
++	if (tp->palm.use_mt_tool && t->palm.state != PALM_REST)
++		return false;
++
+ 	if (t->palm.state == PALM_REST) {
+ 		struct device_float_coords delta = device_delta(t->point, t->palm.first);
+ 		struct phys_coords mm = tp_phys_delta(tp, delta);
+@@ -1207,6 +1218,9 @@
+ 		break;
+ 	case PALM_REST:
+ 		palm_state = "rest";
++		break;
++	case PALM_RESTING:
++		palm_state = "resting";
+ 		break;
+ 	case PALM_NONE:
+ 	default:
+@@ -1218,6 +1232,198 @@
+ 			t->index,
+ 			touch_state_to_str(t->state),
+ 			palm_state);
++}
++
++/* macOS's resting finger (HSTouchHIDService: MTPathStates_::
++ * checkForRestingThumb 0x7312c, countFingersOnDivingButton 0x72d6c,
++ * isContactOnDivingButton 0x72c94, breakOutOfRestingThumbBasedOnSymmetry
++ * 0x744e0), for the fingers that are not thumbs; the kernel does not pass
++ * on which finger the trackpad takes for a thumb. Of two fingers, the one
++ * nearer the front edge rests - moves nothing, takes part in no gesture,
++ * tap or click count - while it lies in the strip along the front edge and
++ * the other finger is not beside it, or while the button is held down,
++ * unless it moves along with the other finger. */
++#define RESTING_HEIGHT_RATIO 0.45
++#define RESTING_HEIGHT_RATIO_PALM_BELOW 0.55
++#define RESTING_SYMMETRY_RELEASE 0.765
++#define RESTING_SYMMETRY_MIN_SPEED 10.0 /* mm/s */
++
++static inline bool
++tp_resting_candidate(const struct tp_touch *t)
++{
++	return (t->state == TOUCH_BEGIN || t->state == TOUCH_UPDATE) &&
++	       !t->is_tool_palm &&
++	       (t->palm.state == PALM_NONE || t->palm.state == PALM_RESTING);
++}
++
++/* Distance from the front edge (libinput's y grows towards the user) */
++static inline double
++tp_resting_front_mm(const struct tp_dispatch *tp, const struct tp_touch *t)
++{
++	const struct input_absinfo *ay = tp->device->abs.absinfo_y;
++
++	return (ay->maximum - t->point.y) / (double)ay->resolution;
++}
++
++/* Velocity in mm/s over the last few frames (macOS uses the firmware's) */
++static struct phys_coords
++tp_resting_velocity(const struct tp_dispatch *tp, struct tp_touch *t)
++{
++	struct phys_coords v = { 0.0, 0.0 };
++	unsigned int n = min(t->history.count, 4U);
++	const struct tp_history_point *now, *then;
++	double dt;
++
++	if (n < 2)
++		return v;
++
++	now = tp_motion_history_offset(t, 0);
++	then = tp_motion_history_offset(t, n - 1);
++	dt = (us2ms_f(now->time) - us2ms_f(then->time)) / 1000.0;
++	if (dt <= 0.0)
++		return v;
++
++	v = tp_phys_delta(tp, device_delta(now->point, then->point));
++	v.x /= dt;
++	v.y /= dt;
++
++	return v;
++}
++
++static void
++tp_resting_detect(struct tp_dispatch *tp, usec_t time)
++{
++	struct tp_touch *t, *lowest = NULL, *second = NULL;
++	unsigned int nfingers = 0;
++	bool resting = false;
++
++	if (!tp->palm.macos_resting)
++		return;
++
++	tp_for_each_touch(tp, t) {
++		if (!tp_resting_candidate(t))
++			continue;
++
++		nfingers++;
++		if (!lowest || t->point.y > lowest->point.y) {
++			second = lowest;
++			lowest = t;
++		} else if (!second || t->point.y > second->point.y) {
++			second = t;
++		}
++	}
++
++	if (nfingers >= 2) {
++		double y = tp_resting_front_mm(tp, lowest);
++		double others_down = 0.0, dt, p, k = 0.0, zone, limit;
++		bool palm_below = false, candidate, held;
++		int on = 0;
++
++		tp_for_each_touch(tp, t) {
++			if (t->state != TOUCH_BEGIN && t->state != TOUCH_UPDATE)
++				continue;
++			if (tp_resting_candidate(t)) {
++				if (t != lowest &&
++				    (others_down == 0.0 ||
++				     us2ms_f(t->initial_time) < others_down))
++					others_down = us2ms_f(t->initial_time);
++			} else if (tp_resting_front_mm(tp, t) < y) {
++				palm_below = true;
++			}
++		}
++
++		/* The strip: 12 mm (scaled by the pad's height), deeper when
++		 * the two fingers landed apart in time and for a large
++		 * contact (isContactOnDivingButton) */
++		dt = fabs(us2ms_f(second->initial_time) -
++			  us2ms_f(lowest->initial_time)) / 1000.0;
++		p = pow(min(dt, 0.2) / 0.2, 0.75);
++		if (tp->palm.width_units_per_mm > 0.0) {
++			double radius = lowest->width_major /
++					tp->palm.width_units_per_mm / 2.0;
++			k = max(0.0, min(1.0, (radius - 8.0) / 10.0));
++		}
++		zone = tp->palm.resting_zone_mm + p + (p + 6.0) * k;
++		if (y < zone) {
++			struct phys_coords d = tp_phys_delta(
++				tp, device_delta(lowest->point, second->point));
++
++			on = 1;
++			if (fabs(d.y) < 19.0 && fabs(d.x) < 30.0)
++				on++;
++		}
++
++		/* A finger that touched down high up the pad never rests by
++		 * the strip; decided when the later finger lands */
++		limit = (palm_below ? RESTING_HEIGHT_RATIO_PALM_BELOW
++				    : RESTING_HEIGHT_RATIO) *
++			tp->palm.height_mm;
++		if (us2ms_f(time) == max(us2ms_f(lowest->initial_time), others_down))
++			lowest->palm.rest_high = y > limit;
++
++		candidate = nfingers < 3 && on == 1;
++		/* Held since an earlier frame: the click itself still counts
++		 * both fingers, as on macOS */
++		held = tp->buttons.is_clickpad && tp->buttons.state &&
++		       tp->buttons.old_state;
++		resting = (candidate && !lowest->palm.rest_high) ||
++			  (held && nfingers < 3);
++
++		/* Moving along with the other finger: not resting */
++		if (resting && !held) {
++			struct phys_coords v = tp_resting_velocity(tp, lowest);
++			double vs = hypot(v.x, v.y);
++
++			if (vs > RESTING_SYMMETRY_MIN_SPEED) {
++				struct phys_coords u = { 0.0, 0.0 };
++				double us = 0.0;
++
++				tp_for_each_touch(tp, t) {
++					struct phys_coords w;
++
++					if (t == lowest || !tp_resting_candidate(t))
++						continue;
++					w = tp_resting_velocity(tp, t);
++					if (hypot(w.x, w.y) > us) {
++						u = w;
++						us = hypot(w.x, w.y);
++					}
++				}
++				if (us > 0.0) {
++					double cosine = (v.x * u.x + v.y * u.y) / (vs * us);
++					double symmetry = sqrt(vs * us) /
++							  ((vs + us) / 2.0 + 1.0) * cosine;
++
++					if (symmetry > RESTING_SYMMETRY_RELEASE)
++						resting = false;
++				}
++			}
++		}
++	}
++
++	tp_for_each_touch(tp, t) {
++		bool rest = resting && t == lowest;
++
++		if (t->state != TOUCH_BEGIN && t->state != TOUCH_UPDATE)
++			continue;
++
++		if (rest && t->palm.state == PALM_NONE) {
++			t->palm.state = PALM_RESTING;
++			t->palm.time = time;
++			t->palm.first = t->point;
++			evdev_log_debug(tp->device,
++					"palm: touch %d is resting\n",
++					t->index);
++		} else if (t->palm.state == PALM_RESTING &&
++			   (!rest || t->is_tool_palm)) {
++			t->palm.state = (t->is_tool_palm && tp->palm.use_mt_tool)
++						? PALM_TOOL_PALM
++						: PALM_NONE;
++			evdev_log_debug(tp->device,
++					"palm: touch %d is no longer resting\n",
++					t->index);
++		}
++	}
+ }
+ 
+ static void
+@@ -1818,6 +2024,8 @@
+ 	if ((tp->queued & TOUCHPAD_EVENT_BUTTON_PRESS) && tp->buttons.is_clickpad)
+ 		tp_pin_fingers(tp);
+ 
++	tp_resting_detect(tp, time);
++
+ 	tp_gesture_update_finger_state(tp, time);
+ }
+ 
+@@ -3610,6 +3818,28 @@
+ 	if (libevdev_has_event_code(device->evdev, EV_ABS, ABS_MT_TOOL_TYPE))
+ 		tp->palm.use_mt_tool = true;
+ 
++	if (evdev_device_has_model_quirk(device, QUIRK_MODEL_APPLE_TOUCHPAD) &&
++	    device->abs.absinfo_x->resolution > 0 &&
++	    device->abs.absinfo_y->resolution > 0) {
++		const struct input_absinfo *w =
++			libevdev_get_abs_info(device->evdev, ABS_MT_WIDTH_MAJOR);
++		double width, height, scale;
++
++		/* MTPathStates_::updateSurfaceDimensions: 12 mm on a pad
++		 * 76 mm high, scaled with the height (by its square root
++		 * below that) */
++		evdev_device_get_size(device, &width, &height);
++		scale = height / 76.0;
++		if (scale < 1.0)
++			scale = sqrt(scale);
++		tp->palm.macos_resting = true;
++		tp->palm.resting_zone_mm = 12.0 * scale;
++		tp->palm.height_mm = height;
++		/* the radius in 0.01 mm, reported doubled as a diameter */
++		if (w)
++			tp->palm.width_units_per_mm = w->resolution > 0 ? w->resolution : 100.0;
++	}
++
+ 	if (!tp_is_tablet(device))
+ 		tp_init_palmdetect_edge(tp, device);
+ 	tp_init_palmdetect_pressure(tp, device);
+--- a/src/evdev-mt-touchpad.h
++++ b/src/evdev-mt-touchpad.h
+@@ -77,6 +77,7 @@
+ 	PALM_TOUCH_SIZE,
+ 	PALM_ARBITRATION,
+ 	PALM_REST,
++	PALM_RESTING,
+ };
+ 
+ enum button_event {
+@@ -201,6 +202,7 @@
+ 	int pressure;
+ 	bool is_tool_palm; /* MT_TOOL_PALM */
+ 	int major, minor;
++	int width_major; /* ABS_MT_WIDTH_MAJOR */
+ 
+ 	bool was_down; /* if distance == 0, false for pure hovering
+ 			  touches */
+@@ -271,6 +273,7 @@
+ 		enum touch_palm_state state;
+ 		struct device_coords first; /* first coordinates if is_palm == true */
+ 		usec_t time;                /* first timestamp if is_palm == true */
++		bool rest_high; /* touched down high up the pad (macOS) */
+ 	} palm;
+ 
+ 	struct {
+@@ -488,6 +491,14 @@
+ 
+ 		bool use_mt_tool;
+ 
++		/* macOS's resting finger on Apple trackpads: the strip along
++		 * the front edge it rests in, the pad's height (mm), and the
++		 * units per mm of ABS_MT_WIDTH_MAJOR (a diameter) */
++		bool macos_resting;
++		double resting_zone_mm;
++		double height_mm;
++		double width_units_per_mm;
++
+ 		bool use_pressure;
+ 		int pressure_threshold;
+ 
