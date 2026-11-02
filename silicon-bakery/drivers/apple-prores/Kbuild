@@ -1,0 +1,3 @@
+# SPDX-License-Identifier: GPL-2.0-only
+obj-m += apple-prores.o
+apple-prores-y := apple-prores-drv.o apple-prores-desc.o

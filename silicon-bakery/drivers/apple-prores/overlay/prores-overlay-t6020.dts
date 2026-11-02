@@ -1,0 +1,53 @@
+// SPDX-License-Identifier: GPL-2.0-only
+/*
+ * Runtime overlay for the t6020 (M2 Pro) ProRes engine, for kernels whose DT
+ * lacks patches/linux-prores. Applied by prores_overlay_mod.c.
+ *
+ * Values: [ADT] 13.5 j414sap /arm-io/apr0 (compatible "apr,d0", reg
+ * 0x1_1100_0000+0x4000 core and 0x1_1000_0000+0x1000000 wrapper, interrupt
+ * 1558) and /arm-io/dart-apr0 ("dart,t8110", reg 0x1_1102_8000+0x4000,
+ * interrupt 1557, sid 1, vm-base 0x100_0000_0000); CPU address = bus +
+ * 0x2_0000_0000 (/arm-io ranges). Power: the SCODEC pmgr device (0x34,
+ * Asahi's ps_scodec, label "scodec"), which function-device_reset also
+ * names; both apr0's clock-gates and the DART's (SCODEC-DART 0x203) hang
+ * off it.
+ *
+ * The base tree has no __symbols__, so the AIC and ps_scodec phandles are
+ * sentinels (0xa7e000NN, the AVE overlay's scheme) that the module replaces
+ * with the live ones.
+ */
+/dts-v1/;
+/plugin/;
+
+/ {
+	fragment@0 {
+		target-path = "/soc";
+
+		__overlay__ {
+			#address-cells = <2>;
+			#size-cells = <2>;
+
+			prores_dart: iommu@311028000 {
+				compatible = "apple,t6020-dart", "apple,t8110-dart";
+				reg = <0x3 0x11028000 0x0 0x4000>;
+				#iommu-cells = <5>;
+				interrupt-parent = <0xa7e00013>;
+				interrupts = <0 0 1557 4>;
+				power-domains = <0xa7e00034>;
+			};
+
+			prores@311000000 {
+				compatible = "apple,t6020-prores";
+				reg = <0x3 0x11000000 0x0 0x4000>,
+				      <0x3 0x10000000 0x0 0x1000000>;
+				reg-names = "core", "wrapper";
+				interrupt-parent = <0xa7e00013>;
+				interrupts = <0 0 1558 4>;
+				power-domains = <0xa7e00034>;
+				resets = <0xa7e00034>;
+				/* stream 1, the ADT's 4 GiB window at vm-base 1 TiB */
+				iommus = <&prores_dart 1 0x100 0x0 0x1 0x0>;
+			};
+		};
+	};
+};

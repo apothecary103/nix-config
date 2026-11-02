@@ -1,0 +1,3 @@
+# SPDX-License-Identifier: GPL-2.0-only
+obj-m += prores-overlay.o
+prores-overlay-y := prores_overlay_mod.o
