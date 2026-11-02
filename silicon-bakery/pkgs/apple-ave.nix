@@ -38,7 +38,17 @@ stdenv.mkDerivation {
   };
 
   # The t6020 port (SoC row, AXI2AF tunables, ADT DVAs, overlay variant=15).
-  patches = [ ../patches/apple-ave/0001-t6020.patch ];
+  patches = [
+    ../patches/apple-ave/0001-t6020.patch
+    # Silicon Bakery features beyond the community driver (docs/ave-port.txt
+    # "Features beyond the community driver"); each off or unchanged by default.
+    ../patches/apple-ave/0002-vui-colour.patch
+    ../patches/apple-ave/0003-cbr-filler.patch
+    ../patches/apple-ave/0004-slices.patch
+    ../patches/apple-ave/0005-realtime-throughput.patch
+    ../patches/apple-ave/0006-pm-replay.patch
+    ../patches/apple-ave/0007-chroma-formats.patch
+  ];
 
   # test/Makefile compiles the overlays with dtc and embeds them with python3.
   nativeBuildInputs = kernel.moduleBuildDependencies ++ [
