@@ -1,0 +1,9 @@
+#!/bin/sh
+# Builds the Metal probes next to this script (macOS, Xcode command line
+# tools): features (MTLDevice queries), atomics64 (which 64-bit atomics
+# compile, and their throughput) and dispatch (cost per compute dispatch).
+set -eu
+cd "$(dirname "$0")"
+for p in features atomics64 dispatch; do
+  xcrun swiftc -O -swift-version 5 -framework Metal "$p.swift" -o "$p"
+done
