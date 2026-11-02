@@ -40,27 +40,31 @@
   # source; tools/mt-probe measures it, and a profile with
   # trackpad.measured (tools/mt-probe/analyse.py --write) supplies it.
   quantisation ? profile.trackpad.measured.pointerQuantisation or "exact",
-  # Scroll output scale. macOS ends in scroll-wheel lines, which the window
-  # server turns into points; { pixelsPerLine = 10; } is CGEventSource's
-  # documented default (about 3.5 px per mm of slow finger travel here).
-  # { slowPixelsPerMM = x; } keeps Apple's curve shape and sets the slow-speed
-  # rate instead: 5 moves content with the finger, 1:1, on this 254 ppi panel
-  # at scale 2 (1512 px across 302 mm). tools/mt-probe measures the real one,
-  # which a profile with trackpad.measured supplies.
-  scroll ?
-    if profile.trackpad ? measured.scrollPixelsPerLine then
-      { pixelsPerLine = profile.trackpad.measured.scrollPixelsPerLine; }
-    else
-      { slowPixelsPerMM = 5.0; },
+  # Scroll output scale. macOS ends in scroll-wheel lines, which WindowServer
+  # turns into exactly 10 points each, rounding every event up to a whole
+  # point: { pixelsPerLine = 10; roundUp = true; }, the default. The gesture
+  # engine emits whole counts with the remainder carried, so at the slowest
+  # every count is one point (15.75 per mm of finger travel), and the
+  # rounding matters less as events grow. { pixelsPerLine = x; } without
+  # roundUp is Apple's curve alone (3.5 px per mm at the slowest);
+  # { slowPixelsPerMM = x; } keeps its shape at another slow-speed rate. A
+  # profile with trackpad.measured.scrollPixelsPerLine (tools/mt-probe)
+  # overrides the scale.
+  scroll ? {
+    pixelsPerLine = profile.trackpad.measured.scrollPixelsPerLine or 10.0;
+    roundUp = true;
+  },
   # Sample spacing of the libinput curves, in inches per second of finger speed.
   # libinput takes 64 points; past the last one it extrapolates the last
   # segment. The pointer's default puts the last two samples on Apple's
   # tangent line, so the extrapolation is exact up to the line's end at
   # tangentSpeedParabolicRoot (33.6 in/s here), with the finest spacing that
-  # allows. Scrolling at 0.4 in/s keeps slow scrolls within 8 % of macOS and
-  # flings to 40 in/s within 6 % (tests/default.nix holds it to that).
+  # allows. Scrolling rounded per event is sampled at whole counts per report,
+  # which libinput's interpolation then reproduces exactly; without rounding,
+  # 0.4 in/s keeps slow scrolls within 8 % and flings to 40 in/s within 6 %
+  # (tests/accel.nix holds both to that).
   pointerStep ? null,
-  scrollStep ? 0.4,
+  scrollStep ? null,
 }:
 let
   tp = profile.trackpad;
@@ -244,9 +248,36 @@ let
 
   pixelsPerLine =
     if scroll ? pixelsPerLine then scroll.pixelsPerLine else scroll.slowPixelsPerMM / slowLinesPerMM;
+  roundUp = scroll.roundUp or false;
 
-  # Logical pixels per ms.
-  scrollPixels = v: scrollLines v * pixelsPerLine;
+  # Finger speed (in/s) of one whole count per report.
+  countSpeed = 1000 / (scrollDpi * intervalMs);
+
+  # Points WindowServer makes of an event of n whole counts, rounded up.
+  pointsPerEvent =
+    n: if n <= 0 then 0.0 else ceil (pixelsPerLine * scrollLines (n * countSpeed) * intervalMs);
+  ceil =
+    x:
+    let
+      i = builtins.ceil x;
+    in
+    i + 0.0;
+
+  # Logical pixels per ms. Rounded per event, a steady finger speed between
+  # whole counts per report alternates the two neighbouring event sizes, so
+  # the output follows the straight line between them (below one count, one
+  # event of a count every few reports).
+  scrollPixels =
+    v:
+    if !roundUp then
+      scrollLines v * pixelsPerLine
+    else
+      let
+        c = counts scrollDpi v;
+        n = builtins.floor c;
+        frac = c - n;
+      in
+      (pointsPerEvent n * (1 - frac) + pointsPerEvent (n + 1) * frac) / intervalMs;
 
   # The trackpad's own units per mm, which libinput's speeds are in. The MTP
   # trackpads report hundredths of a millimetre (macOS's multitouch stack
@@ -298,7 +329,14 @@ let
 in
 {
   pointer = sample pointerStep' pointer;
-  scroll = sample scrollStep scrollPixels;
+  scroll = sample (
+    if scrollStep != null then
+      scrollStep
+    else if roundUp then
+      countSpeed
+    else
+      0.4
+  ) scrollPixels;
 
   # The underlying functions (finger in/s to output per ms) and the numbers
   # they come from, for tests and for anyone building their own curves.
@@ -308,6 +346,7 @@ in
   inherit
     unitsPerMM
     pixelsPerLine
+    roundUp
     slowLinesPerMM
     pointerTangentSpeed
     ;

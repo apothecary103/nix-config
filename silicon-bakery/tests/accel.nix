@@ -53,7 +53,16 @@ let
     # What libinput makes of the 64 samples (its interpolation and
     # extrapolation), against the functions themselves.
     ++ interpolated "pointer" 0.045 exact exact.pointer exact.functions.pointer 33.5
-    ++ interpolated "scroll" 0.085 exact exact.scroll exact.functions.scrollPixels 40.0;
+    # Rounded per event (the default): exact while the samples last (63 whole
+    # counts a report), within 7 % beyond.
+    ++ interpolated "scroll" 1.0e-9 exact exact.scroll exact.functions.scrollPixels (
+      62.5 * 1000 / (400 * 8)
+    )
+    ++
+      interpolated "scroll beyond the samples" 0.07 exact exact.scroll exact.functions.scrollPixels
+        40.0
+    # Apple's curve alone, sampled every 0.4 in/s.
+    ++ interpolated "scroll (unrounded)" 0.085 apple apple.scroll apple.functions.scrollPixels 40.0;
 
   # libinput's custom_accel_function_profile, for a finger speed in in/s.
   libinputSpeed =

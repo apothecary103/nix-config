@@ -186,20 +186,22 @@ in
       };
 
       scroll = lib.mkOption {
-        type = lib.types.attrsOf lib.types.float;
-        default =
-          if measured ? scrollPixelsPerLine then
-            { pixelsPerLine = measured.scrollPixelsPerLine; }
-          else
-            { slowPixelsPerMM = 5.0; };
+        type = lib.types.attrsOf (lib.types.either lib.types.float lib.types.bool);
+        default = {
+          pixelsPerLine = measured.scrollPixelsPerLine or 10.0;
+          roundUp = true;
+        };
         example = {
-          pixelsPerLine = 10.0;
+          slowPixelsPerMM = 5.0;
         };
         description = ''
-          The absolute scroll speed: points per scroll-wheel line as macOS
-          renders them ({ pixelsPerLine }), or the slow-speed content travel per
-          mm of finger travel with Apple's curve shape kept ({ slowPixelsPerMM }).
-          tools/mt-probe measures the former.
+          The absolute scroll speed. macOS's WindowServer makes 10 points of a
+          scroll-wheel line and rounds every event up to a whole point
+          ({ pixelsPerLine = 10; roundUp = true; }, the default), so the
+          slowest scrolling moves a point for every count of finger travel.
+          { pixelsPerLine } alone is Apple's curve without the rounding;
+          { slowPixelsPerMM } keeps its shape at another slow-speed rate.
+          tools/mt-probe measures the scale on the Mac itself.
         '';
       };
 
@@ -266,6 +268,7 @@ in
               .${trackpad.click}
           }"
         ];
+
         # bakery-trackpad: the curves as numbers, and libinput's own debugger
         # running them on the trackpad, to check on the machine what the
         # compositor applies.
