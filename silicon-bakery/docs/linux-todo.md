@@ -1,7 +1,8 @@
 # Media engine: what to do on Linux
 
 Written 2026-11-02 on the Mac14,9 under macOS, for an agent running on frieren
-(NixOS on the same Mac). Everything below was written and statically checked on
+(NixOS on the same Mac). `ON-LINUX.md` is the overall runbook (rebuild, GPU,
+trackpad, display); this file is the media engine part of its section 4. Everything below was written and statically checked on
 macOS; nothing has run on Linux. Work top to bottom. Each block has its own
 runbook in `silicon-bakery/docs/<block>-port.txt` with exact commands, expected
 `dmesg` lines and what each failure means: read it before touching that block.
@@ -31,9 +32,10 @@ runbook in `silicon-bakery/docs/<block>-port.txt` with exact commands, expected
 
 1. **Private firmware.** The encoder and ProRes files are committed in the
    Mac's `~/asahi-firmware` (two commits, `ave/` and `prores/`) but Codeberg
-   refused every push to that repo on 2026-11-02 ("pre-receive hook declined /
-   Internal Server Connection Error", even for a one-file commit; pushes to
-   nix-config worked, SSH auth was fine). A bundle of the two commits is at
+   refused every push on 2026-11-02 from about 16:40 ("pre-receive hook
+   declined / Internal Server Connection Error"), for asahi-firmware and
+   nix-config alike, with SSH auth fine: a Codeberg-side incident. nix-config's
+   GitHub mirror has every commit; Codeberg's lambda-river may lag. A bundle of the two commits is at
    `~/asahi-firmware-2026-11-02.bundle` on macOS.
    - Retry from Linux: clone `git@codeberg.org:frieren/asahi-firmware.git`; if
      it still lacks `ave/` and `prores/`, get the bundle across (Maomao HDD,

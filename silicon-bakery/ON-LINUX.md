@@ -147,7 +147,8 @@ lists only VP9, see that doc.
 
 ## 4. Experimental features, one per boot, with the user's go-ahead
 
-Lowest risk first. For each one:
+Lowest risk first. For the media engine rows, `docs/linux-todo.md` has the
+firmware hand-over, the per-block order and the open questions. For each one:
 1. Set the option in `modules/hosts/frieren/configuration.nix` under
    `hardware.siliconBakery`.
 2. Follow the doc's on-machine plan.
