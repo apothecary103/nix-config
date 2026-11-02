@@ -1,0 +1,401 @@
+ProRes engine (apr0) on t6020 / M2 Pro (MacBook Pro 14" Mac14,9, j414s)
+=========================================================================
+Silicon Bakery, 2026-11-02. Written on the Mac14,9 itself under macOS 27.2.
+STATUS: static work only. Nothing here has been compiled for Linux, built
+with Nix or run. There is one machine: no m1n1 proxy, no hypervisor trace,
+no netconsole. Every claim carries one of these labels:
+
+  [ADT]     the macOS 13.5 j414sap device tree (Asahi stub copy); [ADT-27.2]
+            this Mac's live IODeviceTree under macOS 27.2
+  [KEXT13.5] Ghidra decompile of AppleProResHW in the stub's 13.5
+            kernelcache (kernelcache.release.mac14j, sha256 ea70fb77...0c11)
+  [KEXT27]  the same kext in macOS 27.2 (mostly its log strings, which name
+            descriptor fields)
+  [PLUGIN]  AppleProResHWEncoder.bundle (VideoToolbox plugin) __const
+  [LIVE]    VideoToolbox probes on this Mac (macOS 27.2)
+  [M1N1]    m1n1 proxyclient hw/prores.py, experiments/prores.py: a working
+            encode on M1 Max (version 0 descriptor, same family)
+  [AURORA]  aurora-silicon/linux aurora-wip drivers/media/platform/apple/prores
+            (T8140 encoder, 27c8c52a, 2026-11-02)
+  [SPEC]    SMPTE RDD 36 (ProRes bitstream), ffmpeg's ProRes tables
+  [DT]      Asahi DTs/drivers at tag asahi-7.2.14-1
+  [INF]     inference, not verified
+  [HW]      only a run on the machine can settle it
+
+Files, as they sit in Silicon Bakery:
+  drivers/apple-prores/                    the out-of-tree driver (forked from
+      apple-prores-drv.c                   aurora's T8140 driver, GPL-2.0-only)
+      apple-prores-desc.c                  tables, rate control, v0 descriptors
+      apple-prores.h                       registers, descriptor knobs
+      apple-prores-uapi.h                  V4L2_PIX_FMT_PRORES + controls for
+                                           kernels without them (all of ours)
+      Kbuild, Makefile                     make KDIR=...
+      overlay/                             runtime DT overlay loader
+                                           (prores_overlay.ko), port of
+                                           aquarat's ave_overlay_mod.c
+  patches/linux-prores/0001-dt-bindings-media-apple-prores.patch
+  patches/linux-prores/0002-arm64-dts-apple-t602x-add-prores.patch
+  tools/bakery-prores-tables               tunables generator (Python 3
+                                           stdlib, macOS)
+  pkgs/apple-prores.nix                    the out-of-tree module derivation
+No Apple binary or table is in this repository. The driver computes its
+quantisation matrices, dead-zone rounding and DC scale; the 64 DMA-block
+tunables come from the owner's macOS 13.5 through the generator.
+tools/m1n1/prores_t6020.py was not written: there is no second machine.
+
+
+1. Prior art (checked 2026-11-02)
+---------------------------------
+- m1n1 (34c1a1e2): hw/prores.py (register map, v0 encode descriptor struct),
+  experiments/prores.py (M1 Max: A0_0-style tunables, ring, matrices, one
+  1080p 4:4:4 encode that decodes), hv/trace_prores.py. [M1N1]
+- aurora-silicon/linux aurora-wip: drivers/media/platform/apple/prores, a
+  V4L2 mem2mem encoder for T8140 (A18 Pro) with the version 1 descriptor
+  (frame header at 0x7c instead of 0x58), compiled-in T8140 tunables, KUnit
+  tests, and a uAPI proposal: V4L2_PIX_FMT_PRORES 'PRES', control
+  V4L2_CID_MPEG_VIDEO_PRORES_PROFILE (CODEC_BASE+658, menu Proxy..4444 XQ).
+  Neither is upstream. [AURORA]
+- Nobody has published anything for t6020/t6021 ProRes.
+
+2. Hardware facts
+-----------------
+2.1 Nodes [ADT] (CPU address = bus + 0x2_0000_0000, /arm-io ranges)
+  apr0       compatible "apr,d0", device_type "apr"
+             reg 0x3_1100_0000 +0x4000   engine ("core")
+                 0x3_1000_0000 +0x1000000 SCODEC wrapper ("wrapper"); the 13.5
+                 kext touches it only to drain transaction limiters (2.6)
+             interrupt 1558 (AIC die 0)
+             clock-gates 0x1f1 SCODEC-V, 0x250/0x251 SCODEC-SOC-VNOM/VMAX
+             function-device_reset = pmgr 'ARST' 0x34 (SCODEC)
+             function-bw_req_interrupt = pmgr 'BIRQ' 0x34
+  dart-apr0  "dart,t8110", reg 0x3_1102_8000 +0x4000, interrupt 1557,
+             sid 1, vm-base 0x100_0000_0000, vm-size 0x300_0000_0000,
+             clock-gates 0x203 SCODEC-DART
+  [ADT-27.2] adds a second DART reg (0x3_1102_4000, an SMMU) and sid 0
+  ("scdc", the SCodec coprocessor's borrow of the core). Nothing on this Mac
+  uses it under 27.2 and the 13.5 kext does not know it. Ignored.
+2.2 Power [ADT][DT]: pmgr device 0x34 SCODEC (ps 0x8e080220 = Asahi
+  t602x-pmgr.dtsi ps_scodec @0x220, label "scodec", #reset-cells, parent
+  afnc1_lw0). SCODEC-V/-DART/-SOC-V* are children or perf requests in the
+  second pmgr bank that Linux does not model; 0x142 PRORES (ps_prores
+  @0xc000 in pmgr_south) is t6021's second engine and is deleted on t6020.
+  The DT uses power-domains = resets = <&ps_scodec> for the engine and
+  <&ps_scodec> for the DART. The pmp report for scodec stays disabled.
+  Not modelled: the VNOM/VMAX performance votes. If the engine is slow,
+  that is the first suspect [INF].
+2.3 Identity [KEXT13.5]: gs_sAPR_DevInfo_Conversion maps "d0" to DevID 5;
+  SetProResTunablesByDevID gives DevID 5 core 0 AppleProResCTunablesD0_0
+  (64 writes). gs_sAPR_DevVersion_Conversion maps the ID register (0x000)
+  to a version: 0x10000 0, 0x10001 1, 0x20000 2, 0x30000 3, 0x30008 4,
+  0x30011 5, 0x30014 6, 0x40000 7, 0x40002 8. Versions >= 3 have the stats
+  registers at 0x38c/0x70c ([KEXT27] activateDevice; < 3 use 0x278/0x358),
+  version 8 reports extra status words. Which value t6020 reads is [HW];
+  the driver prints it and refuses anything below 3 (id_any=1 overrides).
+2.4 Bring-up order [KEXT27 activateDevice; 13.5's failed to decompile, its
+  callers match]: MODE(0x8)=0; tunables; RING_SIZE(0x100)=0x20000;
+  RING_LO(0x104)=iova&0xffffff80; RING_HI(0x108)=(iova>>32)&0x3ff;
+  TAIL(0x110)=saved tail; stats: size = max(0x394, 0x714) as the tunables
+  set them (0x180000 = 1.5 MiB on d0), LO/HI to 0x38c/0x390 and 0x70c/0x710,
+  one buffer for both; MODE=0xd; IRQ_ENABLE(0xc)=3; quant matrices; DC
+  scale; HEAD(0x10c)=saved head if non-zero. The driver also writes HEAD=0
+  and TAIL=0 while MODE=0 (m1n1's order), so a block that kept power cannot
+  fetch stale descriptors. 27.2 adds SCodec PS and AXI2AF tunables; 13.5
+  has neither for this core and the driver writes none.
+2.5 Ring [KEXT13.5 UpdateDRHead/IsDescriptorRingFull/EncodeFrameGated]:
+  128 KiB; HEAD/TAIL hold the byte offset in [23:7] and a wrap flag in bit
+  24 that toggles each time the offset wraps; a descriptor may straddle the
+  end (the kext splits the copy). Descriptors: encode 0x180, decode 0x100,
+  RAW decode 0x80, RAW encode 0x100 (GetDescSize).
+2.6 Interrupt [KEXT13.5 interruptHandler]: IRQ_STATUS(0x10) & 3 (bit 0
+  done, bit 1 error), cleared by writing the value back. Read with it:
+  ST0 0x14, ST1 0x18, ST2 0x1c, 0x3c (decode result), 0x44 (encode
+  result), TAIL. An error's class: ST2[1:0] == 1 gives status 5 (encode) /
+  6 (decode), otherwise 1 / 2.
+2.7 Watchdog and recovery [KEXT13.5 timerHandler]: 1500 ms per job. On
+  expiry: perf state down; quiesceHWBulkTraffic (wrapper 0xf6c and 0xe5c:
+  write 0, poll [26:16] outstanding reads to 0, write 0, poll [10:0]
+  outstanding writes to 0, 50 x 1 ms each); abort the hung job; DART
+  cacheFlushInactive and setActive(0, dirty); quiesceHWLLTTraffic (write
+  0xd48, poll 0xd4c the same way); function-device_reset 1, 1 ms, 0; DART
+  setActive(1); re-activate (2.4) and reissue the queued jobs. The
+  register pair choice is the kext's for DevID 5, instance 0 ("apr0").
+2.8 Limits [LIVE]: one core; 16x16 .. 8192x8192; macOS refuses above
+  about 50-67 Mpixel. HW decode of apco/apcs/apcn/apch/ap4h/ap4x and the
+  RAW codecs; HW encode of all six profiles from 422/444 YCbCr.
+
+3. The version 0 descriptor
+---------------------------
+t6020 uses the M1-family v0 layout ([KEXT13.5]: DevID 5 takes
+ProgramEncodeYCbCrDescriptor<v0>), not T8140's v1. Field names in quotes
+are [KEXT27] log names.
+3.1 Command word (+0x000), encode and decode:
+  [31:16] "fid" frame id; [13] "fstpss" fast pass; [12] "Int" interrupt
+  on completion; [11:8] "enc" mode; [7] "a" alpha; [6] "cmp" compressed
+  (tiled) surfaces, with tile-header pointers at +0x30/+0x40/+0x50 and
+  strides in 32-byte tile units; [5:4] "nPass"; [3:2] "cfmt" (2 = 4:2:2,
+  3 = 4:4:4); [1:0] "bd" (0 = 8 bit, 1..3 16-bit reads [M1N1]; 3 [AURORA]).
+  enc mode and nPass come from the plugin: m1n1 traced 0x373c (mode 7,
+  nPass 3) on M1 Max, aurora uses 0x3630|cfmt (mode 6) on T8140. The
+  driver uses 7/3 (enc_mode=, enc_passes= to change). Decode's [11:8] is
+  plugin-supplied too and unknown: dec_mode= (default 0) [HW].
+3.2 The "2-bit flags", settled as far as the kext goes:
+  +0x004 "cmdX": three 2-bit fields "LCY" [1:0], "LCC" [3:2], "LCA" [5:4]
+  (decode: two 1-bit then two 2-bit fields), written only for DevID 3..13
+  (t6020 is 5). They go with "cmp" = per-plane lossy-compression mode of a
+  compressed IOSurface. Linear buffers: 0 (m1n1 used 0).
+  +0x150 [1:0] "ControlCRC" (plugin value; 3 in m1n1 and aurora; kept);
+  [7:4] "QuantMatrixIndex" (the table, 3.4).
+  +0x06b "loadQuantMatY_loadQuantMatC": the frame header's flags byte; the
+  kext always writes 3: both matrices present (RDD 36 bit 1 luma, bit 0
+  chroma).
+3.3 Encode, 0x180 bytes [KEXT13.5]:
+  0x008 output IOVA; 0x010 output capacity; 0x014/0x016 input offset;
+  0x018/0x01a size; 0x01c/0x01e surface width/height; 0x020/0x022/0x024
+  Y/C/A stride in 64-byte units (floor); 0x028/0x038/0x048 Y/C/A IOVAs;
+  0x058..0x0eb the ProRes frame header (big-endian): size 0x94, version
+  (0 for 4:2:2 without alpha, else 1), encoder id (macOS "apl0"; ours
+  "bkry"), width, height, chroma/interlace, aspect/rate, primaries,
+  transfer, matrix, src-format|alpha (4:4:4 0xd0/0xe0, 4:2:2 0x10/0x30 by
+  depth, | alpha type), flags 3; 0x0ec slice count (BE), 0x0ee log2 slice
+  width << 4, 0x0ef quantiser index, 0x0f0/0x0f2 "TargetSize"/"MaxSize",
+  0x0f4 "mbCategoryThr0..5" (7 bits each) + "disQuantRefin" bit 63, 0x0fc
+  "alpha", "alpha0", "gamma0", 0x100 four "beta", 0x110 sixteen
+  "corrRatio_quantThr", 0x150 3.2.
+  Whether the engine fills the 128 matrix bytes (0x06c..0x0eb): yes. The
+  kext never writes them (the encode builder does not touch 0x6c-0xeb) and
+  m1n1 sent zeros there and got a frame that decodes. [KEXT13.5][M1N1]
+3.4 Matrices [KEXT13.5 ProgramCustomQuantizationAndRoundingMatrices]: five
+  banks (luma 0x800+0x80*t, chroma 0x1000+0x80*t), 32 words each; a word is
+  w[2i] [5:0], dz[2i] [11:6], w[2i+1] [17:12], dz[2i+1] [23:18]. Banks: 0 XQ
+  (luma = ffmpeg's XQ luma, chroma = HQ), 1 HQ, 2 422, 3 LT, 4 Proxy (the
+  proxy chroma table for both). The kext's weight tables are byte-identical
+  to the public ones; dead-zone rounding is 32 everywhere except Proxy,
+  where it is 63 from the 7th anti-diagonal on (row+col >= 7). The driver
+  computes these; the result equals every value m1n1 traced. (aurora's
+  "bit 11 set / all-ones" reading is the same thing: 0x802 is w 2, dz 32.)
+3.5 DC scale [KEXT13.5 ProgramDCQuantizationScale]: 112 words at 0x1800,
+  computed (equals m1n1's table).
+3.6 Status words: the kext forwards ST0 bit 30 to the plugin as a per-frame
+  flag (meaning unknown), 0x44 (encode) or 0x3c (decode) as a result word,
+  and nothing else of ST0. So "ST0[29:0] = encoded size" is not what the
+  kext does; the frame size is the first big-endian word of the frame the
+  engine writes (RDD 36 frame_size), and the driver uses that. Whether 0x44
+  equals it is [HW]: the driver logs both (dyndbg).
+3.7 Rate control [AURORA][PLUGIN]: the plugin turns quality into a target
+  frame size; the per-profile sizes (fractions of a 422 HQ size table) and
+  the fixed fields (thresholds 0x0c 0x0c 0x10 0x15 0x20 0x40, betas
+  0x880080 0x4e00c5 0x9000d0 0x200122, sixteen 0x400200, max = 9/8 target)
+  are in AppleProResHWEncoder's __const and in aurora's driver. The driver
+  uses aurora's computation, and lets the user set the target/max in bytes
+  (controls in apple-prores-uapi.h). The optional two-pass "double encode"
+  using the stats buffer is not implemented.
+3.8 Decode, 0x100 bytes [KEXT13.5 DecodeFrame, client type 0]:
+  0x008 bitstream IOVA; 0x010..0x01a six 16-bit plugin fields of which
+  0x014/0x016 are the coded width/height (the kext derives the macroblock
+  count from them); 0x010/0x012 and 0x018/0x01a are taken as offsets and
+  written 0 [INF]; 0x01c/0x01e surface size; 0x020.. strides
+  ((bytes+63)/64); 0x028/0x038/0x048 Y/C/A IOVAs; 0x090 bitstream bytes.
+  "Two Pic mode" (interlaced as two pictures) is refused by the kext; the
+  driver refuses interlaced frames. RAW decode (client type 1, 0x80 bytes,
+  four Bayer planes in CFA order, size at 0x048) is documented here only;
+  macOS debayers on the GPU.
+3.9 Cmd-splitter hang [KEXT13.5 CheckIfCmdSplitterHangWARrequired,
+  CheckForCmdSplitterHangCondition, UpdateDRHead, interruptHandler]: on
+  DevID 4..13 (d0 = 5 included) the kext withholds the HEAD write when
+  exactly one job is queued, the new job is of the same class as the queued
+  one (encode/encode or decode/decode: the decompiled test is
+  (new > 1) != (prev < 2)), and TAIL already equals HEAD (the queued job
+  was fetched and runs); once withheld, later HEAD writes are withheld too;
+  the interrupt handler writes the saved HEAD before clearing the status.
+  The driver reproduces this (apr_cmd_splitter_defer), but runs one job at
+  a time, so the condition never holds. Settled from the decompile; no
+  trace was possible.
+
+4. Tunables and the generator
+-----------------------------
+D0_0 is 64 (offset, mask, value) writes to 0x008..0x714: MODE bit 3 and
+the DMA/AXI channel block (0x118..0x714; size registers 0x394/0x714 =
+0x180000). It is bit-identical in the 27.2 kext. It differs from M1's
+A0_0 (the table m1n1 used) and from aurora's T8140 table, in offsets and
+values: the wrong table programs the engine's AXI channels wrongly, and a
+bad AXI transaction can hang the fabric with no log (2.9 of
+docs/ave-port.txt has the same failure class). So the driver loads exactly
+this table and checks its sha256.
+
+On macOS (stub Preboot mounted read-only, or the kernelcache passed):
+  tools/bakery-prores-tables -o /Volumes/NixScratch/ame-re/private-fw/prores \
+      --board j414sap --kernelcache <13.5 kernelcache.release.mac14j>
+Run 2026-11-02 against /Volumes/NixScratch/ame-re/kc135/kernelcache.release.mac14j:
+  kext gs_sAPR_DevInfo_Conversion['d0'] = DevID 5
+  AppleProResCTunablesD0_0: 64 register field writes, 0x8..0x714,
+    table sha256 582ecb1cef6cb81ad7801b693fff5331938be2bf0e1e791aaf5d855d89498d8b
+  apple/prores-13.5-d0.bin, 792 bytes,
+    sha256 34c15a7be72e87e8b33bab84e43cca989a2de6b078ec3dfa34d1ef0f0c5b1e51
+Output is deterministic (two runs, identical bytes). Format: "APRTUN01",
+count, DevID, 0x0d05, 0, then count x {offset, mask, value} (LE). The
+driver refuses another magic/count/DevID, an offset outside 0x000-0x7ff
+or inside 0x00c-0x110 (IRQ/ring), a value outside its mask, or another
+sha256 (tunables_any=1 for experiments only).
+
+5. Staged bring-up on the Mac alone
+-----------------------------------
+There is no second machine, so a hang leaves nothing but what reached the
+disk. Before any of this:
+  - persistent journal: services.journald.storage = "persistent" (NixOS
+    default with /var/log/journal), and check `journalctl --list-boots`.
+  - journald writes messages of priority CRIT and above to disk at once.
+    During a staged bring-up (stop_after or step_ms set) the driver prints
+    every stage marker with dev_crit, then sleeps step_ms. So after a hard
+    hang and a forced power-off, `journalctl -k -b -1 | tail` ends with the
+    stage that hung.
+  - pstore: the asahi config has PSTORE=y, PSTORE_RAM=m, EFI_VARS_PSTORE=y
+    [kcheck .config]. ramoops needs a reserved-memory "ramoops" region in the
+    DT, which nothing provides on Apple silicon, and whether DRAM keeps its
+    contents across the PMU reset after a fabric hang is unknown; U-Boot's
+    EFI variables are not writable at runtime, so efi-pstore does nothing.
+    Do not count on pstore. [INF]
+  - run `sync` before each risky step; keep a shell with
+    `journalctl -kf` open.
+
+Load order. With the DT patch the node exists; without it apply the overlay
+once per boot (it cannot be removed):
+  sudo modprobe prores_overlay      # or insmod .../extra/prores-overlay.ko
+  expect: prores-overlay: aic -> phandle 0x.. (x2)
+          prores-overlay: scodec -> phandle 0x.. (x3)
+          prores-overlay: applied, ovcs_id=N
+          apple-dart 311028000.iommu: DART [pagesize 4000, 16 streams, ...]
+The tunables file must be in the firmware path (hardware.firmware).
+
+Then step through, one modprobe per stage, rmmod in between:
+  sync; sudo modprobe apple_prores stop_after=1 step_ms=2000
+  stage 1  map registers, IRQ, reset, IOMMU. No hardware access.
+           expect "stage 1: map ..." then "stop_after=1: stopping after
+           stage 1" and probe failing with -125 (ECANCELED, intended).
+           Failure: "no IOMMU" = the DART node did not bind.
+  stop_after=2  power on ps_scodec and the DART (runtime PM).
+           A hang here is a power-domain problem, not this driver's
+           registers: check ps_scodec's parents (afnc1_lw0) in
+           /sys/kernel/debug/pm_genpd/pm_genpd_summary.
+  stop_after=3  reads only: prints
+           "ID 0x... (version N) mode ... ring ... stats size .../...
+            limiters ..."
+           A hang on the first read means the block is not clocked (power
+           domain on but SCODEC-V not, 2.2). A version < 3 is refused.
+           Record this line: it settles the ID register [HW].
+  stop_after=4  loads and checks the tunables file. No hardware writes.
+           expect "apple/prores-13.5-d0.bin: 64 tunables, 0x8..0x714".
+  stop_after=5  FIRST WRITES: MODE=0 and the 64 DMA-block tunables.
+           expect "tunables applied; stats size 0x180000/0x180000".
+           This is the fabric-hang risk point. A hang here (journal ends at
+           "stage 5: write MODE=0 and 64 DMA-block tunables") means the
+           table or its target is wrong for this block. Do not retry;
+           compare the stage 3 read-back values with the table's.
+           Stats sizes other than 0x180000 mean the writes did not land.
+  stop_after=6  ring, stats buffer, MODE=0xd, matrices; no descriptor.
+           expect "ring 0x10000..., stats 0x10000...+0x180000" and
+           "engine on: mode 0xd head 0x0 tail 0x0". A tail that moves
+           here means the engine fetched without a HEAD write: stop.
+  stop_after=7 selftest=1  the first descriptor and the first DMA: one
+           64x64 4:2:2 HQ encode, polled, interrupt off.
+           expect "self-test: status 0x1 ..." and
+           "self-test: NNN-byte ProRes 422 HQ frame, header ...
+           xx xx xx xx 69 63 70 66 00 94 00 00 62 6b 72 79 00 40 00 40 ..."
+           (frame size, "icpf", header size 0x94, version 0, "bkry", 64x64)
+           A hang here is the DMA path (DART window, IOVA width, the
+           tunables' AXI settings); a DART fault in the log means the IOVA
+           window (iommus cells) is wrong; "no completion in 1500 ms" with
+           the machine alive means a descriptor field (enc_mode, strides).
+           Status 0x2 = error: the log has st0/st1/st2.
+  stop_after=0 (default)  stage 8: interrupt, /dev/videoN
+           "apple-prores-enc"; decoder=1 adds "apple-prores-dec".
+Without stop_after/step_ms the markers are debug messages.
+
+Recovery (recovery=1 default): a job that does not finish in 1500 ms is
+logged ("job hung: ..."), the wrapper limiters are drained (2.7), the
+engine is stopped and the device runtime-suspends at once so ps_scodec
+powers off; the next job re-initialises it. recovery=2 adds the pmgr reset
+before the power cycle (macOS's order; its effect on the DART's state is
+unknown [HW]). recovery=0 refuses all further jobs. "the engine did not
+suspend" means the domain stayed on; the next job still re-programs the
+engine from MODE=0.
+
+Never rmmod the overlay module (there is no exit by design). rmmod
+apple_prores is safe: remove() lets the engine stop and suspend.
+
+6. Testing
+----------
+Formats: encoder OUTPUT NV16, P216 (4:2:2), NV24, P416 (4:4:4), private
+APA8/APA6 (4:4:4 + alpha plane); CAPTURE PRES (one frame per buffer).
+Profile: control 0x00990b92 (CODEC_BASE+658) "ProRes Profile" 0..5
+(Proxy, LT, 422, HQ, 4444, 4444 XQ); 4:2:2 input needs 0..3, 4:4:4 4..5.
+Rate: "ProRes Target Frame Bytes" / "Max Frame Bytes" (0 = macOS's size),
+"ProRes Start Quantiser".
+
+  ffmpeg -f lavfi -i testsrc2=size=1920x1080:rate=25 -frames 50 \
+         -pix_fmt nv16 -f rawvideo in.nv16
+  v4l2-ctl -d /dev/videoN --list-formats-out --list-formats --list-ctrls
+  v4l2-ctl -d /dev/videoN \
+     --set-fmt-video-out=width=1920,height=1080,pixelformat=NV16 \
+     --set-fmt-video=pixelformat=PRES \
+     --set-ctrl=prores_profile=3 \
+     --stream-out-mmap --stream-mmap --stream-from=in.nv16 \
+     --stream-to=out.prores --stream-count=50
+  (the control's v4l2-ctl name is derived from "ProRes Profile")
+
+out.prores is the frames back to back; each starts with its BE32 size and
+'icpf'. ffmpeg has no raw ProRes demuxer: split and read as images, e.g.
+  python3 -c 'import sys,struct;d=open(sys.argv[1],"rb").read();o=i=0
+while o<len(d):
+ n=struct.unpack(">I",d[o:o+4])[0];open("f%04d.prores"%i,"wb").write(d[o:o+n]);o+=n;i+=1' out.prores
+  ffmpeg -c:v prores -f image2 -framerate 25 -i f%04d.prores -c:v rawvideo \
+         -pix_fmt nv16 dec.nv16                            [INF: untested]
+  ffprobe -show_frames -c:v prores -f image2 -i f%04d.prores | head
+  ffmpeg -f rawvideo -s 1920x1080 -pix_fmt nv16 -i in.nv16 \
+         -f rawvideo -s 1920x1080 -pix_fmt nv16 -i dec.nv16 \
+         -lavfi psnr -f null -
+Expect PSNR above ~45 dB for HQ, lower for LT/Proxy; compare with
+  ffmpeg -f rawvideo -s 1920x1080 -pix_fmt nv16 -i in.nv16 -c:v prores_ks \
+         -profile:v 3 ref.mov
+for size (ls -l) and PSNR. If ffmpeg reports bad quantisation matrices,
+3.3's "engine fills the matrices" is wrong for t6020: set them in the
+descriptor (apr_build_enc_desc) from apple-prores-desc.c's tables.
+
+Decoder (decoder=1, experimental; dec_mode unknown): OUTPUT PRES with the
+stream's width/height set by S_FMT, one frame per buffer (bytesused =
+frame size); CAPTURE NV16/P216/NV24/P416, size fixed by the stream. No
+SOURCE_CHANGE events, no resolution changes mid-stream, progressive only.
+  v4l2-ctl -d /dev/videoM \
+     --set-fmt-video-out=width=1920,height=1080,pixelformat=PRES \
+     --set-fmt-video=pixelformat=NV16 --stream-out-mmap --stream-mmap \
+     --stream-from-hdr ... (needs per-frame sizes; easiest from a small
+     program) --stream-to=dec.nv16
+Compare against ffmpeg's software decode of the same frames with psnr.
+
+7. Userspace
+------------
+No upstream V4L2 ProRes fourcc or profile control exists (7.2.14 has
+none); the driver uses aurora's proposed values and private controls
+(apple-prores-uapi.h, installed with the package). Consequences:
+  - ffmpeg: libavcodec's v4l2_m2m wrappers have no ProRes entry. Needed: a
+    fourcc mapping in v4l2_fmt.c (AV_CODEC_ID_PRORES <-> 'PRES'), an
+    M2MENC(prores, ...) / M2MDEC(prores, ...) pair, the profile set through
+    CODEC_BASE+658 in v4l2_m2m_enc.c (map -profile:v 0..5 straight), and
+    for the encoder NV16/P216/NV24/P416 input (already in the table). That
+    is a small patch (~80 lines) against FFmpeg n9.0.x in the style of
+    patches/ffmpeg/0001-ave-v4l2m2m.patch. Recommendation: carry it once
+    an encode has been seen to work on hardware, not before; the private
+    control IDs could still move.
+  - GStreamer: v4l2videoenc has no ProRes subclass and there are no
+    video/x-prores caps in gst-plugins-good's v4l2 mapping; it would need a
+    v4l2proresenc element. Not worth it before ffmpeg works.
+  - Until then: v4l2-ctl as in 6.
+
+8. Open questions
+-----------------
+- The ID register value on t6020 (stage 3 prints it).
+- enc_mode 7 (M1 trace) vs 6 (T8140); decode mode [11:8] unknown.
+- Whether 0x44 equals the frame size; what ST0 bit 30 means.
+- The decode descriptor's 0x010/0x012/0x018/0x01a.
+- The effect of SCODEC's pmgr reset on the DART (recovery=2).
+- Throughput (perf votes 0x250/0x251 not modelled).
+- RAW decode: documented (3.8), not implemented.
