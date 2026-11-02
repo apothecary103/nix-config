@@ -32,7 +32,8 @@ in
         (hardware.graphics.package): Honeykrisp leaving input attachments
         uncompressed, without which wlroots' 10-bit Vulkan scanout flickers a
         border round the panel on G14S (M2 Pro/Max), and the compute barrier
-        AGXMetalG14X uses on single-die G14X instead of every known bit. Only
+        AGXMetalG14X uses on single-die G14X instead of every known bit, and
+        VK_EXT_memory_budget advertised (Honeykrisp implements it). Only
         the driver package changes, so nothing that links Mesa is rebuilt.
       '';
     };
