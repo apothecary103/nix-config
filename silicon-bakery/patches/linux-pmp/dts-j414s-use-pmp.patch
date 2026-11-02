@@ -1,0 +1,43 @@
+From: Silicon Bakery <noreply@localhost>
+Subject: [PATCH] arm64: dts: apple: t6020-j414s: use the PMP, opt-in
+
+Define APPLE_USE_PMP for the 14" M2 Pro. The pmp alias it adds is what
+m1n1 (dt_set_pmp) looks for: it copies the board ID, DRAM vendor and the
+ADT's /arm-io/pmp/iop-pmp-nub tunables into the node and enables it, so
+apple_pmp starts the Power Management Processor. DCP, the external DCPs,
+AVD and the ISP's DART then take their power domains from the PMP report
+entries, so the coprocessor knows when they are on.
+
+t602x leaves pmp_report_isp_sys disabled and no t602x board enables it,
+unlike the M1 Pro/Max and M2 Air boards; with the define alone the ISP's
+DART would wait for a power domain that never appears and the camera
+would not probe. Enable it here.
+
+Asahi measured about 0.5 W less at idle on a 14" M1 Pro (progress
+report 7.0) and calls the driver unvalidated on most machines. t602x has
+no apple,pio-ranges for the PMP (t600x does; t8112 does not either, and
+the ADT has none), so the driver answers its IOVA table request empty.
+Not booted on an M2 Pro.
+
+---
+--- a/arch/arm64/boot/dts/apple/t6020-j414s.dts
++++ b/arch/arm64/boot/dts/apple/t6020-j414s.dts
+@@ -9,6 +9,9 @@
+ 
+ /dts-v1/;
+ 
++/* m1n1 starts the PMP; DCP, AVD and the ISP report through it */
++#define APPLE_USE_PMP
++
+ #include "t6020.dtsi"
+ #include "t602x-j414-j416.dtsi"
+ 
+@@ -45,3 +48,8 @@
+ &mtp_mt {
+ 	firmware-name = "apple/tpmtfw-j414s.bin";
+ };
++
++/* t602x leaves this entry disabled; the ISP's DART needs it with PMP */
++&pmp_report_isp_sys {
++	status = "okay";
++};

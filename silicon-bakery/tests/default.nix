@@ -103,6 +103,7 @@ in
       ++ target.siliconBakery.kernelPatchesHdr
       ++ target.siliconBakery.kernelPatchesVrr
       ++ target.siliconBakery.kernelPatchesAve
+      ++ target.siliconBakery.kernelPatchesPmp
     )
   );
   patches-mesa = appliesTo "mesa" target.mesa.src target.siliconBakery.mesa;

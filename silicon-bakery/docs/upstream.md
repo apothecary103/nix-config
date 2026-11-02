@@ -22,6 +22,7 @@ Where Silicon Bakery stands against Asahi upstream, surveyed 2026-11-02.
 | linux-hdr | none; chadmed's unmerged `dcp/scanout` 5fa3d22649eb touches the same functions |
 | linux-vrr | none; #477 (open, minRR) edits neighbouring code: rebase when it lands |
 | linux-ave | none |
+| linux-pmp | none; Asahi keeps `APPLE_USE_PMP` opt-in until the PMP driver is upstream |
 | mesa/mesa-hk-no-compressed-input-attachments | not reported upstream; compression code unchanged through 26.3.0-rc3 and main |
 | mesa/mesa-agx-g14x-metal-cdm-barrier | ours, from AGXMetalG14X; Mesa !44041 (open) drops the same bits but also unk_10/12 |
 | linux/drm-asahi-flush-stamps-last-command | AsahiLinux/linux#633, open, no fix posted |

@@ -17,6 +17,7 @@ in
     ./graphics.nix
     ./input.nix
     ./media.nix
+    ./power.nix
   ];
 
   options.hardware.siliconBakery = {

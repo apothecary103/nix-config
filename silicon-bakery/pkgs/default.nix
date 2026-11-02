@@ -92,5 +92,7 @@ in
     kernelPatchesVrr = kernelPatchesIn ../patches/linux-vrr;
     # The AVE's device tree nodes (media.encode.deviceTree).
     kernelPatchesAve = kernelPatchesIn ../patches/linux-ave;
+    # The PMP on the Mac14,9 (power.experimentalPmp).
+    kernelPatchesPmp = kernelPatchesIn ../patches/linux-pmp;
   };
 }

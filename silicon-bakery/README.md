@@ -205,6 +205,16 @@ private input. Experimental and untested on the M2 Pro; `docs/ave-port.txt`
 is the staged bring-up. `docs/media-engine.md` has the hardware facts and
 the CPU encoding settings for meanwhile.
 
+### Power (`modules/power.nix`)
+
+`power.experimentalPmp`: the Power Management Processor, which macOS always
+runs and Linux leaves idle (`patches/linux-pmp`). The device tree defines
+`APPLE_USE_PMP`, so m1n1 hands the PMP its board tunables and the displays,
+decoder and camera report their power states to it, and enables the ISP's
+report entry that t602x leaves off, without which the camera would not
+probe. Asahi measured about 0.5 W less at idle on an M1 Pro. Mac14,9 only,
+untested on hardware; `docs/pmp.md` has the test plan.
+
 ### Packages
 
 Under `pkgs.siliconBakery` (and `packages.aarch64-linux`), so nothing else in
