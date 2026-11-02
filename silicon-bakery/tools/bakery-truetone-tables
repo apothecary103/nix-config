@@ -1,0 +1,267 @@
+#!/usr/bin/env python3
+# SPDX-License-Identifier: GPL-2.0-only
+"""bakery-truetone-tables: True Tone's tables, from this Mac's own macOS.
+
+The True Tone daemon (silicon-bakery/tools/truetone) runs CoreBrightness's
+colour engine, transliterated into C, with no Apple tables in it. The tables
+it needs come from the owner's copy of macOS, read here and loaded at run
+time:
+
+  apple/truetone.bin    the a*b* gamut polygon, the two adaptation-by-a*b*
+                        look-up tables, the ramp easing curve, the
+                        blackbody CCT-to-xy table and the off-diagonal gains
+                        ("magic") of macOS's CoreBrightness
+
+They are read the way corebrightnessd builds them: this tool loads
+CoreBrightness into its own process and calls CFXCreate,
+CFXSetWhitePointType(1), CFXInitializeAmbientAdaptation and
+CFXSetAmbientAdaptationStrength(0.2), then copies the tables out of the
+structures those fill. It changes nothing on the system.
+
+File format (little endian):
+
+  0x00  8  magic "BKTT0001"
+  0x08  4  section count
+  0x0c     sections: { char name[16]; u32 count; f32 data[count] }
+             polygon    36  18 (a*, b*) pairs
+             lut0_x     29  a* axis      lut0_y 55  b* axis
+             lut0      1595 55 rows of 29
+             lut1_x, lut1_y, lut1   the same for the second table
+             curve     201  ramp easing over [0, 1]
+             blackbody 813  271 CCTs, then 271 x, then 271 y
+             magic       6  _CFXMagic's off-diagonal gains
+
+What is checked before anything is written (each failure is a refusal):
+  - CoreBrightness has the CFX functions by name;
+  - every constant the C port carries (Bradford, the sRGB matrices, D65 and
+    its LMS, the u'v' thresholds, ramp times, lux limits, the low-light white
+    and the mode strengths) equals what CFX holds after its own set-up;
+  - the tables hash to TABLES_SHA256 (macOS 27.2, 26B5101f); --any lifts that.
+
+Run on macOS (Apple Silicon), Python 3 standard library only:
+
+  tools/bakery-truetone-tables -o ./out     # writes out/apple/truetone.bin
+
+then copy out/ into the private firmware input (hardware.siliconBakery.
+display.trueTone.tables). Apple's numbers: never in a public flake or cache.
+"""
+import argparse
+import ctypes
+import hashlib
+import os
+import platform
+import struct
+import subprocess
+import sys
+
+CB = "/System/Library/PrivateFrameworks/CoreBrightness.framework/Versions/A/CoreBrightness"
+TABLES_SHA256 = "9e4098c44716eb20ef7d2d37de6480f808a2964ff30dfcfb00dfe06f2ba39b4e"
+
+# What tools/truetone/cfx.c hardcodes, as CFX holds it (offset, type, value)
+CFX_CONSTANTS = {
+    "Bradford x sRGB (cfx+0x700)": (0x700, 9, [
+        0.422657996, 0.491356999, 0.0273644999,
+        0.0556907989, 0.961556017, 0.0231893994,
+        0.0213792007, 0.087643899, 0.980742991]),
+    "its inverse (cfx+0x724)": (0x724, 9, [
+        2.53845, -1.29348004, -0.040243201,
+        -0.145999998, 1.11661994, -0.0223286003,
+        -0.0422882996, -0.0715901032, 1.02251005]),
+    "sRGB to XYZ (cfx+0x748)": (0x748, 9, [
+        0.412390798, 0.357584327, 0.180480793,
+        0.212639004, 0.715168655, 0.0721923187,
+        0.0193308182, 0.119194783, 0.950532138]),
+    "D65 (cfx+0x6e4)": (0x6e4, 2, [0.312715888, 0.329001009]),
+    "D65 LMS (cfx+0x6f0)": (0x6f0, 3, [0.941429019, 1.04040003, 1.08971202]),
+}
+HARMONY_CONSTANTS = {
+    "u'v' thresholds (+0x98)": (0x98, 2, [0.00300000003, 0.0350000001]),
+    "ramp times (+0xa8)": (0xa8, 4, [5.0, 5.0, 5.0, 5.0]),
+    "dim and dark ramp times (+0xb8)": (0xb8, 2, [20.0, 60.0]),
+    "enable period (+0xc4)": (0xc4, 1, [2.0]),
+    "lux limits (+0xc8)": (0xc8, 4, [10.0, 15.0, 25.0, 35.0]),
+    "low-light white (+0xdc)": (0xdc, 2, [0.382661015, 0.384642988]),
+    "mode strengths (+0xe8)": (0xe8, 6, [0.0, 0.2, 0.2, 0.1, 0.1, 0.1]),
+}
+
+
+class DlInfo(ctypes.Structure):
+    _fields_ = [("fname", ctypes.c_char_p), ("fbase", ctypes.c_void_p),
+                ("sname", ctypes.c_char_p), ("saddr", ctypes.c_void_p)]
+
+
+def die(msg):
+    sys.exit("bakery-truetone-tables: " + msg)
+
+
+def floats(addr, n):
+    return list(struct.unpack("<%df" % n, ctypes.string_at(addr, 4 * n)))
+
+
+def u64(addr):
+    return struct.unpack("<Q", ctypes.string_at(addr, 8))[0]
+
+
+def i32(addr):
+    return struct.unpack("<i", ctypes.string_at(addr, 4))[0]
+
+
+def f32(v):
+    return struct.unpack("<f", struct.pack("<f", v))[0]
+
+
+def cfx_functions(libsys):
+    """Name -> address for CoreBrightness's functions (LC_FUNCTION_STARTS)."""
+    libsys._dyld_image_count.restype = ctypes.c_uint32
+    libsys._dyld_get_image_name.restype = ctypes.c_char_p
+    libsys._dyld_get_image_name.argtypes = [ctypes.c_uint32]
+    libsys._dyld_get_image_header.restype = ctypes.c_void_p
+    libsys._dyld_get_image_header.argtypes = [ctypes.c_uint32]
+    libsys._dyld_get_image_vmaddr_slide.restype = ctypes.c_long
+    libsys._dyld_get_image_vmaddr_slide.argtypes = [ctypes.c_uint32]
+    libsys.dladdr.argtypes = [ctypes.c_void_p, ctypes.POINTER(DlInfo)]
+
+    for i in range(libsys._dyld_image_count()):
+        if libsys._dyld_get_image_name(i).decode() != CB:
+            continue
+        hdr = libsys._dyld_get_image_header(i)
+        slide = libsys._dyld_get_image_vmaddr_slide(i)
+        ncmds = struct.unpack("<I", ctypes.string_at(hdr + 16, 4))[0]
+        p, text, le, starts = hdr + 32, None, None, None
+        for _ in range(ncmds):
+            cmd, size = struct.unpack("<II", ctypes.string_at(p, 8))
+            if cmd == 0x19:
+                name = ctypes.string_at(p + 8, 16).rstrip(b"\0")
+                vm, _, off = struct.unpack("<QQQ", ctypes.string_at(p + 24, 24))
+                if name == b"__TEXT":
+                    text = vm
+                elif name == b"__LINKEDIT":
+                    le = (vm, off)
+            elif cmd == 0x26:
+                starts = struct.unpack("<II", ctypes.string_at(p + 8, 8))
+            p += size
+        if text is None or le is None or starts is None:
+            die("CoreBrightness has no function starts")
+        data = ctypes.string_at(le[0] + slide + starts[0] - le[1], starts[1])
+        out, addr, k = {}, text + slide, 0
+        while k < len(data):
+            v = shift = 0
+            while True:
+                b = data[k]
+                k += 1
+                v |= (b & 0x7f) << shift
+                shift += 7
+                if not b & 0x80:
+                    break
+            if not v:
+                break
+            addr += v
+            info = DlInfo()
+            if libsys.dladdr(addr, ctypes.byref(info)) and info.sname and info.saddr == addr:
+                out[info.sname.decode()] = addr
+        return out
+    die("CoreBrightness did not load")
+
+
+def read_tables(any_build):
+    if platform.system() != "Darwin" or platform.machine() != "arm64":
+        die("run this on macOS on Apple Silicon")
+    ctypes.CDLL(CB)
+    libsys = ctypes.CDLL("/usr/lib/libSystem.B.dylib")
+    fn = cfx_functions(libsys)
+    need = ("CFXCreate", "CFXSetWhitePointType", "CFXInitializeAmbientAdaptation",
+            "CFXSetAmbientAdaptationStrength", "CFXRelease")
+    for n in need:
+        if n not in fn:
+            die("CoreBrightness has no %s" % n)
+
+    proto = ctypes.CFUNCTYPE
+    create = proto(ctypes.c_void_p)(fn["CFXCreate"])
+    wptype = proto(None, ctypes.c_void_p, ctypes.c_int)(fn["CFXSetWhitePointType"])
+    init = proto(ctypes.c_bool, ctypes.c_void_p)(fn["CFXInitializeAmbientAdaptation"])
+    strength = proto(None, ctypes.c_void_p, ctypes.c_float, ctypes.c_float)(
+        fn["CFXSetAmbientAdaptationStrength"])
+
+    c = create()
+    if not c:
+        die("CFXCreate failed")
+    wptype(c, 1)
+    if not init(c):
+        die("CFXInitializeAmbientAdaptation failed")
+    strength(c, 0.2, 0.0)
+    h = u64(c + 0x38)
+
+    for what, (off, n, want) in list(CFX_CONSTANTS.items()) + [
+            (k, v) for k, v in HARMONY_CONSTANTS.items()]:
+        base = h if what in HARMONY_CONSTANTS else c
+        got = floats(base + off, n)
+        if got != [f32(w) for w in want]:
+            die("%s is %s here, the port has %s" % (what, got, want))
+
+    t = {}
+    npoly = i32(h + 0x94)
+    t["polygon"] = floats(u64(h + 0x38), 2 * npoly)
+    for k, off in (("lut0", 0x40), ("lut1", 0x68)):
+        x, nx = u64(h + off), i32(h + off + 0x8)
+        y, ny = u64(h + off + 0x10), i32(h + off + 0x18)
+        rows = u64(h + off + 0x20)
+        t[k + "_x"] = floats(x, nx)
+        t[k + "_y"] = floats(y, ny)
+        t[k] = sum((floats(u64(rows + 8 * j), nx) for j in range(ny)), [])
+    t["curve"] = floats(u64(c + 0x138), i32(c + 0x140))
+    t["blackbody"] = floats(u64(c + 0x18), i32(c + 0x20))
+    t["magic"] = floats(u64(c + 0x48), 6)
+
+    shape = {"polygon": 36, "lut0_x": 29, "lut0_y": 55, "lut0": 29 * 55,
+             "lut1_x": 29, "lut1_y": 55, "lut1": 29 * 55, "curve": 201,
+             "blackbody": 813, "magic": 6}
+    for k, n in shape.items():
+        if len(t[k]) != n:
+            die("%s has %d entries, the daemon expects %d" % (k, len(t[k]), n))
+    return t
+
+
+def pack(t):
+    order = ("polygon", "lut0_x", "lut0_y", "lut0", "lut1_x", "lut1_y", "lut1",
+             "curve", "blackbody", "magic")
+    out = b"BKTT0001" + struct.pack("<I", len(order))
+    for k in order:
+        out += k.encode().ljust(16, b"\0") + struct.pack("<I", len(t[k]))
+        out += struct.pack("<%df" % len(t[k]), *t[k])
+    return out
+
+
+def main():
+    ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
+    ap.add_argument("-o", "--out", required=True, help="output directory")
+    ap.add_argument("--any", action="store_true",
+                    help="accept tables that differ from macOS 27.2's")
+    a = ap.parse_args()
+
+    blob = pack(read_tables(a.any))
+    digest = hashlib.sha256(blob).hexdigest()
+    if digest != TABLES_SHA256 and not a.any:
+        die("these tables hash to %s, not macOS 27.2's %s; check the port "
+            "against this CoreBrightness (tools/truetone/oracle.c), then pass --any"
+            % (digest, TABLES_SHA256))
+
+    os.makedirs(os.path.join(a.out, "apple"), exist_ok=True)
+    path = os.path.join(a.out, "apple", "truetone.bin")
+    with open(path, "wb") as f:
+        f.write(blob)
+    sw = lambda k: subprocess.run(["sw_vers", k], capture_output=True,
+                                  text=True).stdout.strip()
+    line = "%s  apple/truetone.bin\n" % digest
+    with open(os.path.join(a.out, "MANIFEST"), "w") as f:
+        f.write("bakery-truetone-tables 1: bakery-truetoned run-time tables\n"
+                "Generated from Apple's macOS files on the owner's machine; "
+                "not redistributable.\n"
+                "source: macOS %s (%s) CoreBrightness\n%s"
+                % (sw("-productVersion"), sw("-buildVersion"), line))
+    with open(os.path.join(a.out, "SHA256SUMS"), "w") as f:
+        f.write(line)
+    print("%s: %d bytes, sha256 %s" % (path, len(blob), digest))
+
+
+if __name__ == "__main__":
+    main()
