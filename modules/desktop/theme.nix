@@ -83,28 +83,34 @@ in
           state=${state}
           mkdir -p "$state/cache"
 
-          image() { awww query 2>/dev/null | sed -n 's/.*image: //p' | head -1; }
+          # Nothing (rather than the script's end, under pipefail) while the
+          # wallpaper daemon is not answering.
+          image() { awww query 2>/dev/null | sed -n 's/.*image: //p' | head -1 || true; }
 
           # The accent for an image, remembered by path and modification time.
           name_for() {
             local key
             key=$(printf '%s %s' "$1" "$(stat -c %Y "$1" 2>/dev/null)" | sha256sum | cut -c1-32)
             if [ ! -s "$state/cache/$key" ]; then
-              { ${pick ''"$1"''}} > "$state/cache/$key.tmp" 2>/dev/null || return 1
-              mv -f "$state/cache/$key.tmp" "$state/cache/$key"
+              local tmp
+              tmp=$(mktemp "$state/cache/$key.XXXXXX")
+              { ${pick ''"$1"''}} > "$tmp" 2>/dev/null || { rm -f "$tmp"; return 1; }
+              mv -f "$tmp" "$state/cache/$key"
             fi
             cat "$state/cache/$key"
           }
 
+          # eww, mako and the watcher render at the same moment when the
+          # session starts, so each writes through a file of its own.
           render() {
-            local hex
+            local hex tmp
             hex=$(awk -v n="$1" '$1 == n { print substr($2, 2) }' ${candidates})
             [ -n "$hex" ] || return 1
             ${lib.concatMapStrings (file: ''
               mkdir -p "$(dirname ${lib.escapeShellArg file.path})"
-              sed "s/@accent@/$hex/g" ${pkgs.writeText "accent-template" file.template} \
-                > ${lib.escapeShellArg file.path}.tmp
-              mv -f ${lib.escapeShellArg file.path}.tmp ${lib.escapeShellArg file.path}
+              tmp=$(mktemp ${lib.escapeShellArg file.path}.XXXXXX)
+              sed "s/@accent@/$hex/g" ${pkgs.writeText "accent-template" file.template} > "$tmp"
+              mv -f "$tmp" ${lib.escapeShellArg file.path}
             '') (lib.attrValues live)}
             printf '%s\n' "$1" > "$state/name"
           }

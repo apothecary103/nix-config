@@ -58,7 +58,7 @@
 
           # Shown at once, hidden 1.5 s after the last press: each press replaces
           # the pending hide.
-          eww active-windows 2>/dev/null | grep -q "^osd:" || eww open osd >/dev/null 2>&1 || true
+          eww active-windows 2>/dev/null | grep -q "^osd:" || eww open --no-daemonize osd >/dev/null 2>&1 || true
           eww update osd_kind="$kind" osd_value="$value" osd_label="$label" osd_open=true || true
           [ "$kind" = brightness ] && { eww update brightness="$value" || true; }
           pkill -f "^osd-hide" || true

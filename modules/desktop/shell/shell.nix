@@ -47,6 +47,19 @@ in
     { pkgs, ... }:
     {
       fonts.packages = [ pkgs.lucide ];
+
+      # Every switch re-runs the user activation in each user manager, and hjem
+      # restarts nothing itself. So from there: eww again if the fonts changed
+      # (eww-fonts), and the accent renderer, so the copies it keeps of kwm's,
+      # mako's and the rest's configs (theme.nix) are the new generation's
+      # before kwm reloads one.
+      system.userActivationScripts.desktop-refresh = ''
+        if [ -n "''${XDG_RUNTIME_DIR:-}" ]; then
+          ${pkgs.systemd}/bin/systemctl --user daemon-reload || true
+          ${pkgs.systemd}/bin/systemctl --user start --no-block eww-fonts.service || true
+          ${pkgs.systemd}/bin/systemctl --user try-restart --no-block accent.service || true
+        fi
+      '';
     };
 
   # The desktop shell, in eww. The bar is the river rice's yambar again: flat
@@ -150,7 +163,7 @@ in
           ''
             emit() {
               local enabled wired wifi ssid kind
-              enabled=$(nmcli -t radio wifi)
+              enabled=$(nmcli -t radio wifi 2>/dev/null) || enabled=""
               wired=$(nmcli -t -f TYPE,STATE device | grep -c '^ethernet:connected$' || true)
               wifi=$(nmcli -t -f IN-USE,SSID device wifi list --rescan no 2>/dev/null | grep '^\*' | head -1 || true)
               ssid=$(cut -d: -f2- <<< "$wifi")
@@ -159,8 +172,13 @@ in
                 --argjson enabled "$([ "$enabled" = enabled ] && echo true || echo false)" \
                 '{kind: $kind, ssid: $ssid, enabled: $enabled}'
             }
-            emit
-            nmcli monitor | while read -r _; do emit; done
+            # NetworkManager restarting (a switch that changes it) ends the
+            # monitor; eww never restarts a listener, so this one carries on.
+            while :; do
+              emit
+              nmcli monitor 2>/dev/null | while read -r _; do emit; done || true
+              sleep 1
+            done
           '';
 
       # The default route's interface every two seconds: how fast bytes go out
@@ -244,7 +262,9 @@ in
                   file://*) path=''${url#file://}; art=$(printf '%b' "''${path//%/\\x}") ;;
                   http://* | https://*)
                     art="$cache/$(printf %s "$url" | sha1sum | cut -c1-16)"
-                    [ -s "$art" ] || curl -sfL --max-time 5 -o "$art" "$url" || art="" ;;
+                    # A download that times out must not be cached half done.
+                    [ -s "$art" ] || { curl -sfL --max-time 5 -o "$art.part" "$url" && mv -f "$art.part" "$art"; } ||
+                      { rm -f "$art.part"; art=""; } ;;
                   *) art="" ;;
                 esac
                 tint=""
@@ -1049,13 +1069,10 @@ in
 
       # GTK reads the fonts once, when eww starts, so a new or redrawn font
       # (azuki's, its Wi-Fi) means starting it again or its glyphs fall back.
-      # hjem does not restart units on a switch, so this watches the system
-      # itself and restarts eww only when the installed fonts changed.
-      systemd.paths.eww-fonts = {
-        wantedBy = [ "river-session.target" ];
-        partOf = [ "graphical-session.target" ];
-        pathConfig.PathChanged = "/run/current-system";
-      };
+      # hjem does not restart units on a switch; the user activation above
+      # starts this on every one, and it restarts eww only when the installed
+      # fonts changed. (A path unit on /run/current-system never fires: it
+      # watches the symlink's target, and the switch swaps the link by rename.)
       systemd.services.eww-fonts = {
         description = "Restart the shell when fonts change";
         serviceConfig.Type = "oneshot";

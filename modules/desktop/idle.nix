@@ -85,12 +85,47 @@
       brightnessctl = lib.getExe pkgs.brightnessctl;
       wlopm = lib.getExe pkgs.wlopm;
 
+      # macOS here sleeps the display after 10 minutes on power and 5 on
+      # battery (pmset displaysleep 10 and 5), dimming a few seconds first.
+      # swayidle's timeouts are fixed, so both pairs are set and the battery
+      # pair looks at the power source when it fires. Whichever dims first
+      # leaves a mark, so the other neither halves the screen again nor
+      # restores the wrong level.
+      #
       # apple-panel-bl counts in nits, so an absolute target would brighten a
       # screen already below it. Halve instead, but stay clear of the 2 nits
-      # where the backlight switches off. -s saves the level for -r either way.
-      dim = pkgs.writeShellScript "dim" ''
-        cur=$(${brightnessctl} get)
-        ${brightnessctl} -s set $((cur > 6 ? cur / 2 : cur))
+      # where the backlight switches off. -s saves the level for -r.
+      idle = pkgs.writeShellScript "idle" ''
+        marker="''${XDG_RUNTIME_DIR:-/tmp}/idle-dimmed"
+        battery() {
+          [ "$(cat /sys/class/power_supply/macsmc-battery/status 2>/dev/null)" = Discharging ]
+        }
+        dim() {
+          [ -e "$marker" ] && return 0
+          cur=$(${brightnessctl} get)
+          ${brightnessctl} -s set $((cur > 6 ? cur / 2 : cur))
+          touch "$marker"
+        }
+        undim() {
+          [ -e "$marker" ] || return 0
+          ${brightnessctl} -r
+          rm -f "$marker"
+        }
+        # A second swaylock while already locked (Ctrl+Cmd+Q, say) exits 2;
+        # the display goes dark all the same.
+        off() {
+          ${swaylock}
+          ${wlopm} --off '*'
+        }
+        case "$1" in
+          battery-dim) ! battery || dim ;;
+          battery-off) ! battery || off ;;
+          dim) dim ;;
+          off) off ;;
+          undim) undim ;;
+          wake) ${wlopm} --on '*'; undim ;;
+          reset) rm -f "$marker" ;;
+        esac
       '';
     in
     {
@@ -103,28 +138,41 @@
 
       xdg.config.files."swaylock/config".text = swaylockConfig (bare palette.ui.accent);
 
-      # macOS here: the display sleeps after 10 minutes (pmset displaysleep 10),
-      # dimming a few seconds first, and asks for the password as it goes dark.
-      # Lid close and suspend lock first too (before-sleep).
+      # The display sleeps as on macOS (see idle above), and locks as it goes
+      # dark: macOS waits 5 more minutes before asking for the password
+      # (screenLock delay 300), which swaylock cannot. Nor does the system
+      # sleep with the display, as macOS's sleep 1 has it. Lid close and
+      # suspend lock first too (before-sleep).
       systemd.services.swayidle = {
         description = "Idle dim, lock and display sleep";
         wantedBy = [ "river-session.target" ];
         partOf = [ "graphical-session.target" ];
         after = [ "graphical-session.target" ];
         serviceConfig = {
+          ExecStartPre = "${idle} reset";
           ExecStart = lib.escapeShellArgs [
             (lib.getExe pkgs.swayidle)
             "-w"
             "timeout"
-            "590"
-            "${dim}"
+            "290"
+            "${idle} battery-dim"
             "resume"
-            "${brightnessctl} -r"
+            "${idle} undim"
+            "timeout"
+            "300"
+            "${idle} battery-off"
+            "resume"
+            "${idle} wake"
+            "timeout"
+            "590"
+            "${idle} dim"
+            "resume"
+            "${idle} undim"
             "timeout"
             "600"
-            "${swaylock} && ${wlopm} --off '*'"
+            "${idle} off"
             "resume"
-            "${wlopm} --on '*'; ${brightnessctl} -r"
+            "${idle} wake"
             "before-sleep"
             swaylock
             "lock"

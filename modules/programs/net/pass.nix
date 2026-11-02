@@ -70,8 +70,22 @@
       };
     };
 
+  flake.modules.nixos.base =
+    { pkgs, ... }:
+    {
+      # pinentry-gnome3 asks through gcr's system prompter; without it on the
+      # bus it falls back to curses, which has no terminal when Browserpass or a
+      # libsecret client wants the passphrase. (programs.gnupg adds the same.)
+      services.dbus.packages = [ pkgs.gcr_3 ];
+
+      # Helium reads Chromium's directories on Linux, native messaging hosts
+      # among them (see helium.nix).
+      environment.etc."chromium/native-messaging-hosts/com.github.browserpass.native.json".source =
+        "${pkgs.browserpass}/lib/browserpass/hosts/chromium/com.github.browserpass.native.json";
+    };
+
   # Native messaging hosts for the Browserpass add-on that LibreWolf and Helium
-  # install through enterprise policy.
+  # install through enterprise policy (Helium's is system-wide, above).
   flake.modules.hjem.linux =
     { lib, pkgs, ... }:
     {
@@ -83,11 +97,15 @@
         description = "Pass libsecret service";
         partOf = [ "default.target" ];
         wantedBy = [ "default.target" ];
+        # The name the D-Bus activation file asks systemd for, so a client
+        # that calls before the service is up (or after it exits) starts it.
+        aliases = [ "dbus-org.freedesktop.secrets.service" ];
 
         serviceConfig = {
           Type = "dbus";
           BusName = "org.freedesktop.secrets";
           ExecStart = lib.getExe pkgs.pass-secret-service;
+          Restart = "on-failure";
         };
       };
 
