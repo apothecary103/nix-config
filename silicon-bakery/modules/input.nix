@@ -132,6 +132,25 @@ in
         '';
       };
 
+      firmwarePalms = lib.mkOption {
+        type = lib.types.enum [
+          "off"
+          "identified"
+          "macos"
+        ];
+        default = "macos";
+        description = ''
+          The trackpad's firmware identifies every contact as one of five
+          fingers or not, and macOS rejects every contact that is not a finger
+          (patches/linux/hid-magicmouse-mtp-palms-from-firmware). "macos" does
+          exactly that, and passes on only contacts the firmware says are
+          touching: recorded under macOS, identity 0 (not yet identified)
+          never came with a touching contact in 9308 frames, only with ones
+          coming into range. "identified" only rejects contacts identified as
+          something else; "off" neither.
+        '';
+      };
+
       quantisation = lib.mkOption {
         type = lib.types.enum [
           "exact"
@@ -206,6 +225,15 @@ in
     lib.mkMerge [
       {
         boot.kernelParams = [
+          "hid_magicmouse.firmware_palms=${
+            toString
+              {
+                off = 0;
+                identified = 1;
+                macos = 2;
+              }
+              .${trackpad.firmwarePalms}
+          }"
           "hid_magicmouse.fw_click_strength=${
             toString
               {
