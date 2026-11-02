@@ -1,0 +1,484 @@
+#!/usr/bin/env python3
+# SPDX-License-Identifier: GPL-2.0-only
+"""bakery-prores-tables: the apple-prores driver's run-time tunables, from this Mac's own copy of macOS 13.5.
+
+The out-of-tree ProRes driver (silicon-bakery/drivers/apple-prores) carries no
+Apple tables. Its quantisation matrices, dead-zone rounding and DC scale are
+computed in the driver from the public ProRes tables; the one thing it needs
+from Apple's binaries is the engine's DMA-block tunable list, which macOS
+writes before the first job and which differs per SoC. It is made here, on the
+owner's machine, from the owner's copy, and loaded with request_firmware():
+
+  apple/prores-13.5-d0.bin    AppleProResCTunablesD0_0 from AppleProResHW.kext:
+                              the 64 (offset, mask, value) writes macOS 13.5
+                              applies to the ProRes core of an "apr,d0"
+                              (DevID 5: t6020 / M2 Pro) before MODE=0xd
+
+File format (little endian):
+
+  0x00  8  magic "APRTUN01"
+  0x08  4  entry count (64)
+  0x0c  4  DevID the table is for (5)
+  0x10  4  source: 0x0d05 (macOS 13.5)
+  0x14  4  zero
+  0x18  12*count  { u32 offset, u32 mask, u32 value }, in macOS's order
+
+The driver refuses a file with another magic, count or DevID, an offset outside
+the core's 0x000-0x7ff DMA/control block, a value with bits outside its mask,
+or a table whose sha256 is not the one below (module parameter tunables_any=1
+lifts that last check for experiments).
+
+The input is the kernelcache the Asahi installer copied into the stub's
+Preboot volume (the macOS 13.5 "OS firmware" the Linux boot runs on):
+
+  <Preboot>/<VG-UUID>/Restore/kernelcache.release.<x>   (IM4P, LZFSE)
+  <Preboot>/<VG-UUID>/Restore/SystemVersion.plist       must say 13.5
+
+On macOS the stub's Preboot is not mounted by default:
+
+  diskutil list                          # the ~2.5 GB container with "NixOS"
+  diskutil mount readOnly diskNs3        # its "Preboot" volume
+  bakery-prores-tables -o ./out          # finds /Volumes/Preboot*/.../Restore
+  diskutil unmount diskNs3
+
+or pass the kernelcache directly (--kernelcache FILE, IM4P or Mach-O).
+
+What is checked before anything is written (each failure is a refusal):
+  - the kernelcache holds com.apple.driver.AppleProResHW with a symbol table;
+  - gs_sAPR_DevInfo_Conversion maps the ADT compatible "d0" to DevID 5;
+  - AppleProResCTunablesD0_0 is 65 16-byte entries: 64 4-byte register
+    field writes inside 0x000-0x7ff (value within mask) and the 0xffffffff
+    terminator;
+  - the 64 writes hash to TABLE_SHA256 (the 13.5 22G74 table; bit-identical
+    in macOS 27.2's AppleProResHW for t6020).
+
+Everything is Python 3 standard library. LZFSE (the kernelcache) is decoded
+with macOS's libcompression through ctypes, or the `lzfse` command elsewhere.
+The output is deterministic: the same inputs give byte-identical files, and
+SHA256SUMS/MANIFEST name inputs by basename and sha256, without timestamps.
+
+Credits: the Image4/LZFSE/kernelcache code is tools/bakery-ave-fw's, itself a
+port of aquarat's tools/ave_fwgen.py (GPL-2.0).
+"""
+import argparse
+import ctypes
+import ctypes.util
+import glob
+import hashlib
+import os
+import plistlib
+import shutil
+import struct
+import subprocess
+import sys
+
+VERSION = "1"
+OS_FW_VERSION = "13.5"
+KEXT = "com.apple.driver.AppleProResHW"
+MAGIC = b"APRTUN01"
+SOURCE_13_5 = 0x0D05
+
+# Per SoC: the ADT compatible suffix ("apr,<x>"), its DevID in
+# gs_sAPR_DevInfo_Conversion, the tunables symbol SetProResTunablesByDevID
+# picks for core 0 of that DevID, the entry count, and the sha256 of the
+# 12-byte-per-entry (offset, mask, value) encoding of the table.
+SOCS = {
+    "t6020": dict(boards=("j414sap", "j416sap", "j474sap"), adt="d0", devid=5,
+                  symbol="AppleProResCTunablesD0_0", count=64,
+                  table_sha256="582ecb1cef6cb81ad7801b693fff5331938be2bf0e1e791aaf5d855d89498d8b"),
+}
+# table_sha256: AppleProResCTunablesD0_0 of macOS 13.5 22G74, as encoded by
+# table_hash(); the 27.2 kext's t6020 table has the same 64 writes.
+# --print-hash prints what an input gives without writing anything.
+
+REG_LIMIT = 0x800
+
+
+class Refused(Exception):
+    """An input that is not what it must be. Nothing has been written."""
+
+
+def sha256(b):
+    return hashlib.sha256(b).hexdigest()
+
+
+def log(msg):
+    print(msg, file=sys.stderr)
+
+
+# --------------------------------------------------------------------------
+# Image4 (DER) and LZFSE: as tools/bakery-ave-fw
+# --------------------------------------------------------------------------
+def der(buf, off, end):
+    if off + 2 > end:
+        raise Refused("truncated DER element")
+    tag, n = buf[off], buf[off + 1]
+    off += 2
+    if n & 0x80:
+        k = n & 0x7F
+        if not 0 < k <= 4 or off + k > end:
+            raise Refused("bad DER length")
+        n = int.from_bytes(buf[off:off + k], "big")
+        off += k
+    if off + n > end:
+        raise Refused("DER element runs past its container")
+    return tag, off, off + n
+
+
+def der_kids(buf, start, end):
+    out, off = [], start
+    while off < end:
+        tag, vs, ve = der(buf, off, end)
+        out.append((tag, off, vs, ve))
+        off = ve
+    return out
+
+
+def im4p(buf, depth=0):
+    tag, vs, ve = der(buf, 0, len(buf))
+    kids = der_kids(buf, vs, ve) if tag == 0x30 else []
+    if not kids or kids[0][0] != 0x16:
+        raise Refused("not an Image4 file")
+    magic = bytes(buf[kids[0][2]:kids[0][3]])
+    if magic == b"IMG4" and not depth and len(kids) > 1:
+        return im4p(buf[kids[1][1]:kids[1][3]], 1)
+    if magic != b"IM4P" or [k[0] for k in kids[:4]] != [0x16, 0x16, 0x16, 0x04]:
+        raise Refused("not an IM4P")
+    fourcc = bytes(buf[kids[1][2]:kids[1][3]]).decode("ascii", "replace")
+    payload = bytes(buf[kids[3][2]:kids[3][3]])
+    comp = None
+    for k in kids[4:]:
+        if k[0] == 0x04:
+            raise Refused("the IM4P payload is encrypted")
+        if k[0] == 0x30:
+            ck = der_kids(buf, k[2], k[3])
+            if len(ck) != 2 or ck[0][0] != 0x02 or ck[1][0] != 0x02:
+                raise Refused("bad IM4P compression info")
+            comp = tuple(int.from_bytes(buf[c[2]:c[3]], "big") for c in ck)
+    return fourcc, payload, comp
+
+
+def lzfse(data, size):
+    lib = ctypes.util.find_library("compression")
+    if lib:
+        f = ctypes.CDLL(lib).compression_decode_buffer
+        f.restype = ctypes.c_size_t
+        f.argtypes = [ctypes.c_void_p, ctypes.c_size_t, ctypes.c_void_p, ctypes.c_size_t,
+                      ctypes.c_void_p, ctypes.c_int]
+        dst = ctypes.create_string_buffer(size + 1)
+        n = f(dst, size + 1, data, len(data), None, 0x801)  # COMPRESSION_LZFSE
+        out = dst.raw[:n]
+    else:
+        exe = shutil.which("lzfse")
+        if not exe:
+            raise Refused("LZFSE: neither libcompression (macOS) nor the lzfse command is available")
+        p = subprocess.run([exe, "-decode"], input=data, capture_output=True, check=False)
+        if p.returncode:
+            raise Refused("lzfse -decode failed")
+        out = p.stdout
+    if len(out) != size:
+        raise Refused(f"LZFSE gave {len(out)} bytes, the IM4P says {size}")
+    return out
+
+
+def unwrap(path, want_fourcc):
+    raw = open(path, "rb").read()
+    if raw[:4] == b"\xcf\xfa\xed\xfe":
+        return raw, raw
+    fourcc, payload, comp = im4p(raw)
+    if fourcc not in want_fourcc:
+        raise Refused(f"{os.path.basename(path)}: IM4P type {fourcc!r}, expected {'/'.join(want_fourcc)}")
+    if comp is None:
+        if payload[:4] in (b"bvx2", b"bvx1", b"bvxn", b"bvx-"):
+            raise Refused(f"{os.path.basename(path)}: compressed payload without compression info")
+        return raw, payload
+    if comp[0] != 1:
+        raise Refused(f"{os.path.basename(path)}: unknown compression {comp[0]}")
+    return raw, lzfse(payload, comp[1])
+
+
+# --------------------------------------------------------------------------
+# Mach-O and the kernelcache (MH_FILESET)
+# --------------------------------------------------------------------------
+def load_commands(d, base=0):
+    if len(d) < base + 32 or struct.unpack_from("<I", d, base)[0] != 0xFEEDFACF:
+        raise Refused("not a 64-bit Mach-O")
+    ncmds, sizeofcmds = struct.unpack_from("<II", d, base + 16)
+    off, end = base + 32, base + 32 + sizeofcmds
+    for _ in range(ncmds):
+        if off + 8 > min(end, len(d)):
+            raise Refused("truncated Mach-O load commands")
+        cmd, size = struct.unpack_from("<II", d, off)
+        if size < 8 or off + size > len(d):
+            raise Refused("bad Mach-O load command")
+        yield cmd, off, size
+        off += size
+
+
+def segments(d, base=0):
+    out = []
+    for cmd, off, size in load_commands(d, base):
+        if cmd == 0x19 and size >= 72:
+            out.append((d[off + 8:off + 24].rstrip(b"\0").decode("ascii", "replace"),)
+                       + struct.unpack_from("<QQQQ", d, off + 24))
+    return out
+
+
+class Image:
+    """A kernelcache (MH_FILESET, kext found by name) or a lone kext Mach-O."""
+
+    def __init__(self, d):
+        self.d = d
+        self.kext_off = None
+        self.base = None
+        is_fileset = struct.unpack_from("<I", d, 12)[0] == 0xC  # MH_FILESET
+        if is_fileset:
+            segs = segments(d)
+            self.segs = [s[1:] for s in segs]
+            self.base = min(va for va, vs, fo, fs in self.segs if fs)
+            for cmd, off, size in load_commands(d):
+                if (cmd & 0x7FFFFFFF) == 0x35:
+                    fileoff, stroff = struct.unpack_from("<QI", d, off + 16)
+                    end = d.find(b"\0", off + stroff, off + size)
+                    if d[off + stroff:end] == KEXT.encode():
+                        self.kext_off = fileoff
+            if self.kext_off is None:
+                raise Refused(f"no {KEXT} in this kernelcache")
+        else:
+            self.kext_off = 0
+            self.segs = [s[1:] for s in segments(d)]
+        self.syms = self._symbols()
+
+    def off(self, va, n=1):
+        for sva, vs, fo, fs in self.segs:
+            if sva <= va and va + n <= sva + min(vs, fs):
+                return fo + (va - sva)
+        raise Refused(f"VA {va:#x}+{n:#x} is not file-backed")
+
+    def _symbols(self):
+        for cmd, off, size in load_commands(self.d, self.kext_off):
+            if cmd == 0x2:
+                symoff, nsyms, stroff, strsize = struct.unpack_from("<IIII", self.d, off + 8)
+                break
+        else:
+            raise Refused("the kext has no symbol table")
+        out = {}
+        for i in range(nsyms):
+            strx, _t, _s, _d, value = struct.unpack_from("<IBBHQ", self.d, symoff + 16 * i)
+            if strx < strsize:
+                s = stroff + strx
+                e = self.d.find(b"\0", s, stroff + strsize)
+                if e > s:
+                    out[self.d[s:e].decode("utf-8", "replace")] = value
+        return out
+
+    def sym(self, suffix):
+        hits = [va for name, va in self.syms.items()
+                if name.endswith(suffix) and name[:-len(suffix)].lstrip("_ZL0123456789") == ""]
+        if len(hits) != 1:
+            raise Refused(f"{KEXT} has {len(hits)} symbol(s) for {suffix}")
+        return hits[0]
+
+    def pointer(self, raw):
+        """A rebased pointer in __DATA: chained (kernel cache, 30-bit offset
+        from the cache base) in a fileset, a plain VA in a lone kext."""
+        if self.base is None:
+            return raw if raw >> 48 == 0xFFFF else None
+        if (raw >> 30) & 3 or (raw >> 62) & 1:
+            return None
+        return self.base + (raw & 0x3FFFFFFF)
+
+    def cstr(self, va, limit=64):
+        o = self.off(va)
+        e = self.d.find(b"\0", o, o + limit)
+        if e < 0:
+            raise Refused(f"no string at {va:#x}")
+        return self.d[o:e].decode("ascii", "replace")
+
+
+def devinfo(img):
+    """gs_sAPR_DevInfo_Conversion: 16-byte rows {u32 DevID, pad, name ptr}.
+    Row 0 is the 'unknown' row (DevID 0xffffffff)."""
+    va = img.sym("gs_sAPR_DevInfo_Conversion")
+    o = img.off(va, 16)
+    rows = {}
+    for i in range(32):
+        try:
+            did, _p, raw = struct.unpack_from("<IIQ", img.d, o + 16 * i)
+        except struct.error:
+            break
+        p = img.pointer(raw)
+        if p is None:
+            break
+        try:
+            name = img.cstr(p)
+        except Refused:
+            break
+        if not name or not all(0x20 < ord(c) < 0x7F for c in name):
+            break
+        rows[name] = did
+    if len(rows) < 4:
+        raise Refused("gs_sAPR_DevInfo_Conversion is not the expected table")
+    return rows
+
+
+def tunables(img, symbol, count):
+    o = img.off(img.sym(symbol), 16 * (count + 1))
+    out = []
+    for i in range(count + 1):
+        off, width, mask, value = struct.unpack_from("<4I", img.d, o + 16 * i)
+        if i == count:
+            if (off, width, mask, value) != (0xFFFFFFFF,) * 4:
+                raise Refused(f"{symbol}: entry {i} is not the terminator; not a {count}-entry table")
+            break
+        if (off, width) == (0xFFFFFFFF, 0xFFFFFFFF):
+            raise Refused(f"{symbol}: terminator after {i} entries, expected {count}")
+        if width != 4 or off & 3 or off >= REG_LIMIT or value & ~mask:
+            raise Refused(f"{symbol}[{i}] = {off:#x}/{width} {mask:#x}/{value:#x} "
+                          f"is not a 32-bit field write in 0x000-0x7ff")
+        out.append((off, mask, value))
+    return out
+
+
+def encode(table, devid):
+    b = bytearray(MAGIC) + struct.pack("<4I", len(table), devid, SOURCE_13_5, 0)
+    for e in table:
+        b += struct.pack("<3I", *e)
+    return bytes(b)
+
+
+def table_hash(table):
+    return sha256(b"".join(struct.pack("<3I", *e) for e in table))
+
+
+# --------------------------------------------------------------------------
+def find_restore():
+    cands = []
+    for pat in ("/Volumes/Preboot*/*/Restore", "/System/Volumes/Preboot/*/Restore"):
+        for d in sorted(glob.glob(pat)):
+            try:
+                v = plistlib.load(open(os.path.join(d, "SystemVersion.plist"), "rb"))
+            except (OSError, plistlib.InvalidFileException):
+                continue
+            if v.get("ProductVersion") == OS_FW_VERSION:
+                cands.append(d)
+    if len(cands) != 1:
+        raise Refused(f"found {len(cands)} macOS {OS_FW_VERSION} Restore directories "
+                      f"({', '.join(cands) or 'none'}): mount the stub's Preboot read-only "
+                      "(diskutil mount readOnly diskNs3), or pass --restore DIR or --kernelcache FILE")
+    return cands[0]
+
+
+def board_default():
+    try:
+        t = subprocess.run(["sysctl", "-n", "hw.target"], capture_output=True, text=True,
+                           check=False).stdout.strip().lower()
+    except OSError:
+        t = ""
+    return t or None
+
+
+def manifest_kernelcache(restore, board):
+    m = plistlib.load(open(os.path.join(restore, "BuildManifest.plist"), "rb"))
+    for bi in m.get("BuildIdentities", []):
+        info = bi.get("Info", {})
+        if info.get("DeviceClass") == board and info.get("Variant", "").endswith("Customer"):
+            p = bi.get("Manifest", {}).get("KernelCache", {}).get("Info", {}).get("Path")
+            if p:
+                return os.path.join(restore, p)
+    raise Refused(f"BuildManifest has no customer kernelcache for {board}")
+
+
+def write(out, rel, data, sums):
+    path = os.path.join(out, rel)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    tmp = path + ".tmp"
+    with open(tmp, "wb") as f:
+        f.write(data)
+    os.replace(tmp, path)
+    sums.append((sha256(data), rel))
+    log(f"  wrote {rel} ({len(data)} bytes, sha256 {sha256(data)})")
+
+
+def main(argv=None):
+    ap = argparse.ArgumentParser(description=__doc__.splitlines()[0],
+                                 formatter_class=argparse.RawDescriptionHelpFormatter, epilog=__doc__)
+    ap.add_argument("-o", "--out", help="output directory (gets apple/... and SHA256SUMS)")
+    ap.add_argument("--restore", help="a macOS 13.5 Restore directory; default: the mounted stub Preboot's")
+    ap.add_argument("--board", help="ADT board, e.g. j414sap (default: this Mac's hw.target)")
+    ap.add_argument("--kernelcache", help="the 13.5 kernelcache (IM4P/IMG4 or its decompressed Mach-O)")
+    ap.add_argument("--print-hash", action="store_true",
+                    help="print the table's sha256 and the DevInfo rows; write nothing")
+    a = ap.parse_args(argv)
+    try:
+        if not a.out and not a.print_hash:
+            raise Refused("-o DIR is required (or --print-hash)")
+        board = (a.board or board_default() or "").lower()
+        if board and not board.endswith("ap"):
+            board += "ap"
+        socs = [k for k, v in SOCS.items() if board in v["boards"]]
+        if len(socs) != 1:
+            raise Refused(f"board {board or '?'} is not one this tool knows "
+                          f"({', '.join(b for v in SOCS.values() for b in v['boards'])}); pass --board")
+        soc_name = socs[0]
+        soc = SOCS[soc_name]
+        log(f"board {board}: SoC {soc_name}, ProRes 'apr,{soc['adt']}' (DevID {soc['devid']})")
+
+        prov = []
+        if a.kernelcache:
+            kc_path = a.kernelcache
+            prov.append("source: --kernelcache (not checked against a Restore's SystemVersion)")
+        else:
+            restore = a.restore or find_restore()
+            sv = plistlib.load(open(os.path.join(restore, "SystemVersion.plist"), "rb"))
+            if sv.get("ProductVersion") != OS_FW_VERSION:
+                raise Refused(f"{restore} is macOS {sv.get('ProductVersion')}, the driver's tables are "
+                              f"{OS_FW_VERSION}'s")
+            kc_path = manifest_kernelcache(restore, board)
+            prov.append(f"source: macOS {sv.get('ProductVersion')} ({sv.get('ProductBuildVersion')}) "
+                        f"Restore files, BuildManifest identity {board}")
+        kc_raw, kc_d = unwrap(kc_path, ("krnl",))
+        prov.append(f"input {os.path.basename(kc_path)} sha256 {sha256(kc_raw)}")
+        img = Image(kc_d)
+
+        rows = devinfo(img)
+        if a.print_hash:
+            log("  gs_sAPR_DevInfo_Conversion: " + ", ".join(f"{k}={v:#x}" for k, v in rows.items()))
+        if rows.get(soc["adt"]) != soc["devid"]:
+            raise Refused(f"gs_sAPR_DevInfo_Conversion maps {soc['adt']!r} to "
+                          f"{rows.get(soc['adt'])}, expected DevID {soc['devid']}")
+        log(f"  kext gs_sAPR_DevInfo_Conversion[{soc['adt']!r}] = DevID {soc['devid']}")
+
+        table = tunables(img, soc["symbol"], soc["count"])
+        th = table_hash(table)
+        log(f"  {soc['symbol']}: {len(table)} register field writes, "
+            f"{table[0][0]:#x}..{table[-1][0]:#x}, table sha256 {th}")
+        if a.print_hash:
+            print(th)
+            return 0
+        if th != soc["table_sha256"]:
+            raise Refused(f"{soc['symbol']} hashes to {th}, not the 13.5 table "
+                          f"{soc['table_sha256'][:16]}... the driver was written against")
+
+        sums = []
+        files = [(f"apple/prores-13.5-{soc['adt']}.bin", encode(table, soc["devid"]))]
+        for rel, data in sorted(files):
+            write(a.out, rel, data, sums)
+        sums_txt = "".join(f"{h}  {rel}\n" for h, rel in sorted(sums, key=lambda x: x[1]))
+        with open(os.path.join(a.out, "SHA256SUMS"), "w") as f:
+            f.write(sums_txt)
+        with open(os.path.join(a.out, "MANIFEST"), "w") as f:
+            f.write(f"bakery-prores-tables {VERSION}: apple-prores run-time files for {board} ({soc_name})\n")
+            f.write("Generated from Apple's macOS files on the owner's machine; not redistributable.\n")
+            for p in prov:
+                f.write(p + "\n")
+            f.write(sums_txt)
+        log(f"done: {len(sums)} file(s) in {a.out}")
+    except (Refused, OSError, KeyError) as e:
+        log(f"bakery-prores-tables: {e}")
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
