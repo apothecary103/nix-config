@@ -1,0 +1,85 @@
+From 6b70d02bcb5758a625d8bcedbff340cf544a4496 Mon Sep 17 00:00:00 2001
+From: Francisco Vargas <haripako@gmail.com>
+Date: Thu, 27 Aug 2026 20:54:57 +0200
+Subject: [PATCH] drm/apple: don't latch ->crashed on a poweroff swap timeout
+
+iomfb_poweroff() submits a clear swap and waits 50 ms for the DCP to
+acknowledge it. On timeout it sets dcp->crashed and returns, without
+logging anything.
+
+That flag is permanent and fatal. dcp_crtc_atomic_check() starts with:
+
+	if (dcp->crashed)
+		return -EINVAL;
+
+so from that moment on every atomic commit for the device is rejected.
+There is no path that clears the flag, so the display never comes back
+until the machine is rebooted.
+
+This is not a crash. After the timeout the DCP keeps working: it
+renegotiates the link, publishes its mode list and asserts HPD
+(dcp_hotplug() connected:1 nr_modes:23). Only ->crashed, which is
+otherwise set exclusively by dcp_rtk_crashed() - the RTKit crash
+callback - makes the device unusable. RTKit never reported a crash in
+any of these runs.
+
+Observed on a MacBook Pro 13" M1 (j293) with DisplayPort alt mode over
+USB-C. Cold plug works, but the first hot unplug kills the external
+output for the rest of the boot. The compositor logs "failed to commit:
+Invalid argument" for all 23 modes the monitor offers, from 3440x1440
+down to 640x480, and nothing in the kernel log explains why: of the
+three -EINVAL exits in dcp_crtc_atomic_check() only two log a dev_err,
+and the silent one is this.
+
+Confirmed with kprobes placed on each of the three exits: 110 hits on
+the ->crashed branch, all returning -22, with zero "DCP has crashed"
+messages in the log.
+
+The timeout is intermittent - it fired on 2 of 6 unplug cycles - which
+is why the failure looked erratic.
+
+Note that dcp_poweroff() is reached from apple_crtc_atomic_disable()
+for any CRTC being disabled, not just an external one, so the same
+timeout can in principle latch the flag while turning off the internal
+panel. That path was not reproduced here.
+
+Keep the control flow identical but leave ->crashed alone, and warn so
+the timeout is at least visible. With this applied, 6 unplug/replug
+cycles completed 8 modesets with no failures, including the two cycles
+where the timeout did fire.
+
+Signed-off-by: Francisco Vargas <haripako@gmail.com>
+---
+ drivers/gpu/drm/apple/iomfb_template.c | 19 ++++++++++++++++++-
+ 1 file changed, 18 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/gpu/drm/apple/iomfb_template.c b/drivers/gpu/drm/apple/iomfb_template.c
+index cf40e273a2f43c..6b794444e152e8 100644
+--- a/drivers/gpu/drm/apple/iomfb_template.c
++++ b/drivers/gpu/drm/apple/iomfb_template.c
+@@ -930,7 +930,24 @@ void DCP_FW_NAME(iomfb_poweroff)(struct apple_dcp *dcp)
+ 	swap_id = cookie->swap_id;
+ 	kref_put(&cookie->refcount, release_swap_cookie);
+ 	if (ret <= 0) {
+-		dcp->crashed = true;
++		/*
++		 * The DCP did not acknowledge the poweroff clear swap.
++		 *
++		 * Do not latch ->crashed here: dcp_crtc_atomic_check() bails
++		 * out on that flag, so every subsequent atomic commit for this
++		 * device is rejected with -EINVAL, permanently. Nothing ever
++		 * clears it, so the display stays dark until reboot.
++		 *
++		 * This is not a crash. The DCP keeps working afterwards: it
++		 * renegotiates the link, publishes its mode list and asserts
++		 * HPD. ->crashed belongs to dcp_rtk_crashed(), the RTKit crash
++		 * callback, which also logs.
++		 *
++		 * Warn instead, so the timeout is at least visible.
++		 */
++		dev_warn(dcp->dev,
++			 "%s: timed out waiting for the poweroff clear swap; continuing\n",
++			 __func__);
+ 		return;
+ 	}
+ 

@@ -7,7 +7,7 @@
   flake.modules.nixos."hosts/frieren" = {
     imports = [
       config.flake.modules.nixos.base
-      inputs.apple-silicon.nixosModules.apple-silicon-support
+      inputs.silicon-bakery.nixosModules.default
     ];
 
     networking.hostName = "frieren";
@@ -23,9 +23,14 @@
     hardware.asahi = {
       enable = true;
       peripheralFirmwareDirectory = inputs.asahi-firmware;
-      # Hardware video decode on the AVD block, as VideoToolbox does on macOS.
-      # Experimental upstream; players fall back to software when it fails.
-      avd.vaapi-support = true;
+    };
+
+    # The panel's colour, the GPU's render node, the trackpad's macOS curves
+    # and palm sizes, AVD decode and the kernel and Mesa patches, all from
+    # this MacBook's profile (silicon-bakery/profiles/Mac14,9).
+    hardware.siliconBakery = {
+      enable = true;
+      model = "Mac14,9";
     };
 
     # This records the on-disk schema from the original installation. Do not

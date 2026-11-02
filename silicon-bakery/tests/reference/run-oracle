@@ -1,0 +1,89 @@
+#!/usr/bin/env python3
+"""Build oracle.cpp against Apple's IOHIDFamily sources and record what macOS's
+own acceleration code does with a profile's curves, as JSON next to this file.
+
+    ./run-oracle ../../profiles/Mac14,9/macos.json [IOHIDFamily checkout]
+
+macOS only (CoreFoundation, mach_absolute_time). Without a checkout it clones
+the pinned tag into a temporary directory. tests/default.nix compares the Nix
+curves against the JSON this writes, so rerun it when a profile changes.
+"""
+
+import json
+import os
+import subprocess
+import sys
+import tempfile
+
+TAG = "IOHIDFamily-2238.100.59"  # 777ccd9698845aadf711e32d843c8c9b777431d9
+HERE = os.path.dirname(os.path.abspath(__file__))
+FIELDS = ["index", "gainLinear", "gainParabolic", "gainCubic", "gainQuartic",
+          "tangentSpeedLinear", "tangentSpeedParabolicRoot"]
+
+
+def curve_args(curves):
+    args = [str(len(curves))]
+    for c in curves:
+        args += [str(c.get(f, 0)) for f in FIELDS]
+    return args
+
+
+def main():
+    profile_path = sys.argv[1]
+    profile = json.load(open(profile_path))
+    model = profile["model"]
+
+    with tempfile.TemporaryDirectory() as tmp:
+        src = sys.argv[2] if len(sys.argv) > 2 else os.path.join(tmp, "IOHIDFamily")
+        if len(sys.argv) <= 2:
+            subprocess.run(["git", "clone", "-q", "--depth", "1", "--branch", TAG,
+                            "https://github.com/apple-oss-distributions/IOHIDFamily", src], check=True)
+        plugins = os.path.join(src, "IOHIDEventSystemPlugIns")
+        oracle = os.path.join(tmp, "oracle")
+        subprocess.run(["xcrun", "clang++", "-std=c++17", "-O0", "-ffp-contract=off",
+                        "-I", os.path.join(HERE, "stub"), "-I", plugins,
+                        "-I", os.path.join(src, "IOHIDSystem", "IOKit", "hidsystem"),
+                        os.path.join(HERE, "oracle.cpp"),
+                        os.path.join(plugins, "IOHIDAccelerationAlgorithm.cpp"),
+                        os.path.join(plugins, "IOHIDAccelerationTable.cpp"),
+                        os.path.join(plugins, "IOHIDAcceleration.cpp"),
+                        "-framework", "CoreFoundation", "-o", oracle], check=True)
+
+        tp = profile["trackpad"]
+        interval = str(tp["reportIntervalMicroseconds"])
+        # Finger speeds in inches per second: dense where the curves bend.
+        speeds = [round(i * 0.05, 2) for i in range(1, 801)]
+        speed_args = [repr(s) for s in speeds]
+
+        pointer = tp["pointer"]
+        out = subprocess.run([oracle, "pointer", str(pointer["acceleration"]), str(pointer["resolution"]),
+                              str(pointer["reportRate"]), interval] + curve_args(pointer["curves"]) + speed_args,
+                             check=True, capture_output=True, text=True).stdout
+        pointer_ref = json.loads(out)
+
+        scroll = tp["scroll"]
+        rate = scroll["reportRate"] / 65536.0 if scroll["reportRate"] else 67.0
+        out = subprocess.run([oracle, "scroll", str(scroll["acceleration"]), str(scroll["resolution"]),
+                              repr(rate), interval] + curve_args(scroll["curves"]) + speed_args,
+                             check=True, capture_output=True, text=True).stdout
+        scroll_ref = json.loads(out)
+
+    result = {
+        "model": model,
+        "iohidfamily": TAG,
+        "units": {
+            "speed": "finger speed, inches per second",
+            "counts": "counts per report at the profile's resolution",
+            "floor/integer/exact": "pointer output, points per millisecond",
+            "lines": "scroll output, wheel lines per millisecond",
+        },
+        "pointer": pointer_ref,
+        "scroll": scroll_ref,
+    }
+    with open(os.path.join(HERE, f"{model}.json"), "w") as f:
+        json.dump(result, f, indent=1)
+        f.write("\n")
+
+
+if __name__ == "__main__":
+    main()

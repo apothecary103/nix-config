@@ -1,0 +1,100 @@
+From: Silicon Bakery <noreply@localhost>
+Subject: [PATCH] arm64: dts: apple: t602x: add the video encoder (AVE) and its DARTs
+
+Add die 0's AVE (ave0) and its two t8110 DARTs to t602x-die0.dtsi,
+disabled, and enable them on t6020 (M2 Pro). Values from the macOS 13.5
+j414sap ADT (/arm-io/ave0, /arm-io/dart-ave0) and Asahi's t602x power-domain
+labels; see the t6020 port's PORT.txt for the provenance of each value.
+The node is for the out-of-tree apple-ave driver; nothing in-tree binds it.
+Not built or booted: verify with the overlay (variant=15) first.
+
+---
+diff --git a/arch/arm64/boot/dts/apple/t6020.dtsi b/arch/arm64/boot/dts/apple/t6020.dtsi
+index 500726e697a..6f9fd3c9114 100644
+--- a/arch/arm64/boot/dts/apple/t6020.dtsi
++++ b/arch/arm64/boot/dts/apple/t6020.dtsi
+@@ -26,6 +26,19 @@ / {
+ /delete-node/ &pmp_report_afnc4_ioa;
+ /delete-node/ &pmp_report_afnc5_ioa;
+ 
++/* The M2 Pro's one video encoder (out-of-tree apple-ave driver, t6020 row) */
++&ave_dart {
++	status = "okay";
++};
++
++&ave_cpudart {
++	status = "okay";
++};
++
++&ave {
++	status = "okay";
++};
++
+ &gpu {
+ 	compatible = "apple,agx-t6020", "apple,agx-g14x", "apple,agx-g14s";
+ 
+diff --git a/arch/arm64/boot/dts/apple/t602x-die0.dtsi b/arch/arm64/boot/dts/apple/t602x-die0.dtsi
+index f928a122a43..135cc11ced7 100644
+--- a/arch/arm64/boot/dts/apple/t602x-die0.dtsi
++++ b/arch/arm64/boot/dts/apple/t602x-die0.dtsi
+@@ -1022,6 +1022,60 @@ agx_mbox: mbox@406408000 {
+ 		#mbox-cells = <0>;
+ 	};
+ 
++	/*
++	 * Video encoder (AVE) and its two DARTs, die 0. From the macOS 13.5
++	 * j414sap ADT (/arm-io/ave0, /arm-io/dart-ave0); CPU address = ADT bus
++	 * address + 0x200000000, AIC numbers as in the ADT. Driven by the
++	 * out-of-tree apple-ave driver (github.com/aquarat/apple-m-series-ave-driver
++	 * with the t6020 port), which also maps the "cpudart", "dapf" and "smmu"
++	 * windows read-only and powers venc_me1 itself. Disabled here: only the
++	 * t6020 row exists (t6021 has a second encoder and other firmware),
++	 * t6020.dtsi enables it.
++	 */
++	ave_dart: iommu@40d030000 {
++		compatible = "apple,t6020-dart", "apple,t8110-dart";
++		reg = <0x4 0x0d030000 0x0 0x4000>;
++		#iommu-cells = <1>;
++		interrupt-parent = <&aic>;
++		interrupts = <AIC_IRQ 0 1107 IRQ_TYPE_LEVEL_HIGH>;
++		power-domains = <&ps_venc_sys>;
++		status = "disabled";
++	};
++
++	ave_cpudart: iommu@40d040000 {
++		compatible = "apple,t6020-dart", "apple,t8110-dart";
++		reg = <0x4 0x0d040000 0x0 0x4000>;
++		#iommu-cells = <1>;
++		interrupt-parent = <&aic>;
++		interrupts = <AIC_IRQ 0 1107 IRQ_TYPE_LEVEL_HIGH>;
++		power-domains = <&ps_venc_sys>;
++		status = "disabled";
++	};
++
++	ave: video-encoder@40d100000 {
++		compatible = "apple,t6020-ave", "apple,ave";
++		reg = <0x4 0x0d100000 0x0 0x45c000>,	/* DPE */
++			<0x4 0x0d800000 0x0 0x800000>,	/* ASC */
++			<0x4 0x0d050000 0x0 0x8000>,	/* SVE */
++			<0x2 0x90288000 0x0 0x24>,	/* venc_dma .. venc_me1 PS */
++			<0x4 0x0c000000 0x0 0x1000000>,	/* AXI2AF bridge */
++			<0x4 0x0d040000 0x0 0x4000>,	/* CPUDART */
++			<0x4 0x0d044000 0x0 0x4000>,	/* CPU_APF (DAPF) */
++			<0x4 0x0d020000 0x0 0x4000>;	/* SMMU */
++		reg-names = "dpe", "asc", "sve", "unk3", "axi2af",
++			"cpudart", "dapf", "smmu";
++		interrupt-parent = <&aic>;
++		interrupts = <AIC_IRQ 0 1110 IRQ_TYPE_LEVEL_HIGH>,
++			<AIC_IRQ 0 1107 IRQ_TYPE_LEVEL_HIGH>;
++		power-domains = <&ps_venc_sys>, <&ps_venc_pipe5>,
++			<&ps_venc_me0>, <&ps_venc_pipe4>;
++		resets = <&ps_venc_sys>;
++		/* the CPUDART (firmware fetch) first, as the driver checks */
++		iommus = <&ave_cpudart 0>, <&ave_cpudart 1>,
++			<&ave_dart 0>, <&ave_dart 1>;
++		status = "disabled";
++	};
++
+ 	pcie0: pcie@580000000 {
+ 		compatible = "apple,t6020-pcie";
+ 		device_type = "pci";

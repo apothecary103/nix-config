@@ -1,0 +1,848 @@
+From: Silicon Bakery (t6020 port) <noreply@localhost>
+Subject: [PATCH] t6020 (M2 Pro): SoC row, AXI2AF tunables, ADT DVAs, overlay variant 15
+
+Against github.com/aquarat/apple-m-series-ave-driver
+9ab14e45281e8f61fb499b760408028171a5f2b5 (apply with `git apply` or `patch -p1`).
+Static port, written on the Mac14,9 itself under macOS; not compiled and
+not run on hardware. See PORT.txt for the provenance of every value and the
+bring-up plan.
+
+- driver/ave_soc.[ch]: ave_soc_t6020 (H14S, DevID 19/16/11, Hera_6020 DPE
+  set, t8110 DART, translated fetch, src_dims, no DAPF programming), and
+  three row fields: axi2af_fw, iboot.ioba_unchecked, iboot.dva_from_adt.
+- driver/ave_drv.c, ave.h: "apple,t6020-ave"; AVE_AXI2AF tunables applied
+  after the DPE tunables (axi2af_tunables=, default 1), as macOS's
+  AVE_HwC::PowerOn does on DevType 16-18.
+- driver/ave_fw.c: rows with dva_from_adt take TEXT/DATA DVAs and the DATA
+  literal from the live ADT's segment-ranges remap fields; the pristine
+  check can skip IOBA.
+- tools/ave_fwgen.py: Hera_6020 DPE set, `axi2af` subcommand, t6020 tags.
+- test/: ave-overlay-t6020.dts as variant=15 (refused unless apple,t6020).
+- tools/ave-load.sh: t6020 -> VARIANT=15.  dts/apple,ave.yaml: compatible.
+
+---
+diff --git a/driver/ave.h b/driver/ave.h
+index 6fff655..f9c2224 100644
+--- a/driver/ave.h
++++ b/driver/ave.h
+@@ -162,6 +162,10 @@ struct ave_device {
+ 	 */
+ 	struct ave_dpe_set	dpe;
+ 	bool			dpe_loaded;
++	/* AVE_AXI2AF tunables from soc->axi2af_fw (t6020 port), loaded once */
++	const struct ave_axi2af_tunable	*axi2af;
++	unsigned int		n_axi2af;
++	bool			axi2af_loaded;
+ 	/*
+ 	 * docs/100: this boot's DATA as iBoot left it, copied at the first
+ 	 * start of a boot and checked against the image; exposed read-only
+diff --git a/driver/ave_drv.c b/driver/ave_drv.c
+index f3ebd51..81ea2ef 100644
+--- a/driver/ave_drv.c
++++ b/driver/ave_drv.c
+@@ -246,6 +246,16 @@ module_param(dpe_tunables, bool, 0444);
+ MODULE_PARM_DESC(dpe_tunables,
+ 		 "apply macOS's AVE_DPE Castor_6000 tunables and enable (DPE+0xDC000) after power-on, before the core starts (docs/58 7.1)");
+ 
++/*
++ * t6020 port: macOS's AVE_HwC::PowerOn applies AVE_AXI2AF's register
++ * tunables right after ResetDPE on the SoCs that have them (DevType 16-18,
++ * the M2 Pro/Max/Ultra; ave_soc.h). Rows without axi2af_fw are untouched.
++ */
++static bool axi2af_tunables = true;
++module_param(axi2af_tunables, bool, 0444);
++MODULE_PARM_DESC(axi2af_tunables,
++		 "apply macOS's AVE_AXI2AF tunables to the axi2af bank after the DPE tunables, on SoCs whose row names a file (t6020; default 1)");
++
+ /*
+  * Register the V4L2 mem2mem encoder (docs/68) instead of running the
+  * probe-time self-test: Config at probe, then one session per stream.
+@@ -722,6 +732,99 @@ static int ave_dpe_program(struct ave_device *ave)
+ 	return 0;
+ }
+ 
++/*
++ * The AXI2AF tunables file (ave_soc.h, AVE_AXI2AF_FILE_MAGIC), checked for
++ * shape: every offset a 32-bit register inside the axi2af bank. Loaded once.
++ */
++static int ave_axi2af_load(struct ave_device *ave)
++{
++	const char *name = ave->soc->axi2af_fw;
++	const struct firmware *fw;
++	struct ave_axi2af_tunable *t;
++	const u8 *e;
++	u32 n, i;
++	int ret;
++
++	if (ave->axi2af_loaded)
++		return 0;
++	ret = request_firmware(&fw, name, ave->dev);
++	if (ret)
++		return ret;
++	ret = -EINVAL;
++	if (fw->size < 16 || memcmp(fw->data, AVE_AXI2AF_FILE_MAGIC, 8))
++		goto bad;
++	n = get_unaligned_le32(fw->data + 8);
++	if (!n || n > 256 || get_unaligned_le32(fw->data + 12) ||
++	    fw->size != 16 + 12 * (size_t)n)
++		goto bad;
++	t = devm_kcalloc(ave->dev, n, sizeof(*t), GFP_KERNEL);
++	if (!t) {
++		ret = -ENOMEM;
++		goto out;
++	}
++	for (i = 0, e = fw->data + 16; i < n; i++, e += 12) {
++		t[i].off = get_unaligned_le32(e);
++		t[i].clear = get_unaligned_le32(e + 4);
++		t[i].set = get_unaligned_le32(e + 8);
++		if (t[i].off & 3 || t[i].off + 4 > ave->bank[AVE_BANK_FABRIC].size ||
++		    t[i].set & ~t[i].clear)
++			goto bad;
++	}
++	ave->axi2af = t;
++	ave->n_axi2af = n;
++	ave->axi2af_loaded = true;
++	ret = 0;
++	goto out;
++bad:
++	dev_err(ave->dev, "axi2af: %s is not an AVE AXI2AF tunables file (%zu bytes); regenerate it (tools/ave_fwgen.py axi2af)\n",
++		name, fw->size);
++out:
++	release_firmware(fw);
++	return ret;
++}
++
++/*
++ * AVE_AXI2AF::ApplyTunables (13.5 kext 0xfffffe0008e90860): for each entry,
++ * Read32(type 4, off), bic clear, orr set, Write32 - no read-back, no
++ * delay. AVE_Reg type 4 is the node's reg[4] (type 1 is the ASC: IOP_Config
++ * writes RVBAR as type 1 + 0x50000). The bank is PMGR fabric-bridge space
++ * (ave_hw.h), mapped non-posted like every /soc resource. The read-back here
++ * is ours and only logs: what the bridge returns for these registers has
++ * not been seen.
++ */
++static int ave_axi2af_program(struct ave_device *ave)
++{
++	unsigned int i, differ = 0;
++	int ret;
++
++	if (!axi2af_tunables || !ave->soc->axi2af_fw)
++		return 0;
++	ret = ave_axi2af_load(ave);
++	if (ret) {
++		dev_warn(ave->dev,
++			 "axi2af: no usable %s (%d); the AXI2AF bridge stays as iBoot left it (macOS programs it at every power-on). Generate it from the 13.5 kernelcache (tools/ave_fwgen.py axi2af)\n",
++			 ave->soc->axi2af_fw, ret);
++		return 0;
++	}
++	for (i = 0; i < ave->n_axi2af; i++) {
++		const struct ave_axi2af_tunable *t = &ave->axi2af[i];
++		u32 v = ave_read(ave, AVE_BANK_FABRIC, t->off);
++
++		ave_write(ave, AVE_BANK_FABRIC, t->off, (v & ~t->clear) | t->set);
++	}
++	for (i = 0; i < ave->n_axi2af; i++) {
++		const struct ave_axi2af_tunable *t = &ave->axi2af[i];
++		u32 v = ave_read(ave, AVE_BANK_FABRIC, t->off);
++
++		if ((v & t->clear) != t->set && differ++ < 8)
++			dev_info(ave->dev, "axi2af: +%#05x reads %#010x, table set %#010x under %#010x\n",
++				 t->off, v, t->set, t->clear);
++	}
++	dev_info(ave->dev, "axi2af: %s applied (%u entries), %u read back otherwise\n",
++		 ave->soc->axi2af_fw, ave->n_axi2af, differ);
++	return 0;
++}
++
+ static void ave_me1_holder_release(struct device *dev)
+ {
+ 	kfree(dev);
+@@ -1951,6 +2054,10 @@ static int ave_boot_core(struct ave_device *ave, bool resume)
+ 		ret = ave_dpe_program(ave);
+ 		if (ret)
+ 			return dev_err_probe(dev, ret, "AVE_DPE tunables\n");
++		/* AVE_HwC::PowerOn: ResetDPE, then AVE_AXI2AF::ApplyTunables */
++		ret = ave_axi2af_program(ave);
++		if (ret)
++			return dev_err_probe(dev, ret, "AVE_AXI2AF tunables\n");
+ 		ave_stage_ok(dev, AVE_STAGE_WRITE_IDLE);
+ 	} else {
+ 		return 0;
+@@ -2805,6 +2912,7 @@ static const struct of_device_id ave_of_match[] = {
+ 	{ .compatible = "apple,t8103-ave", .data = &ave_soc_set_t8103 },
+ 	{ .compatible = "apple,t8112-ave", .data = &ave_soc_set_t8112 },
+ 	{ .compatible = "apple,t6002-ave", .data = &ave_soc_set_t6002 },
++	{ .compatible = "apple,t6020-ave", .data = &ave_soc_set_t6020 },
+ 	{ .compatible = "apple,ave" },
+ 	{}
+ };
+diff --git a/driver/ave_fw.c b/driver/ave_fw.c
+index 1750625..7e9969a 100644
+--- a/driver/ave_fw.c
++++ b/driver/ave_fw.c
+@@ -538,6 +538,21 @@ int ave_fw_placement_from_adt(struct ave_device *ave)
+ 		return 0;
+ 	}
+ 	new_text = text->phys;
++	/*
++	 * t6020 port (rows with dva_from_adt): a segment's remap field is the
++	 * address the core uses for it - RVBAR's base for TEXT, the literal at
++	 * TEXT+0x423c for DATA (t8103: TEXT remap = phys, DATA remap =
++	 * 0xf000cc000 = its literal, docs/89; t6020 under macOS 27.2: TEXT
++	 * remap 0x10000000000 = dart-ave0 vm-base). For a translated fetch
++	 * those are the DVAs: logged against the row and adopted with the
++	 * placement below. RVBAR (stage 10) and the literal are still checked
++	 * against them.
++	 */
++	if (row->iboot.dva_from_adt && text->remap) {
++		dev_info(ave->dev, "adt: translated fetch: TEXT DVA %#llx, DATA DVA %#llx (row: %#llx, %#llx)\n",
++			 text->remap, data ? data->remap : 0,
++			 row->iboot.text_dva, row->iboot.data_dva);
++	}
+ 	if (row->iboot.data_owned == AVE_DATA_OWNED) {
+ 		new_data = row->iboot.data_phys;	/* the driver's own DATA */
+ 	} else if (data) {
+@@ -547,7 +562,10 @@ int ave_fw_placement_from_adt(struct ave_device *ave)
+ 			 enc.name, row->iboot.data_size);
+ 		return 0;
+ 	}
+-	if (new_text == row->iboot.text_phys && new_data == row->iboot.data_phys) {
++	if (new_text == row->iboot.text_phys && new_data == row->iboot.data_phys &&
++	    !(row->iboot.dva_from_adt && text->remap &&
++	      (text->remap != row->iboot.text_dva ||
++	       (data && data->remap && data->remap != row->iboot.data_dva)))) {
+ 		dev_info(ave->dev, "adt: placement matches ave_soc.c's %s row\n", row->name);
+ 		return 0;
+ 	}
+@@ -567,6 +585,15 @@ int ave_fw_placement_from_adt(struct ave_device *ave)
+ 		copy->iboot.text_dva = new_text & 0xffffffffULL;
+ 	copy->iboot.text_phys = new_text;
+ 	copy->iboot.data_phys = new_data;
++	if (row->iboot.dva_from_adt && text->remap) {
++		copy->iboot.text_dva = text->remap;
++		if (data && data->remap &&
++		    row->iboot.data_owned != AVE_DATA_OWNED) {
++			copy->iboot.data_dva = data->remap;
++			/* iBoot writes DATA's DVA into the literal (t8112, docs/90 §3.1) */
++			copy->iboot.data_literal = data->remap;
++		}
++	}
+ 	ave->soc = copy;
+ 	return 0;
+ }
+@@ -1183,7 +1210,8 @@ static int ave_fw_blob_by_image(struct ave_device *ave, const u8 *blob)
+ 	}
+ 	if (get_unaligned_le64(blob + foff[3]) != (ib->blob_tag_cpad ?: ib->tag_cpad) ||
+ 	    get_unaligned_le64(blob + foff[4]) != (ib->blob_tag_cpad ? ib->blob_tag_wrad : ib->tag_wrad) ||
+-	    get_unaligned_le64(blob + foff[5]) != (ib->blob_tag_cpad ? ib->blob_tag_ioba : ib->tag_ioba) ||
++	    (!ib->ioba_unchecked &&
++	     get_unaligned_le64(blob + foff[5]) != (ib->blob_tag_cpad ? ib->blob_tag_ioba : ib->tag_ioba)) ||
+ 	    (ib->tag_soc && get_unaligned_le32(blob + foff[1]) != ib->tag_soc)) {
+ 		dev_err(ave->dev, "pristine by image: REFUSING - the blob's SOC_ %#x CpAd %#llx WrAd %#llx IOBA %#llx are not %s's\n",
+ 			get_unaligned_le32(blob + foff[1]),
+diff --git a/driver/ave_soc.c b/driver/ave_soc.c
+index 814eb9d..043dd67 100644
+--- a/driver/ave_soc.c
++++ b/driver/ave_soc.c
+@@ -797,6 +797,165 @@ const struct ave_soc_set ave_soc_set_t6002 = {
+ 	.n	= ARRAY_SIZE(ave_soc_t6002_rows),
+ };
+ 
++/*
++ * t6020, M2 Pro: MacBook Pro 14" Mac14,9 (j414s, the machine this port was
++ * written on), MacBook Pro 16" Mac14,10 (j416s) and Mac mini Mac14,12
++ * (j474s) share the SoC, the ADT nodes and AppleAVE2FW_H14S; macOS 13.5
++ * firmware. Ported statically (Silicon Bakery, 2026-11-02); NOT
++ * YET RUN ON HARDWARE. Provenance tags: [ADT] the 13.5 j414sap restore ADT
++ * (DeviceTree.j414sap.im4p of 22G74, identical in the Asahi stub's Preboot);
++ * [KEXT] AppleAVE2 in the 13.5 kernelcache; [FW] AppleAVE2FW_H14S.im4p of
++ * 13.5 (sha256 4686e962...cf5142, unwrapped Mach-O b5f928ac...058c1c);
++ * [DT] Asahi's t602x device trees (asahi-7.2.12-2); [INF] inferred.
++ *
++ * What is the same as t8112 (M2): dart-ave0 is a "dart,t8110" with remap = 1
++ * and the firmware is fetched through the CPUDART (the live ADT of a macOS
++ * boot on this machine has segment-ranges remap = dart-ave0 vm-base
++ * 0x10000000000 for TEXT [ADT, 27.2 boot]; that 13.5's iBoot does the same
++ * is [INF]); the H14 source reader needs PICMGMT +0x964/+0x968 for linear
++ * input: CDMAController::ConfigPipeRdDMA is 0x4d4 bytes in H14S as in H14G
++ * and writes both fields (17 bits) to DPE+0x112003c/+0x1120040 on both arms
++ * (fw 0x3be24-0x3be38 and 0x3bea0-0x3beb8) [FW]; the new source fields at
++ * ctx +0x703/+0x704/+0x708 (wire 0xFEC3/0xFEC4/0xFEC8) are read by
++ * CAVCController::InitEncodingParameters as in H14G (fw 0x5d3a8-0x5d3e4) and
++ * stay 0 as on t8112 [FW]. AVE_IOP_Config/Start/CheckIdle_Hera are
++ * instruction-for-instruction AVE_IOP_*_Castor/_Atlas (only log strings
++ * differ) [KEXT]; the SVE register table is gs_sAVE_SVECtrl_Reg_Rhea for
++ * chipType 4-15, t6020's 11 included [KEXT].
++ *
++ * What is new:
++ *  - firmware H14S (= H14C's build: same 1122 functions, same sizes) is
++ *    the multi-encoder build of the H14 family (PlatformIOPIPCManager,
++ *    RTK_mbi_*, the *Mcore/*MultiCore paths). Its PlatformIOPIPCManager
++ *    looks up the boot handshake's DevID in its own table (_AVE_FindByDevID,
++ *    DATA+0x2760 for DevID 19) and sets up remote encoders only when that
++ *    row's perGroup is 2 or more [FW]. DevID 19 has perGroup 1, so the row
++ *    below keeps the firmware single-encoder. Do NOT send t6021's 20/17/11
++ *    (perGroup 2) on this machine.
++ *  - AVE_AXI2AF tunables (axi2af_fw): macOS programs the AXI2AF bank only on
++ *    DevType 16-18 [KEXT]; see ave_soc.h.
++ *  - the DAPF: dart-ave0 carries "dapf-instance-1" (CPU_APF, reg[3]) with
++ *    three r0 0x31 entries, 0x507c0c100-0x507c2881f, 0x240dc0c100-...,
++ *    0x2507c0c100-..., the ASC mailbox windows of t6021's ave1 and of
++ *    t6022's die-1 encoders [ADT]. None exists on t6020 and the firmware
++ *    never routes to one with perGroup 1, so nothing is programmed
++ *    (dapf_by_driver false), as on t8112 whose DAPF is empty. Stock m1n1
++ *    (dapf.c: aop, mtp, pmp, isp only) does not touch it either.
++ *
++ * Placement: not pinned. text_phys/data_phys are 0 and the driver takes
++ * them from the live ADT that m1n1 (>= 1.6.1, nixpkgs has 2.0.0) publishes
++ * as reserved-memory "adt" (docs/99), with the DVAs from segment-ranges'
++ * remap fields (iboot.dva_from_adt, a t6020 port addition). Without
++ * that ADT the probe refuses before any register access. The DVAs below are
++ * what a macOS boot uses (vm-base + the image's DATA vmaddr) and are still
++ * checked against RVBAR and the DATA literal at TEXT+0x423c, which H14S
++ * reads exactly like H13x/H14G (fw 0x308: adr x0, #0x3f34; ldp w0, w1) [FW].
++ */
++const struct ave_soc ave_soc_t6020 = {
++	.name			= "t6020",
++	.dpe_fw			= AVE_DPE_FW_HERA_6020,
++	.axi2af_fw		= AVE_AXI2AF_FW_HERA_6020,
++	.pipe_diag		= false,	/* pipe register map not checked on H14S */
++	.dpe_phys		= 0x40d100000ULL,	/* [ADT] ave0 reg[0] bus 0x20d100000 + 0x200000000 */
++	.inst			= 0,
++	.fw_name		= "apple/ave_h14s.bin",
++	/* captured by the driver at the first start of a boot (docs/100) */
++	.fw_pristine_name	= "apple/ave-13.5-h14s-data-pristine.bin",
++	/* no reference dump: any blob is checked against the image */
++	.fw_pristine_sha256	= { 0 },
++	.data_stkg_off		= 0x3a10,	/* [FW] STKG payload at H14S DATA+0x3a10 */
++	/* [FW] sha256 of H14S __TEXT (file 0x4000 + off), 16 KiB each */
++	.text_win = {
++		{ 0x0, {
++			0x19, 0x6d, 0xbd, 0x4c, 0x29, 0xed, 0xc7, 0xfa,
++			0x94, 0xeb, 0x7b, 0xea, 0xd8, 0xaf, 0xc7, 0x82,
++			0xcf, 0x9f, 0x36, 0xaa, 0x63, 0x0d, 0x76, 0x94,
++			0x17, 0x75, 0xfb, 0x86, 0x13, 0xc8, 0x1a, 0x2a, } },
++		{ 0x80000, {
++			0x94, 0x9c, 0x83, 0x7a, 0xe8, 0x59, 0x1d, 0x73,
++			0x81, 0x0f, 0x51, 0xdd, 0x0a, 0xd1, 0xd4, 0x04,
++			0x6a, 0x14, 0x7d, 0x7e, 0xfd, 0xa1, 0xf1, 0xf1,
++			0xd8, 0xa8, 0x45, 0x76, 0xd2, 0xea, 0x05, 0x70, } },
++		{ 0xec000, {
++			0xaa, 0xcd, 0xd5, 0x5e, 0xba, 0xf8, 0x6b, 0xf5,
++			0x56, 0xd9, 0x8d, 0xe0, 0x2e, 0xed, 0x9d, 0xd2,
++			0x3f, 0xd1, 0x49, 0x12, 0xe3, 0xf9, 0x39, 0x82,
++			0xfd, 0x71, 0xae, 0xbf, 0x3d, 0x25, 0x03, 0x22, } },
++	},
++
++	/*
++	 * [KEXT] gs_saAVE_DevID_Conversion, soc 6020: chipType 11, devType 16,
++	 * DevID 19, maxNum 1, perGroup 1; [FW] the same row in H14S's own table.
++	 */
++	.dev = {
++		[AVE_ABI_MACOS_13_5] = { .dev_id = 19, .dev_type = 16, .chip_type = 11 },
++	},
++
++	/*
++	 * [ADT] dart-ave0: instance = DART "DART", DART "CPUDART", SMMU "SMMU",
++	 * DAPF "CPU_APF" over reg[0..3] (bus + 0x200000000), the t8112 order.
++	 */
++	.dart1_phys		= 0x40d030000ULL,	/* reg[0] DART (datapath) */
++	.cpudart_phys		= 0x40d040000ULL,	/* reg[1] CPUDART */
++	.smmu_phys		= 0x40d020000ULL,	/* reg[2] */
++	.dapf_phys		= 0x40d044000ULL,	/* reg[3] CPU_APF = CPUDART + 0x4000 */
++	.dart_t8110		= true,			/* [ADT] compatible "dart,t8110" */
++	.src_dims		= true,			/* [FW] see above */
++
++	/* SVE .. ASC + 0x469000, as every row; only the DAPF experiments use it */
++	.dapf_mmio_own		= { 0x40d050000ULL, 0x40dc69000ULL },
++
++	.iboot = {
++		/* 0: from the live ADT at probe (docs/99) */
++		.text_phys	= 0,
++		.text_size	= 0xf0000ULL,		/* [FW] H14S __TEXT vmsize */
++		.text_dva	= 0x10000000000ULL,	/* [ADT] dart-ave0 vm-base */
++		.data_phys	= 0,
++		.data_size	= 0x134000ULL,		/* [FW] H14S __DATA vmsize */
++		.data_dva	= 0x100000f0000ULL,	/* vm-base + __DATA vmaddr 0xf0000 */
++		.data_literal	= 0x100000f0000ULL,	/* [INF] as t8112: iBoot writes DATA's DVA */
++		.translated	= true,
++		/* docs/100: what a cold DATA of this encoder must carry */
++		.tag_cpad	= 0x40d800000ULL,	/* [ADT] the ASC bank */
++		.tag_wrad	= 0x40dc00000ULL,	/* CpAd + 0x400000 */
++		.tag_ioba	= 0,			/* [INF] not read by H14S, unchecked */
++		.ioba_unchecked	= true,
++		.dva_from_adt	= true,
++		/*
++		 * SOC_ is expected to be 0x6020 (t6000/t6001/t8103/t8112 carry
++		 * their chip number) but has not been read on this SoC: 0 = not
++		 * compared. The capture logs the value it finds.
++		 */
++		.tag_soc	= 0,
++	},
++
++	/*
++	 * [DT] venc_me0 (power-controller@8018) and venc_me1 (@8020) are in
++	 * pmgr_east; me1's parent is me0, whose parents are pipe5 and pipe4
++	 * (the t6001 shape), so holding me1 powers the chain. me0 is in the DT
++	 * node's power-domains.
++	 */
++	.me1_node		= "/soc/power-management@290280000/power-controller@8020",
++	.me1_label		= "venc_me1",
++	/*
++	 * [DT] report@10 "pmp-venc-sys" exists but is disabled, and the t602x
++	 * PMP node itself is disabled in asahi-7.2.12-2. The PMP addresses
++	 * (pmp_ps_reg ... pmgr_perf_blk) have not been mapped for t6020
++	 * (tools/pmp_ptd_map.py was not run): they stay 0, so pmp_report /
++	 * pmp_vote / perf_dump refuse with a warning (docs/79 §4).
++	 */
++	.pmp_report_node	= "/soc/pmp_report@28e3c0000/report@10",
++};
++
++static const struct ave_soc *const ave_soc_t6020_rows[] = {
++	&ave_soc_t6020,
++};
++
++const struct ave_soc_set ave_soc_set_t6020 = {
++	.rows	= ave_soc_t6020_rows,
++	.n	= ARRAY_SIZE(ave_soc_t6020_rows),
++};
++
+ const struct ave_soc *ave_soc_pick(const struct ave_soc_set *set,
+ 				   phys_addr_t dpe_phys)
+ {
+diff --git a/driver/ave_soc.h b/driver/ave_soc.h
+index aaa4620..a118ee9 100644
+--- a/driver/ave_soc.h
++++ b/driver/ave_soc.h
+@@ -47,6 +47,34 @@ struct ave_dpe_set {
+ #define AVE_DPE_FW_CASTOR_6000	"apple/ave-13.5-dpe-castor_6000.bin"
+ #define AVE_DPE_FW_ACIS_8103	"apple/ave-13.5-dpe-acis_8103.bin"
+ #define AVE_DPE_FW_ATLAS_8112	"apple/ave-13.5-dpe-atlas_8112.bin"
++/*
++ * t6020/t6021/t6022 (DevID 19-21, 24-27) share one CfgSet in the 13.5 kext:
++ * AVE_DPE_GetTunables indexes its table by DevID - 1 and slot 18 (DevID 19,
++ * t6020) points at gs_sAVE_DPE_CfgSet_Hera_6020 (1 CAT + 121 CAC Default +
++ * 120 CAC 8-bit entries).
++ */
++#define AVE_DPE_FW_HERA_6020	"apple/ave-13.5-dpe-hera_6020.bin"
++
++/*
++ * AVE_AXI2AF register tunables (t6020 port). The 13.5 kext's AVE_AXI2AF::Init
++ * takes a config only for DevType 16-18 (t6020/t6021/t6022: sub w8, devtype,
++ * #0x13; cmn w8, #4; b.hi), so the M2 Pro/Max are the first SoCs on which
++ * macOS writes the AXI2AF bank at all: AVE_HwC::PowerOn -> ResetDPE ->
++ * AVE_AXI2AF::ApplyTunables, a read-modify-write of each entry of
++ * gs_sAVE_AXI2AF_RegCfg_Default_Hera_602x into AVE_Reg type 4 (reg[4], the
++ * "axi2af" bank). The values are not in the source: the generator
++ * (tools/ave_fwgen.py axi2af, bakery-ave-fw) writes them from the user's
++ * 13.5 kernelcache. File: "AVEAXI01", u32 count, u32 0, then
++ * {u32 off, u32 clear, u32 set} per entry, LE.
++ */
++#define AVE_AXI2AF_FILE_MAGIC	"AVEAXI01"
++#define AVE_AXI2AF_FW_HERA_6020	"apple/ave-13.5-axi2af-hera_6020.bin"
++
++struct ave_axi2af_tunable {
++	u32	off;
++	u32	clear;
++	u32	set;
++};
+ 
+ /* One row of the kext's AVE_DevInfo table, as sent in the boot handshake */
+ struct ave_soc_devrow {
+@@ -162,6 +190,23 @@ struct ave_soc {
+ 		 * above (tools/data_blob_from_image.py, docs/89 §6).
+ 		 */
+ 		bool		blob_by_image;
++		/*
++		 * t6020: do not compare the blob's IOBA with tag_ioba. H14S
++		 * has no code that addresses its IOBA payload (no adrp/add or
++		 * ldr reaches DATA+0x3bbc; the only reference near the tag list
++		 * is the stack setup at TEXT 0x704), as docs/90 §3.3 found for
++		 * H14G, and what iBoot writes there on this SoC has not been
++		 * read yet (t600x: the fabric bank, t8112: 0).
++		 */
++		bool		ioba_unchecked;
++		/*
++		 * t6020: with the placement from the live ADT (docs/99), take a
++		 * translated fetch's TEXT/DATA DVAs (and the DATA literal) from
++		 * segment-ranges' remap fields too, not only the physical
++		 * addresses. Off for every earlier row, whose DVAs were read on
++		 * hardware.
++		 */
++		bool		dva_from_adt;
+ 	} iboot;
+ 	/* docs/84 §3: the driver programs this DART's DAPF (m1n1 does not) */
+ 	bool		dapf_by_driver;
+@@ -185,6 +230,11 @@ struct ave_soc {
+ 	 * enc_two_refs=1 overrides it (lab runs).
+ 	 */
+ 	bool		two_refs_hang;
++	/*
++	 * AVE_AXI2AF tunables file (AVE_AXI2AF_FW_*); NULL = macOS writes no
++	 * AXI2AF register on this SoC (every row before t6020).
++	 */
++	const char	*axi2af_fw;
+ 
+ 	/* Power domains the DT cannot hand to the node (docs/57 #3, docs/78) */
+ 	const char	*me1_node;		/* venc_me1 */
+@@ -223,6 +273,8 @@ extern const struct ave_soc_set ave_soc_set_t8103;
+ extern const struct ave_soc ave_soc_t8112;
+ extern const struct ave_soc_set ave_soc_set_t8112;
+ extern const struct ave_soc_set ave_soc_set_t6002;
++extern const struct ave_soc ave_soc_t6020;
++extern const struct ave_soc_set ave_soc_set_t6020;
+ 
+ const struct ave_soc *ave_soc_pick(const struct ave_soc_set *set,
+ 				   phys_addr_t dpe_phys);
+diff --git a/dts/apple,ave.yaml b/dts/apple,ave.yaml
+index 0f46a81..8b2a5a5 100644
+--- a/dts/apple,ave.yaml
++++ b/dts/apple,ave.yaml
+@@ -31,6 +31,7 @@ properties:
+           - apple,t8103-ave
+           - apple,t6000-ave
+           - apple,t6001-ave
++          - apple,t6020-ave
+       - const: apple,ave
+ 
+   reg:
+diff --git a/test/Makefile b/test/Makefile
+index e34b25c..bc21920 100644
+--- a/test/Makefile
++++ b/test/Makefile
+@@ -14,7 +14,7 @@ all: ave_overlay_dtbo.h ave_overlay_noiommu_dtbo.h ave_overlay_e2_dtbo.h \
+      ave_overlay_e5_dtbo.h ave_overlay_e6_dtbo.h ave_overlay_e7_dtbo.h ave_overlay_pmp_venc_dtbo.h ave_overlay_pmp_venc_t8112_dtbo.h \
+      ave_overlay_t6000_dtbo.h ave_overlay_t8103_dtbo.h ave_overlay_t8112_dtbo.h \
+      ave_overlay_t6002_dtbo.h ave_overlay_t6002_die0_dtbo.h ave_overlay_t6002_ave2_dtbo.h \
+-     ave_overlay_t6002_all_dtbo.h
++     ave_overlay_t6002_all_dtbo.h ave_overlay_t6020_dtbo.h
+ 	$(MAKE) -C $(KDIR) M=$(PWD) modules
+ 
+ # Build from the no-DART overlay. Building from ave-overlay.dts silently
+@@ -145,3 +145,10 @@ ave_overlay_t6002_all_dtbo.h: ave-overlay-t6002-all.dtbo
+ 
+ ave-overlay-t6002-all.dtbo: ave-overlay-t6002-all.dts $(T6002_DTSI)
+ 	dtc -I dts -O dtb -o $@ $< 2>/dev/null
++
++# variant=15 (t6020 port): t6020 (M2 Pro) ave0
++ave_overlay_t6020_dtbo.h: ave-overlay-t6020.dtbo
++	python3 mkhdr.py $< ave_overlay_t6020_dtbo $@
++
++ave-overlay-t6020.dtbo: ave-overlay-t6020.dts
++	dtc -I dts -O dtb -o $@ $< 2>/dev/null
+diff --git a/test/ave-overlay-t6020.dts b/test/ave-overlay-t6020.dts
+new file mode 100644
+index 0000000..621146c
+--- /dev/null
++++ b/test/ave-overlay-t6020.dts
+@@ -0,0 +1,81 @@
++// SPDX-License-Identifier: GPL-2.0-only
++/*
++ * variant=15 (t6020 port): t6020 (M2 Pro; Mac14,9 j414s, Mac14,10 j416s,
++ * Mac14,12 j474s), ave0. variant=10's shape (t8110 DARTs, CPUDART first in
++ * iommus) with the t6020 addresses. NOT YET RUN ON HARDWARE.
++ *
++ * From DeviceTree.j414sap.im4p of macOS 13.5 (22G74), the Asahi stub's copy:
++ *  - /arm-io/ave0: compatible "ave2", soc-id "t6020"; reg (bus) DPE
++ *    0x20d100000+0x45c000, ASC 0x20d800000+0x800000, SVE 0x20d050000+0x8000,
++ *    PMGR 0x902803e0+0x7c44, AXI2AF 0x20c000000+0x1000000; interrupts 1110,
++ *    1104, 1103, 1106, 1105 (the kext takes index 0 only).
++ *  - /arm-io/dart-ave0: "dart,t8110"; reg DART 0x20d030000, CPUDART
++ *    0x20d040000, SMMU 0x20d020000, CPU_APF 0x20d044000 (0x4000 each);
++ *    interrupt 1107; sid 0, 15, 12 (15 and 12 bypass); remap 1.
++ *  - CPU physical = bus + 0x200000000 for the 0x2_xxxx_xxxx banks (macOS's
++ *    IODeviceMemory for ave0 on this machine reads 0x40d100000 etc.); the
++ *    PMGR window is pmgr_east (0x290280000) + 0x3e0 .. + 0x8024.
++ *  - Linux's AIC numbers equal the ADT's on t602x (Asahi's avd: ADT 1088 /
++ *    1095, DT <AIC_IRQ 0 1088>, <... 1095>), 4 cells, die 0.
++ *
++ * Bank 3 ("unk3") is the driver's PMGR window: venc_dma .. venc_me1 at
++ * +0x00 .. +0x20 (pmgr_east + 0x8000, Asahi t602x-pmgr.dtsi), size 0x24 like
++ * every earlier SoC; the ADT's window starts at venc_sys (+0x3e0) instead.
++ * Streams 0 and 1 on both DARTs, as variants 4/8/10 (stream 1 is what
++ * macOS remaps onto 0; sid 15 and 12 are bypass streams nothing here uses).
++ * Power: venc_sys, venc_pipe5, venc_me0, venc_pipe4 by sentinel (all four
++ * have phandles in the t602x DT); venc_me1 through the driver's holder.
++ * Compile WITHOUT -@ (sentinels, see ave_overlay_mod.c).
++ */
++/dts-v1/;
++/plugin/;
++
++/ {
++	fragment@0 {
++		target-path = "/soc";
++
++		__overlay__ {
++			#address-cells = <2>;
++			#size-cells = <2>;
++
++			dart_ave0_0: iommu@40d040000 {
++				compatible = "apple,t6020-dart", "apple,t8110-dart";
++				reg = <0x4 0x0d040000 0x0 0x4000>;
++				interrupt-parent = <0xa7e00013>;
++				interrupts = <0 0 1107 4>;
++				#iommu-cells = <1>;
++				power-domains = <0xa7e0001d>;
++			};
++
++			dart_ave0_1: iommu@40d030000 {
++				compatible = "apple,t6020-dart", "apple,t8110-dart";
++				reg = <0x4 0x0d030000 0x0 0x4000>;
++				interrupt-parent = <0xa7e00013>;
++				interrupts = <0 0 1107 4>;
++				#iommu-cells = <1>;
++				power-domains = <0xa7e0001d>;
++			};
++
++			ave0: video-encoder@40d100000 {
++				compatible = "apple,t6020-ave", "apple,ave";
++				reg = <0x4 0x0d100000 0x0 0x45c000>,
++				      <0x4 0x0d800000 0x0 0x800000>,
++				      <0x4 0x0d050000 0x0 0x008000>,
++				      <0x2 0x90288000 0x0 0x000024>,
++				      <0x4 0x0c000000 0x0 0x1000000>,
++				      <0x4 0x0d040000 0x0 0x4000>,
++				      <0x4 0x0d044000 0x0 0x4000>,
++				      <0x4 0x0d020000 0x0 0x4000>;
++				reg-names = "dpe", "asc", "sve", "unk3", "axi2af",
++					    "cpudart", "dapf", "smmu";
++				interrupt-parent = <0xa7e00013>;
++				interrupts = <0 0 1110 4>, <0 0 1107 4>;
++				power-domains = <0xa7e0001d>, <0xa7e000c2>, <0xa7e000c4>,
++						<0xa7e000c3>;
++				resets = <0xa7e0001d>;
++				iommus = <&dart_ave0_0 0>, <&dart_ave0_0 1>,
++					 <&dart_ave0_1 0>, <&dart_ave0_1 1>;
++			};
++		};
++	};
++};
+diff --git a/test/ave_overlay_mod.c b/test/ave_overlay_mod.c
+index 5d3b113..88e5d36 100644
+--- a/test/ave_overlay_mod.c
++++ b/test/ave_overlay_mod.c
+@@ -39,6 +39,7 @@
+ #include "ave_overlay_t6002_die0_dtbo.h"
+ #include "ave_overlay_t6002_ave2_dtbo.h"
+ #include "ave_overlay_t6002_all_dtbo.h"
++#include "ave_overlay_t6020_dtbo.h"
+ 
+ static int ovcs_id, pmp_ovcs_id;
+ 
+@@ -266,6 +267,11 @@ fail:
+  * variant=8 (docs/87): variant=4 for t6000 (M1 Pro): compatible
+  *                      "apple,t6000-ave" and no afnc4_ioa, which t6000 lacks.
+  *
++ * variant=15 (t6020 port): t6020 (M2 Pro) ave0, variant=10's shape with
++ *                      the t6020 addresses and AIC 1110/1107. Refused on
++ *                      anything but an "apple,t6020" machine (t6021 has the
++ *                      same addresses and another firmware).
++ *
+  * variant=11..14 (docs/98): t6002 (M1 Ultra), "apple,t6002-ave", nodes on
+  *                      /soc@200000000 (die 0) and /soc@2200000000 (die 1):
+  *                      11 ave0, 12 ave0+ave1 (die 0), 13 ave0+ave2 (the
+@@ -279,7 +285,7 @@ fail:
+ static int variant;
+ module_param(variant, int, 0444);
+ MODULE_PARM_DESC(variant,
+-		 "0 = with DART (default), 1 = no IOMMU: preserves iBoot's DART config, NO backstop, 2 = 1 + cpudart/dapf regs (E2), 3 = 0 + cpudart/dapf regs (E3), 4 = 3 with both DARTs in iommus (docs/56), 5 = 4 + stream 15 (docs/69), 6 = ave1 alone, 7 = both encoders (docs/82), 8 = t6000 (M1 Pro) ave0 (docs/87), 9 = t8103 (M1), 10 = t8112 (M2), 11-14 = t6002 (M1 Ultra): 11 ave0, 12 die 0 (ave0+ave1), 13 ave0+ave2, 14 all four (docs/98)");
++		 "0 = with DART (default), 1 = no IOMMU: preserves iBoot's DART config, NO backstop, 2 = 1 + cpudart/dapf regs (E2), 3 = 0 + cpudart/dapf regs (E3), 4 = 3 with both DARTs in iommus (docs/56), 5 = 4 + stream 15 (docs/69), 6 = ave1 alone, 7 = both encoders (docs/82), 8 = t6000 (M1 Pro) ave0 (docs/87), 9 = t8103 (M1), 10 = t8112 (M2), 11-14 = t6002 (M1 Ultra): 11 ave0, 12 die 0 (ave0+ave1), 13 ave0+ave2, 14 all four (docs/98), 15 = t6020 (M2 Pro) ave0");
+ 
+ static int __init ave_ov_init(void)
+ {
+@@ -363,8 +369,17 @@ static int __init ave_ov_init(void)
+ 		len = ave_overlay_t6002_all_dtbo_len;
+ 		pr_warn("ave-overlay: variant=14 - t6002, all four encoders (docs/98)\n");
+ 		break;
++	case 15:
++		if (!of_machine_is_compatible("apple,t6020")) {
++			pr_err("ave-overlay: variant=15 is the t6020 (M2 Pro) overlay and this machine is not apple,t6020; refusing\n");
++			return -EINVAL;
++		}
++		fdt = ave_overlay_t6020_dtbo;
++		len = ave_overlay_t6020_dtbo_len;
++		pr_warn("ave-overlay: variant=15 - t6020 (M2 Pro) ave0, t8110 DARTs, AIC 1110/1107 (t6020 port, untested)\n");
++		break;
+ 	default:
+-		pr_err("ave-overlay: variant=%d is not 0-14; refusing\n", variant);
++		pr_err("ave-overlay: variant=%d is not 0-15; refusing\n", variant);
+ 		return -EINVAL;
+ 	}
+ 
+diff --git a/tools/ave-load.sh b/tools/ave-load.sh
+index 5fbf202..b0c5806 100755
+--- a/tools/ave-load.sh
++++ b/tools/ave-load.sh
+@@ -13,9 +13,10 @@
+ #   encoders, /dev nodes apple-ave-enc and apple-ave1-enc (docs/82)
+ #   sudo VARIANT=11 tools/ave-load.sh  # t6002 (M1 Ultra) ave0; 12 die 0's two,
+ #   13 ave0 + ave2 (die 1), 14 all four: apple-ave-enc, apple-ave1..3-enc (docs/98)
++#   sudo VARIANT=15 tools/ave-load.sh  # t6020 (M2 Pro), its one encoder (t6020 port)
+ #
+ # Without VARIANT the SoC picks it: t6000 8, t6001 7, t8103 9, t8112 10,
+-# t6002 11 (ave0 only until the docs/98 plan has validated the others).
++# t6002 11 (ave0 only until the docs/98 plan has validated the others), t6020 15.
+ #
+ # Reloading in the same boot works: a load after an unload resets the core
+ # and restores its DATA by itself (driver parameter reload, default on;
+@@ -36,7 +37,7 @@ if [ -z "${VARIANT:-}" ]; then
+     soc=$(tr '\0' '\n' < /proc/device-tree/compatible | grep -m1 -E '^apple,t[0-9]+$' | cut -d, -f2)
+     case "$soc" in
+     t6000) VARIANT=8 ;; t6001) VARIANT=7 ;; t8103) VARIANT=9 ;; t8112) VARIANT=10 ;;
+-    t6002) VARIANT=11 ;;
++    t6002) VARIANT=11 ;; t6020) VARIANT=15 ;;
+     *) echo "no AVE overlay for SoC '$soc'; set VARIANT" >&2; exit 1 ;;
+     esac
+ fi
+diff --git a/tools/ave_fwgen.py b/tools/ave_fwgen.py
+index 9dc09e8..d0af346 100644
+--- a/tools/ave_fwgen.py
++++ b/tools/ave_fwgen.py
+@@ -11,6 +11,11 @@ with request_firmware():
+                                  at every power-on (docs/58 §5.1, §7.1), read
+                                  from AppleAVE2.kext's gs_sAVE_DPE_CfgSet_<set>
+                                  in a macOS 13.5 kernelcache
++  apple/ave-13.5-axi2af-<set>.bin  the AVE_AXI2AF register tunables macOS
++                                 applies at every power-on on the M2 Pro/Max/
++                                 Ultra (t6020 port), from the kext's
++                                 gs_sAVE_AXI2AF_Cfg_<set> (+0x90 pointer,
++                                 +0x98 count)
+ 
+ The pristine DATA blob comes from the machine itself instead: the driver
+ copies the firmware's DATA before the first start of a boot and exposes it
+@@ -23,6 +28,7 @@ command (Apple's reference implementation, BSD-3-Clause; Fedora: lzfse).
+   ave_fwgen.py dpe KERNELCACHE --set Castor_6000 -o ave-13.5-dpe-castor_6000.bin
+   ave_fwgen.py dpe KERNELCACHE --list
+   ave_fwgen.py dpe-dump FILE              print a generated DPE file
++  ave_fwgen.py axi2af KERNELCACHE --set Hera_6020 -o ave-13.5-axi2af-hera_6020.bin
+   ave_fwgen.py check-pristine IMAGE BLOB --soc t6001 [--inst N]
+ """
+ import argparse
+@@ -269,7 +275,7 @@ DPE_CAT_BASE = 0xDC000
+ DPE_CAC_BASE = 0xDC400
+ DPE_SLOTS = (("cat_default", 0), ("cac_default", 3), ("cac_8bit", 4))
+ DPE_MAGIC = b"AVEDPE01"
+-DPE_SETS = ("Castor_6000", "Acis_8103", "Atlas_8112")
++DPE_SETS = ("Castor_6000", "Acis_8103", "Atlas_8112", "Hera_6020")
+ KEXT = "com.apple.driver.AppleAVE2"
+ 
+ 
+@@ -306,6 +312,68 @@ def dpe_tables(kc, setname):
+     return out
+ 
+ 
++# ---------------------------------------------------------------------------
++# AVE_AXI2AF tunables (t6020 port)
++#
++# gs_sAVE_AXI2AF_Cfg_<set> is twelve 12-byte register-field descriptors (the
++# BlockTraffic/CheckIdle fields, 0x90 bytes), then {pointer, u32 count} of
++# the RegCfg list. AVE_AXI2AF::ApplyTunables (13.5 kext 0xfffffe0008e90860)
++# walks that list: {u32 offset, u32 width, u32 clear, u32 set}, a
++# read-modify-write into AVE_Reg type 4 (the node's reg[4], 16 MiB). The kext
++# loads a config only for DevType 16-18 (Hera_6020/6021/6022); the Cfg of
++# every earlier SoC has a null list.
++# ---------------------------------------------------------------------------
++AXI2AF_MAGIC = b"AVEAXI01"
++AXI2AF_SETS = ("Hera_6020", "Hera_6021", "Hera_6022")
++AXI2AF_BANK_SIZE = 0x1000000
++
++
++def axi2af_file_name(setname):
++    return f"apple/ave-13.5-axi2af-{setname.lower()}.bin"
++
++
++def axi2af_table(kc, setname):
++    """[(off, clear, set)] of gs_sAVE_AXI2AF_Cfg_<set>'s RegCfg list."""
++    syms = kc.symbols(kc.kext(KEXT))
++    want = "gs_sAVE_AXI2AF_Cfg_" + setname
++    hits = [va for name, va in syms.items() if name.endswith(want)
++            and name[:-len(want)].lstrip("_ZL0123456789") == ""]
++    if len(hits) != 1:
++        raise Refused(f"{KEXT} has {len(hits)} symbol(s) for {want}")
++    o = kc.off(hits[0], 0xa0)
++    raw = struct.unpack_from("<Q", kc.d, o + 0x90)[0]
++    n = struct.unpack_from("<I", kc.d, o + 0x98)[0]
++    if not raw or not n:
++        raise Refused(f"{want} has no register list")
++    if n > 256:
++        raise Refused(f"{want}: an implausible {n} entries")
++    to = kc.off(kc.pointer(raw), 16 * n)
++    out = []
++    for i in range(n):
++        off, width, clear, value = struct.unpack_from("<4I", kc.d, to + 16 * i)
++        if width != 4 or off & 3 or off + 4 > AXI2AF_BANK_SIZE or value & ~clear:
++            raise Refused(f"{want}[{i}] = {off:#x}/{width} {clear:#x}/{value:#x} is not a 32-bit field write")
++        out.append((off, clear, value))
++    return out
++
++
++def axi2af_encode(t):
++    b = bytearray(AXI2AF_MAGIC)
++    b += struct.pack("<2I", len(t), 0)
++    for e in t:
++        b += struct.pack("<3I", *e)
++    return bytes(b)
++
++
++def axi2af_decode(b):
++    if len(b) < 16 or b[:8] != AXI2AF_MAGIC:
++        raise Refused("not an AVE AXI2AF tunables file")
++    n, z = struct.unpack_from("<2I", b, 8)
++    if z or len(b) != 16 + 12 * n:
++        raise Refused("AXI2AF tunables file size does not match its count")
++    return [struct.unpack_from("<3I", b, 16 + 12 * i) for i in range(n)]
++
++
+ def dpe_encode(t):
+     keys = [k for k, _ in DPE_SLOTS]
+     b = bytearray(DPE_MAGIC)
+@@ -349,6 +417,9 @@ ENCODER_TAGS = {
+     ("t6002", 1): (None, 0x507800000, 0x506000000),
+     ("t6002", 2): (None, 0x240D800000, 0x240C000000),
+     ("t6002", 3): (None, 0x2507800000, 0x2506000000),
++    # t6020 port: SOC_ and IOBA as iBoot fills them on t6020 are not known
++    # yet (None = not compared); H14S never reads IOBA.
++    ("t6020", 0): (None, 0x40D800000, None),
+ }
+ 
+ 
+@@ -443,7 +514,8 @@ def check_pristine(img, blob, soc, inst=0):
+     if want is None:
+         raise Refused(f"no encoder {inst} on {soc}")
+     socid, cpad, ioba = want
+-    if (val["CpAd"], val["WrAd"], val["IOBA"]) != (cpad, cpad + 0x400000, ioba) or \
++    if (val["CpAd"], val["WrAd"]) != (cpad, cpad + 0x400000) or \
++            (ioba is not None and val["IOBA"] != ioba) or \
+             (socid is not None and val["SOC_"] != socid):
+         raise Refused(f"the copy's SOC_ {val['SOC_']:#x} CpAd {val['CpAd']:#x} IOBA "
+                       f"{val['IOBA']:#x} are not {soc} encoder {inst}'s")
+@@ -463,6 +535,12 @@ def main(argv=None):
+     p.add_argument("-o", "--out")
+     p = sub.add_parser("dpe-dump")
+     p.add_argument("file")
++    p = sub.add_parser("axi2af", help="AVE_AXI2AF tunables from a kernelcache (t6020 port)")
++    p.add_argument("kernelcache", help="kernelcache.release.* (IM4P) or its Mach-O")
++    p.add_argument("--set", choices=AXI2AF_SETS, required=True)
++    p.add_argument("-o", "--out")
++    p = sub.add_parser("axi2af-dump")
++    p.add_argument("file")
+     p = sub.add_parser("check-pristine")
+     p.add_argument("image")
+     p.add_argument("blob")
+@@ -490,6 +568,16 @@ def main(argv=None):
+                 base = DPE_CAT_BASE if k.startswith("cat") else DPE_CAC_BASE
+                 for off, clear, value in ents:
+                     print(f"{k:12s} {base + off:#07x} clear {clear:#010x} set {value:#010x}")
++        elif a.cmd == "axi2af":
++            kc = Kernelcache(kernelcache_macho(open(a.kernelcache, "rb").read()))
++            b = axi2af_encode(axi2af_table(kc, a.set))
++            out = a.out or axi2af_file_name(a.set).split("/")[-1]
++            with open(out, "wb") as f:
++                f.write(b)
++            print(f"wrote {out}: {len(b)} bytes, sha256 {hashlib.sha256(b).hexdigest()}")
++        elif a.cmd == "axi2af-dump":
++            for off, clear, value in axi2af_decode(open(a.file, "rb").read()):
++                print(f"axi2af +{off:#07x} clear {clear:#010x} set {value:#010x}")
+         elif a.cmd == "check-pristine":
+             v = check_pristine(open(a.image, "rb").read(), open(a.blob, "rb").read(),
+                                a.soc, a.inst)

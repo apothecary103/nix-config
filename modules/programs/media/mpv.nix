@@ -10,9 +10,12 @@
           profile = "high-quality";
           vo = "gpu-next";
           # VideoToolbox on darwin; on Asahi the AVD decoder through VA-API
-          # (hardware.asahi.avd), which mpv drops back from to software when a
-          # codec is unsupported.
-          hwdec = if pkgs.stdenv.hostPlatform.isDarwin then "videotoolbox" else "vaapi";
+          # (Silicon Bakery's media module), copied back for gpu-next:
+          # Honeykrisp imports the decoder's frames zero-copy without error
+          # but ignores their plane offset (Mesa #16429), so plain vaapi shows
+          # wrong colours rather than falling back. mpv drops to software only
+          # for a codec AVD lacks (AV1 on the M2 Pro).
+          hwdec = if pkgs.stdenv.hostPlatform.isDarwin then "videotoolbox" else "vaapi-copy";
 
           icc-profile-auto = true;
           target-colorspace-hint = true;

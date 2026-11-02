@@ -6,9 +6,11 @@ lists XBGR2101010 instead, which appledrm neither advertises nor maps; a
 client buffer scanned out directly with garbage X bits would turn partly
 transparent. Treat XRGB2101010 like the other X formats.
 
+diff --git a/drivers/gpu/drm/apple/plane.c b/drivers/gpu/drm/apple/plane.c
+index bd16e53..150731c 100644
 --- a/drivers/gpu/drm/apple/plane.c
 +++ b/drivers/gpu/drm/apple/plane.c
-@@ -232,6 +232,7 @@
+@@ -321,6 +321,7 @@ static void apple_plane_atomic_update(struct drm_plane *plane,
  	 */
  	if (fmt->format == DRM_FORMAT_XRGB8888 ||
  	    fmt->format == DRM_FORMAT_XBGR8888 ||

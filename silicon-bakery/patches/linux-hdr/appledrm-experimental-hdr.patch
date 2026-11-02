@@ -1,0 +1,401 @@
+drm/apple: expose Colorspace and HDR_OUTPUT_METADATA, opt-in
+
+With appledrm.experimental_hdr=1 every connector gets the standard KMS HDR
+properties, "Colorspace" (Default, BT2020_RGB) and "HDR_OUTPUT_METADATA".
+As the KMS documentation of Colorspace puts it, they say what userspace
+renders, and the driver turns that into what the sink expects. On DCP that
+is a per-surface tag: every IOMFB surface carries a colorspace and a
+transfer function, and per the commits that introduced the tags the
+firmware converts each surface to the display's colour space.
+
+One HDR encoding is accepted: BT2020_RGB with the ST 2084 (PQ) EOTF in type
+1 static metadata, which is what wlroots and KWin send. The default
+colorspace with no metadata, or with SDR gamma metadata, is SDR as before.
+Everything else (wide gamut SDR, HLG, the YCC colorimetries) fails the
+atomic check, since nothing is known about how DCP treats it.
+
+In HDR:
+ - RGB surfaces are tagged DCP_COLORSPACE_BG_BT2020 and DCP_XFER_FUNC_HDR.
+   16 is the value the original DCP reverse engineering named HDR, and
+   PQ's code point in ITU-T H.273, as 13 (DCP_XFER_FUNC_SDR) is sRGB's and
+   9 (BG_BT2020) is BT.2020's; the driver has never sent it before. YCbCr
+   surfaces keep the tags their COLOR_ENCODING gives them.
+ - The parser also records each timing's best RGB colour mode of up to
+   10 bits with the ST 2084 EOTF (deeper ones may need DSC, as with the
+   SDR modes). Where one exists (an external HDR display), the modeset
+   drives the link in it, and toggling HDR forces a modeset. Where none
+   exists, as on the internal mini-LED panels, whose ColorElements hold a
+   single 8-bit RGB SDR-gamma mode, the link stays SDR and only the
+   surface tags change, so DCP is left to tone map. Whether it does, and
+   whether it drives the mini-LED zones past the SDR backlight level for
+   highlights as macOS EDR does, is untested.
+ - Toggling HDR adds the CRTC's planes to the commit, so the surfaces are
+   resubmitted with their new tags even without a new framebuffer.
+
+The properties are attached at probe, before the device is registered, so
+they cannot depend on the colour modes of a display hotplugged later. An
+external display without a PQ colour mode gets the internal panel's
+treatment rather than a failed commit, which would otherwise lock out an
+SDR display connected after an HDR session that left the properties set.
+
+Without the parameter no property is attached, no connector state can ask
+for HDR, dcp->hdr stays false, and the colour mode, the surface tags and
+the swaps are exactly as before.
+
+diff --git a/drivers/gpu/drm/apple/apple_drv.c b/drivers/gpu/drm/apple/apple_drv.c
+index 85d8302..2aa3806 100644
+--- a/drivers/gpu/drm/apple/apple_drv.c
++++ b/drivers/gpu/drm/apple/apple_drv.c
+@@ -253,6 +253,7 @@ static const struct drm_connector_funcs apple_connector_funcs = {
+ static const struct drm_connector_helper_funcs apple_connector_helper_funcs = {
+ 	.get_modes		= dcp_get_modes,
+ 	.mode_valid		= dcp_mode_valid,
++	.atomic_check		= dcp_connector_atomic_check,
+ };
+ 
+ static const struct drm_crtc_helper_funcs apple_crtc_helper_funcs = {
+@@ -343,6 +344,10 @@ static int apple_probe_per_dcp(struct device *dev,
+ 	if (ret)
+ 		return ret;
+ 
++	ret = dcp_attach_hdr_properties(&connector->base);
++	if (ret)
++		return ret;
++
+ 	connector->base.polled = DRM_CONNECTOR_POLL_HPD;
+ 	connector->connected = false;
+ 	connector->dcp = dcp;
+diff --git a/drivers/gpu/drm/apple/dcp-internal.h b/drivers/gpu/drm/apple/dcp-internal.h
+index a2e992b..73aae02 100644
+--- a/drivers/gpu/drm/apple/dcp-internal.h
++++ b/drivers/gpu/drm/apple/dcp-internal.h
+@@ -187,6 +187,13 @@ struct apple_dcp {
+ 	bool use_timestamps;
+ 	struct dcp_set_digital_out_mode_req mode;
+ 
++	/*
++	 * Userspace renders BT.2020 primaries with the PQ curve, as the
++	 * connector's Colorspace and HDR_OUTPUT_METADATA said in the last
++	 * commit touching them. Only ever set with appledrm.experimental_hdr.
++	 */
++	bool hdr;
++
+ 	/* completion for active turning true */
+ 	struct completion start_done;
+ 
+diff --git a/drivers/gpu/drm/apple/dcp.c b/drivers/gpu/drm/apple/dcp.c
+index 7629cf0..a73a4c2 100644
+--- a/drivers/gpu/drm/apple/dcp.c
++++ b/drivers/gpu/drm/apple/dcp.c
+@@ -58,6 +58,11 @@ static bool unstable_edid = true;
+ module_param(unstable_edid, bool, 0644);
+ MODULE_PARM_DESC(unstable_edid, "Enable unstable EDID retrival support");
+ 
++static bool experimental_hdr;
++module_param(experimental_hdr, bool, 0444);
++MODULE_PARM_DESC(experimental_hdr, "Expose Colorspace and HDR_OUTPUT_METADATA "
++		 "for BT.2020 PQ output (untested)");
++
+ /* copied and simplified from drm_vblank.c */
+ static void send_vblank_event(struct drm_device *dev,
+ 		struct drm_pending_vblank_event *e,
+@@ -355,6 +360,39 @@ int dcp_get_connector_type(struct platform_device *pdev)
+ 	return (dcp->connector_type);
+ }
+ 
++/*
++ * Attach the standard HDR connector properties with appledrm.experimental_hdr.
++ * Properties can only be attached before the device is registered, so this
++ * cannot depend on the colour modes of a display connected later; the
++ * connector's atomic_check only switches the link to a PQ colour mode where
++ * the connected display offers one.
++ */
++int dcp_attach_hdr_properties(struct drm_connector *connector)
++{
++	u32 colorspaces = BIT(DRM_MODE_COLORIMETRY_BT2020_RGB);
++	int ret;
++
++	if (!experimental_hdr)
++		return 0;
++
++	if (connector->connector_type == DRM_MODE_CONNECTOR_HDMIA)
++		ret = drm_mode_create_hdmi_colorspace_property(connector,
++							       colorspaces);
++	else
++		ret = drm_mode_create_dp_colorspace_property(connector,
++							     colorspaces);
++	if (ret)
++		return ret;
++
++	ret = drm_connector_attach_colorspace_property(connector);
++	if (ret)
++		return ret;
++
++	drm_connector_attach_hdr_output_metadata_property(connector);
++
++	return 0;
++}
++
+ #define DPTX_CONNECT_TIMEOUT msecs_to_jiffies(2000)
+ 
+ static int dcp_dptx_connect(struct apple_dcp *dcp, u32 port)
+diff --git a/drivers/gpu/drm/apple/dcp.h b/drivers/gpu/drm/apple/dcp.h
+index 086ac70..c3d869b 100644
+--- a/drivers/gpu/drm/apple/dcp.h
++++ b/drivers/gpu/drm/apple/dcp.h
+@@ -34,6 +34,7 @@ void dcp_poweron(struct platform_device *pdev);
+ int dcp_set_crc(struct drm_crtc *crtc, bool enabled);
+ int dcp_crtc_atomic_check(struct drm_crtc *crtc, struct drm_atomic_commit *commit);
+ int dcp_get_connector_type(struct platform_device *pdev);
++int dcp_attach_hdr_properties(struct drm_connector *connector);
+ bool dcp_fw_compat_is_12_x(struct platform_device *pdev);
+ unsigned long* dcp_get_iomfb_surfaces(struct platform_device *pdev);
+ void dcp_link(struct platform_device *pdev, struct apple_crtc *apple,
+@@ -47,6 +48,8 @@ void dcp_drm_crtc_vblank(struct apple_crtc *crtc);
+ int dcp_get_modes(struct drm_connector *connector);
+ enum drm_mode_status dcp_mode_valid(struct drm_connector *connector,
+ 				    const struct drm_display_mode *mode);
++int dcp_connector_atomic_check(struct drm_connector *connector,
++			       struct drm_atomic_commit *commit);
+ int dcp_crtc_atomic_modeset(struct drm_crtc *crtc,
+ 			    struct drm_atomic_commit *commit);
+ bool dcp_crtc_mode_fixup(struct drm_crtc *crtc,
+diff --git a/drivers/gpu/drm/apple/iomfb.c b/drivers/gpu/drm/apple/iomfb.c
+index 5c6cca8..975c7e2 100644
+--- a/drivers/gpu/drm/apple/iomfb.c
++++ b/drivers/gpu/drm/apple/iomfb.c
+@@ -407,6 +407,106 @@ enum drm_mode_status dcp_mode_valid(struct drm_connector *connector,
+ 	return lookup_mode(dcp, mode) ? MODE_OK : MODE_BAD;
+ }
+ 
++/*
++ * The connector's Colorspace and HDR_OUTPUT_METADATA describe what userspace
++ * renders. Two encodings are accepted: the default colorspace with SDR gamma
++ * (or no metadata at all), which is what the driver has always done, and
++ * BT2020_RGB with the ST 2084 (PQ) EOTF, which is HDR. Wide gamut SDR, HLG and
++ * the other colorimetries are rejected; nothing is known about how DCP handles
++ * them.
++ */
++static int dcp_connector_state_hdr(const struct drm_connector_state *state,
++				   bool *hdr)
++{
++	u8 eotf = HDMI_EOTF_TRADITIONAL_GAMMA_SDR;
++
++	if (state->hdr_output_metadata) {
++		const struct hdr_output_metadata *metadata =
++			state->hdr_output_metadata->data;
++
++		if (metadata->metadata_type != HDMI_STATIC_METADATA_TYPE1)
++			return -EINVAL;
++		eotf = metadata->hdmi_metadata_type1.eotf;
++	}
++
++	switch (state->colorspace) {
++	case DRM_MODE_COLORIMETRY_DEFAULT:
++		*hdr = false;
++		return eotf == HDMI_EOTF_TRADITIONAL_GAMMA_SDR ? 0 : -EINVAL;
++	case DRM_MODE_COLORIMETRY_BT2020_RGB:
++		*hdr = true;
++		return eotf == HDMI_EOTF_SMPTE_ST2084 ? 0 : -EINVAL;
++	default:
++		return -EINVAL;
++	}
++}
++
++/*
++ * HDR switches the link to the mode's PQ colour mode where DCP offers one (an
++ * external HDR display), which takes a modeset. Elsewhere, as on the internal
++ * panel whose only colour mode is 8-bit SDR RGB, the link stays as it is and
++ * only the surface tags change, leaving DCP to convert.
++ */
++int dcp_connector_atomic_check(struct drm_connector *connector,
++			       struct drm_atomic_commit *commit)
++{
++	struct apple_connector *apple_connector = to_apple_connector(connector);
++	struct apple_dcp *dcp = platform_get_drvdata(apple_connector->dcp);
++	struct drm_connector_state *old_state, *new_state;
++	struct drm_crtc_state *crtc_state;
++	struct dcp_display_mode *mode;
++	bool old_hdr, hdr;
++	int ret;
++
++	old_state = drm_atomic_get_old_connector_state(commit, connector);
++	new_state = drm_atomic_get_new_connector_state(commit, connector);
++
++	ret = dcp_connector_state_hdr(new_state, &hdr);
++	if (ret) {
++		dev_dbg(dcp->dev, "unsupported colorspace %u for HDR\n",
++			new_state->colorspace);
++		return ret;
++	}
++
++	/* The old state passed this check when it was committed */
++	if (dcp_connector_state_hdr(old_state, &old_hdr))
++		old_hdr = false;
++
++	if (!new_state->crtc || hdr == old_hdr)
++		return 0;
++
++	crtc_state = drm_atomic_get_crtc_state(commit, new_state->crtc);
++	if (IS_ERR(crtc_state))
++		return PTR_ERR(crtc_state);
++
++	mode = lookup_mode(dcp, &crtc_state->mode);
++	if (crtc_state->enable && mode && mode->hdr.score >= 0)
++		crtc_state->mode_changed = true;
++
++	/* Resubmit every surface with its new tags */
++	return drm_atomic_add_affected_planes(commit, new_state->crtc);
++}
++
++/* Follow the connector's HDR state into the modeset and swap of a commit */
++static void dcp_update_hdr(struct apple_dcp *dcp,
++			   struct drm_atomic_commit *commit)
++{
++	struct drm_connector_state *state;
++	bool hdr;
++
++	if (!dcp->connector)
++		return;
++
++	state = drm_atomic_get_new_connector_state(commit,
++						   &dcp->connector->base);
++	if (!state || dcp_connector_state_hdr(state, &hdr) || hdr == dcp->hdr)
++		return;
++
++	dev_info(dcp->dev, "HDR %s\n",
++		 hdr ? "on, RGB surfaces tagged BT.2020 PQ" : "off");
++	dcp->hdr = hdr;
++}
++
+ int dcp_crtc_atomic_modeset(struct drm_crtc *crtc,
+ 			    struct drm_atomic_commit *commit)
+ {
+@@ -420,6 +520,8 @@ int dcp_crtc_atomic_modeset(struct drm_crtc *crtc,
+ 	if (!crtc_state)
+ 		return 0;
+ 
++	dcp_update_hdr(dcp, commit);
++
+ 	modeset = drm_atomic_crtc_needs_modeset(crtc_state) || !dcp->valid_mode;
+ 
+ 	if (!modeset)
+@@ -466,6 +568,8 @@ void dcp_flush(struct drm_crtc *crtc, struct drm_atomic_commit *commit)
+ 	struct platform_device *pdev = to_apple_crtc(crtc)->dcp;
+ 	struct apple_dcp *dcp = platform_get_drvdata(pdev);
+ 
++	dcp_update_hdr(dcp, commit);
++
+ 	if (dcp_channel_busy(&dcp->ch_cmd))
+ 	{
+ 		if (!dcp->ch_cmd.warned_busy) {
+diff --git a/drivers/gpu/drm/apple/iomfb_template.c b/drivers/gpu/drm/apple/iomfb_template.c
+index 19dde2b..8b1fce5 100644
+--- a/drivers/gpu/drm/apple/iomfb_template.c
++++ b/drivers/gpu/drm/apple/iomfb_template.c
+@@ -1206,6 +1206,7 @@ int DCP_FW_NAME(iomfb_modeset)(struct apple_dcp *dcp,
+ 	struct dcp_display_mode *mode;
+ 	struct dcp_wait_cookie *cookie;
+ 	struct dcp_color_mode *cmode = NULL;
++	u32 color_mode_id;
+ 	int ret;
+ 
+ 	mode = lookup_mode(dcp, &crtc_state->mode);
+@@ -1215,18 +1216,29 @@ int DCP_FW_NAME(iomfb_modeset)(struct apple_dcp *dcp,
+ 		return -EIO;
+ 	}
+ 
++	/*
++	 * HDR drives the link in the mode's PQ colour mode where DCP offers
++	 * one. Without one (the internal panel) the link stays SDR, and DCP
++	 * is left to convert the surfaces iomfb_flush() tags BT.2020 PQ.
++	 */
++	color_mode_id = mode->color_mode_id;
++	if (dcp->hdr && mode->hdr.score >= 0)
++		color_mode_id = mode->hdr.id;
++
+ 	dev_info(dcp->dev,
+ 		 "set_digital_out_mode(color:%d timing:%d) " DRM_MODE_FMT "\n",
+-		 mode->color_mode_id, mode->timing_mode_id,
++		 color_mode_id, mode->timing_mode_id,
+ 		 DRM_MODE_ARG(&crtc_state->mode));
+-	if (mode->color_mode_id == mode->sdr_rgb.id)
++	if (color_mode_id == mode->sdr_rgb.id)
+ 		cmode = &mode->sdr_rgb;
+-	else if (mode->color_mode_id == mode->sdr_444.id)
++	else if (color_mode_id == mode->sdr_444.id)
+ 		cmode = &mode->sdr_444;
+-	else if (mode->color_mode_id == mode->sdr.id)
++	else if (color_mode_id == mode->sdr.id)
+ 		cmode = &mode->sdr;
+-	else if (mode->color_mode_id == mode->best.id)
++	else if (color_mode_id == mode->best.id)
+ 		cmode = &mode->best;
++	else if (mode->hdr.score >= 0 && color_mode_id == mode->hdr.id)
++		cmode = &mode->hdr;
+ 	if (cmode)
+ 		dev_info(dcp->dev,
+ 			"set_digital_out_mode() color mode depth:%hhu format:%u "
+@@ -1235,7 +1247,7 @@ int DCP_FW_NAME(iomfb_modeset)(struct apple_dcp *dcp,
+ 			cmode->range, mode->vrr);
+ 
+ 	dcp->mode = (struct dcp_set_digital_out_mode_req){
+-		.color_mode_id = mode->color_mode_id,
++		.color_mode_id = color_mode_id,
+ 		.timing_mode_id = mode->timing_mode_id
+ 	};
+ 
+@@ -1376,6 +1388,17 @@ void DCP_FW_NAME(iomfb_flush)(struct apple_dcp *dcp, struct drm_crtc *crtc, stru
+ 		if (dcp->connector_type == DRM_MODE_CONNECTOR_eDP &&
+ 		    req->surf[l].base.colorspace == DCP_COLORSPACE_BG_SRGB)
+ 			req->surf[l].base.colorspace = DCP_COLORSPACE_NATIVE;
++
++		/*
++		 * In HDR userspace renders RGB planes in BT.2020 primaries
++		 * with the PQ curve, as its Colorspace and HDR_OUTPUT_METADATA
++		 * say. Tag them so and leave the conversion to the link's
++		 * colour mode to DCP. YCbCr planes keep their own tags.
++		 */
++		if (dcp->hdr && !new_state->fb->format->is_yuv) {
++			req->surf[l].base.colorspace = DCP_COLORSPACE_BG_BT2020;
++			req->surf[l].base.xfer_func = DCP_XFER_FUNC_HDR;
++		}
+ 	}
+ 
+ 	if (!has_surface && !crtc_state->color_mgmt_changed) {
+diff --git a/drivers/gpu/drm/apple/parser.c b/drivers/gpu/drm/apple/parser.c
+index 3dc6fe8..b0d0c49 100644
+--- a/drivers/gpu/drm/apple/parser.c
++++ b/drivers/gpu/drm/apple/parser.c
+@@ -366,6 +366,7 @@ static int parse_color_modes(struct dcp_parse_ctx *handle,
+ 	out->sdr_rgb.score = -1;
+ 	out->sdr.score = -1;
+ 	out->best.score = -1;
++	out->hdr.score = -1;
+ 
+ 	dcp_parse_foreach_in_array(handle, outer_it) {
+ 		struct iterator it;
+@@ -420,6 +421,10 @@ static int parse_color_modes(struct dcp_parse_ctx *handle,
+ 				cmode.depth <= 10)
+ 				fill_color_mode(&out->sdr_444, &cmode);
+ 			fill_color_mode(&out->sdr, &cmode);
++		} else if (cmode.eotf == DCP_EOTF_ST_2084 &&
++			   cmode.pixel_encoding == DCP_COLOR_FORMAT_RGB &&
++			   cmode.depth <= 10) {
++			fill_color_mode(&out->hdr, &cmode);
+ 		}
+ 		fill_color_mode(&out->best, &cmode);
+ 	}
+diff --git a/drivers/gpu/drm/apple/parser.h b/drivers/gpu/drm/apple/parser.h
+index 52c4de4..ee28ec0 100644
+--- a/drivers/gpu/drm/apple/parser.h
++++ b/drivers/gpu/drm/apple/parser.h
+@@ -93,6 +93,8 @@ struct dcp_display_mode {
+ 	struct dcp_color_mode sdr_444;
+ 	struct dcp_color_mode sdr;
+ 	struct dcp_color_mode best;
++	/* best RGB colour mode of up to 10 bits with the ST 2084 (PQ) EOTF */
++	struct dcp_color_mode hdr;
+ 	bool vrr;
+ };
+ 

@@ -1,0 +1,211 @@
+Palm rejection as macOS does it: by where a touch lands, not by whether keys
+are held, and without stopping the touchpad while typing.
+
+Upstream, a key held down keeps the keyboard "active" (a game's W turns the
+touchpad off for as long as it is held), every touch that begins while typing
+is a palm whatever it is, and the pointer, scrolling and gestures stop
+outright until typing ends. Here only key presses count as typing, fingers
+keep moving, scrolling and gesturing while keys are pressed (only taps wait),
+and hands at rest are told apart by place, as measured over 945 touches on
+this MacBook: the heel of a hand lands within 3 % of either side (deliberate
+fingers start no nearer than 7 %), sometimes two seconds after the last key,
+and a resting thumb in the bottom 2 %. So a touch beginning in the outer 5 %
+either side within 2.5 s of a key press, or in the bottom 4 % at any time, is
+PALM_REST: ignored for the pointer, taps, clickfinger and gestures until it
+travels 4 mm (resting hands moved under 2), when it is a finger reaching in.
+
+That also covers thumbs, so libinput's own thumb detection is off: on this
+pad its thumb area and Apple's contact size threshold jailed ordinary
+fingers, a hand on the pad in a game above all, which then never moved the
+pointer.
+
+diff --git a/src/evdev-mt-touchpad-thumb.c b/src/evdev-mt-touchpad-thumb.c
+index 876fe80..f090213 100644
+--- a/src/evdev-mt-touchpad-thumb.c
++++ b/src/evdev-mt-touchpad-thumb.c
+@@ -382,6 +382,12 @@ tp_init_thumb(struct tp_dispatch *tp)
+ 	if (h < 50)
+ 		return;
+ 
++	/* Thumbs resting on the pad are told apart by where they land
++	 * (tp_palm_detect_rest_triggered): on this pad the thumb area and
++	 * Apple's size threshold jail ordinary fingers, a hand on the pad in a
++	 * game above all, so nothing is jailed. */
++	return;
++
+ 	tp->thumb.detect_thumbs = true;
+ 	tp->thumb.use_pressure = false;
+ 	tp->thumb.pressure_threshold = INT_MAX;
+diff --git a/src/evdev-mt-touchpad.c b/src/evdev-mt-touchpad.c
+index 81b803d..86e4bc1 100644
+--- a/src/evdev-mt-touchpad.c
++++ b/src/evdev-mt-touchpad.c
+@@ -833,15 +833,64 @@ tp_palm_in_edge(const struct tp_dispatch *tp, const struct tp_touch *t)
+ 	return tp_palm_in_side_edge(tp, t) || tp_palm_in_top_edge(tp, t);
+ }
+ 
++/* How long after a key press a touch in the side strips still counts as a hand
++ * at rest, and how far a resting touch must travel to count as a finger. */
++#define REST_TYPING_MEMORY usec_from_millis(2500)
++#define REST_RELEASE_MM 4.0
++
++/* Hands at rest, as macOS tells them apart: by where a touch lands, not by
++ * whether any key is held. A touch that begins in the bottom strip is a thumb
++ * resting there; one that begins in the outer strips either side shortly after
++ * typing is the heel of a hand. Both are ignored (pointer, taps, clickfinger,
++ * gestures) until they travel far enough to be a finger reaching in. */
+ static bool
+-tp_palm_detect_dwt_triggered(struct tp_dispatch *tp, struct tp_touch *t, usec_t time)
++tp_palm_detect_rest_triggered(struct tp_dispatch *tp, struct tp_touch *t, usec_t time)
+ {
+-	if (tp->dwt.dwt_enabled && tp->dwt.keyboard_active && t->state == TOUCH_BEGIN) {
+-		t->palm.state = PALM_TYPING;
+-		t->palm.first = t->point;
++	if (t->palm.state == PALM_REST) {
++		struct device_float_coords delta = device_delta(t->point, t->palm.first);
++		struct phys_coords mm = tp_phys_delta(tp, delta);
++
++		if (hypot(mm.x, mm.y) > REST_RELEASE_MM) {
++			t->palm.state = PALM_NONE;
++			evdev_log_debug(tp->device,
++					"palm: touch %d is no longer resting, moved away\n",
++					t->index);
++			return false;
++		}
+ 		return true;
+ 	}
+ 
++	if (t->palm.state != PALM_NONE || t->state != TOUCH_BEGIN)
++		return false;
++
++	bool resting = t->point.y > tp->dwt.rest_line;
++	bool typing = tp->dwt.dwt_enabled &&
++		      (tp->dwt.keyboard_active ||
++		       usec_cmp(time,
++				usec_add(tp->dwt.keyboard_last_press_time,
++					 REST_TYPING_MEMORY)) < 0);
++	bool side = t->point.x < tp->dwt.typing_left_edge ||
++		    t->point.x > tp->dwt.typing_right_edge;
++
++	if (!resting && !(typing && side))
++		return false;
++
++	t->palm.state = PALM_REST;
++	t->palm.first = t->point;
++	t->palm.time = time;
++	evdev_log_debug(tp->device,
++			"palm: touch %d at %d/%d resting (%s)\n",
++			t->index, t->point.x, t->point.y,
++			resting ? "bottom" : "side, typing");
++	return true;
++}
++
++static bool
++tp_palm_detect_dwt_triggered(struct tp_dispatch *tp, struct tp_touch *t, usec_t time)
++{
++	/* Typing no longer makes every new touch a palm: hands at rest are told
++	 * apart by where they land (tp_palm_detect_rest_triggered). */
++
+ 	if (!tp->dwt.keyboard_active && t->state == TOUCH_UPDATE &&
+ 	    t->palm.state == PALM_TYPING) {
+ 		/* If a touch has started before the first or after the last
+@@ -1076,6 +1125,9 @@ tp_palm_detect(struct tp_dispatch *tp, struct tp_touch *t, usec_t time)
+ 	if (tp_palm_detect_arbitration_triggered(tp, t, time))
+ 		goto out;
+ 
++	if (tp_palm_detect_rest_triggered(tp, t, time))
++		goto out;
++
+ 	if (tp_palm_detect_dwt_triggered(tp, t, time))
+ 		goto out;
+ 
+@@ -1128,6 +1180,9 @@ out:
+ 	case PALM_ARBITRATION:
+ 		palm_state = "arbitration";
+ 		break;
++	case PALM_REST:
++		palm_state = "rest";
++		break;
+ 	case PALM_NONE:
+ 	default:
+ 		abort();
+@@ -1802,7 +1857,9 @@ tp_post_events(struct tp_dispatch *tp, usec_t time)
+ 	ignore_motion |= tp_tap_handle_state(tp, time);
+ 	ignore_motion |= tp_post_button_events(tp, time);
+ 
+-	if (tp->palm.trackpoint_active || tp->dwt.keyboard_active) {
++	/* Typing no longer stops the pointer: fingers keep moving, scrolling and
++	 * gesturing while keys are pressed, as on macOS; only taps wait. */
++	if (tp->palm.trackpoint_active) {
+ 		tp_edge_scroll_stop_events(tp, time);
+ 		tp_circular_scroll_stop_events(tp, time);
+ 		tp_gesture_cancel(tp, time);
+@@ -2195,15 +2252,8 @@ tp_keyboard_timeout(usec_t now, void *data)
+ {
+ 	struct tp_dispatch *tp = data;
+ 
+-	if (tp->dwt.dwt_enabled &&
+-	    long_any_bit_set(tp->dwt.key_mask, ARRAY_LENGTH(tp->dwt.key_mask))) {
+-		libinput_timer_set(&tp->dwt.keyboard_timer,
+-				   usec_add(now, tp->dwt.timeout));
+-		tp->dwt.keyboard_last_press_time = now;
+-		evdev_log_debug(tp->device, "palm: keyboard timeout refresh\n");
+-		return;
+-	}
+-
++	/* A key held down (a game's W, a shortcut) is not typing: only presses
++	 * keep the keyboard active. */
+ 	tp_tap_resume(tp, now);
+ 
+ 	tp->dwt.keyboard_active = false;
+@@ -3463,6 +3513,25 @@ tp_init_dwt(struct tp_dispatch *tp, struct evdev_device *device)
+ 	tp->dwt.config.get_default_timeout = tp_dwt_config_get_default_timeout;
+ 	tp->dwt.dwt_enabled = tp_dwt_default_enabled(tp);
+ 	tp->dwt.timeout = tp_dwt_config_get_default_timeout(&device->base);
++
++	/* The strips, from where hands were measured resting on this MacBook's
++	 * pad: heels within 3 % of either side, thumbs in the bottom 2 %, and no
++	 * deliberate finger starting nearer a side than 7 %. */
++	double width, height;
++	struct phys_coords mm = { 0.0, 0.0 };
++	struct device_coords edges;
++
++	evdev_device_get_size(device, &width, &height);
++	mm.x = width * 0.05;
++	edges = evdev_device_mm_to_units(device, &mm);
++	tp->dwt.typing_left_edge = edges.x;
++	mm.x = width * 0.95;
++	edges = evdev_device_mm_to_units(device, &mm);
++	tp->dwt.typing_right_edge = edges.x;
++	mm.x = 0.0;
++	mm.y = height * 0.96;
++	edges = evdev_device_mm_to_units(device, &mm);
++	tp->dwt.rest_line = edges.y;
+ 	device->base.config.dwt = &tp->dwt.config;
+ }
+ 
+diff --git a/src/evdev-mt-touchpad.h b/src/evdev-mt-touchpad.h
+index 48375b7..9cae5b0 100644
+--- a/src/evdev-mt-touchpad.h
++++ b/src/evdev-mt-touchpad.h
+@@ -76,6 +76,7 @@ enum touch_palm_state {
+ 	PALM_PRESSURE,
+ 	PALM_TOUCH_SIZE,
+ 	PALM_ARBITRATION,
++	PALM_REST,
+ };
+ 
+ enum button_event {
+@@ -537,6 +538,12 @@ struct tp_dispatch {
+ 		bool keyboard_active;
+ 		struct libinput_timer keyboard_timer;
+ 		usec_t keyboard_last_press_time;
++
++		/* Where hands rest, as macOS has it: the outer strips either
++		 * side while typing, the bottom strip always (PALM_REST). */
++		int typing_left_edge;
++		int typing_right_edge;
++		int rest_line;
+ 	} dwt;
+ 
+ 	struct {

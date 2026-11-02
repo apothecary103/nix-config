@@ -1,0 +1,13 @@
+{
+  "display": {
+    "internal": "eDP-1"
+  },
+  "trackpad": {
+    "name": "Apple MTP multi-touch",
+    "palm": {
+      "measured": "evtest on this MacBook, peak ABS_MT_TOUCH_MAJOR / ABS_MT_TOUCH_MINOR: fingertips 394-834 / 732-836, resting palms 2494-4110 / 978-1238 with grazes under 300, the base of the thumb 1324-1376 / 818-844",
+      "palmSizeThreshold": 1200,
+      "touchSizeRange": [250, 200]
+    }
+  }
+}

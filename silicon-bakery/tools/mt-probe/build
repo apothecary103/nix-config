@@ -1,0 +1,5 @@
+#!/bin/sh
+# Builds mt-probe next to this script (macOS, Xcode command line tools).
+set -eu
+cd "$(dirname "$0")"
+exec xcrun swiftc -O -swift-version 5 -framework AppKit -framework IOKit main.swift -o mt-probe

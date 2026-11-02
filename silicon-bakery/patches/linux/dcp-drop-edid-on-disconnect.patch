@@ -1,0 +1,23 @@
+From 19eb3215e9564b734a199c6eb8619c8625af957a Mon Sep 17 00:00:00 2001
+From: Niklas Reimer <niklas@backbord.net>
+Date: Sun, 25 Oct 2026 12:31:35 +0100
+Subject: [PATCH] drm: apple: Drop the monitor EDID on disconnect
+
+Signed-off-by: Niklas Reimer <niklas@backbord.net>
+---
+ drivers/gpu/drm/apple/dcp.c | 2 ++
+ 1 file changed, 2 insertions(+)
+
+diff --git a/drivers/gpu/drm/apple/dcp.c b/drivers/gpu/drm/apple/dcp.c
+index 7629cf080f6d2a..71fe15606ecef4 100644
+--- a/drivers/gpu/drm/apple/dcp.c
++++ b/drivers/gpu/drm/apple/dcp.c
+@@ -412,6 +412,8 @@ static void disconnected_hpd_event(struct apple_connector *con)
+ {
+ 	if (con && con->connected) {
+ 		con->connected = 0;
++		drm_edid_free(con->drm_edid);
++		con->drm_edid = NULL;
+ 		drm_kms_helper_connector_hotplug_event(&con->base);
+ 	}
+ }

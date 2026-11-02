@@ -1,5 +1,5 @@
 # kwim, the input configurator kwm starts, with custom acceleration curves
-# (./patches/kwim/0001-accel-custom.patch) for the macOS trackpad curves.
+# (../patches/kwim/0001-accel-custom.patch) for the macOS trackpad curves.
 {
   lib,
   stdenv,
@@ -25,7 +25,7 @@ stdenv.mkDerivation (finalAttrs: {
     hash = "sha256-ewg259zRCMGq75XXMmPqoFwD5NBEFXXsIj1rvMy31uw=";
   };
 
-  patches = [ ./patches/kwim/0001-accel-custom.patch ];
+  patches = [ ../patches/kwim/0001-accel-custom.patch ];
 
   zigDeps = zig.fetchDeps {
     inherit (finalAttrs) src pname version;

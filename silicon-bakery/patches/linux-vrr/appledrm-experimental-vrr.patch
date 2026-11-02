@@ -1,0 +1,332 @@
+drm/apple: show ProMotion as adaptive sync on internal panels, opt-in
+
+With appledrm.experimental_vrr=1 the connector of an internal ProMotion
+panel gets the standard "vrr_capable" property, set while the panel
+offers its 120 Hz timing, and the CRTC's VRR_ENABLED chooses how the DCP
+firmware runs the panel in that timing. No modeset is involved.
+
+Read from the DCP 13.5 firmware (t602x image of the Asahi stub, the
+firmware these machines boot Linux with):
+
+ - In the 120 Hz timing (TimingElements ID 2, the mode parse_mode()
+   marks vrr) UPPipeDCP_H13P::init_m3_timing_parameters() bounds the
+   panel's frame duration to 2..10 subframes of 100000 ticks of the
+   24 MHz clock (4.167 ms each), so 120..24 Hz. macOS publishes the same
+   bounds in IOMFBDisplayRefresh (min/max interval 200000/1000000 mach
+   ticks, step 100000). The "promoted" 60/59.94/50/48/47.95 Hz timings
+   get a fixed 4 or 5 subframes.
+ - swap_flush_stream() hands every swap to the panel's timing controller
+   with the swap record's first timestamp (ts1) and those bounds. Only a
+   swap whose ts1 is 0 is forced to 4 subframes (60 Hz), which is why the
+   120 Hz timing needs the non-zero timestamps iomfb_flush() sets there.
+   So with those timestamps the panel should already refresh when a swap
+   arrives, between 120 and 24 Hz, and repeat the last frame otherwise:
+   adaptive sync. VRR_ENABLED=1 leaves it at that.
+ - VRR_ENABLED=0 holds the panel at the timing's nominal 120 Hz with the
+   firmware's APTFixedRR runtime property (ID 74 in its property name
+   table) set to 2 subframes, through UnifiedPipeline2::applyProperty
+   (A352, id and value as two u32s). apt_fixed_rr_changed() accepts a
+   value within the timing's bounds and logs "forcing refresh rate: %d
+   subframes" in DCP's syslog; 0 restores the default ("forcing refresh
+   rate: disabled").
+
+The property change is sent ahead of the next swap, so a commit that only
+toggles VRR_ENABLED takes effect with the next frame. After a modeset that
+followed a fixed rate it is sent again, which also clears a rate the new
+timing cannot do. With VRR_ENABLED set from the start no applyProperty is
+ever sent.
+
+IOMFBParameter_adaptive_sync (minRR) is left alone: in the 13.5 firmware
+the stored minRR is only read on the external DP/HDMI path (Adaptive-Sync
+SDP, vtotal extension), never when the internal panel's timing is set up.
+External Adaptive-Sync displays are AsahiLinux/linux#477's subject and
+are out of scope here.
+
+Only 13.5 firmware is covered, since the method tag, the property ID and
+the timing controller logic were read from it; vrr_capable stays 0 on
+other firmware and on external connectors. Untested on hardware.
+
+Without the parameter no property is attached, the APTFixedRR state stays
+0, and every swap goes out exactly as before.
+
+diff --git a/drivers/gpu/drm/apple/apple_drv.c b/drivers/gpu/drm/apple/apple_drv.c
+--- a/drivers/gpu/drm/apple/apple_drv.c
++++ b/drivers/gpu/drm/apple/apple_drv.c
+@@ -357,6 +357,10 @@ static int apple_probe_per_dcp(struct device *dev,
+ 	crtc->dcp = dcp;
+ 	dcp_link(dcp, crtc, connector);
+ 
++	ret = dcp_attach_vrr_property(&connector->base);
++	if (ret)
++		return ret;
++
+ 	return drm_connector_attach_encoder(&connector->base, &enc->base);
+ }
+ 
+diff --git a/drivers/gpu/drm/apple/dcp-internal.h b/drivers/gpu/drm/apple/dcp-internal.h
+--- a/drivers/gpu/drm/apple/dcp-internal.h
++++ b/drivers/gpu/drm/apple/dcp-internal.h
+@@ -209,6 +209,15 @@ struct apple_dcp {
+ 	/* enable CRC calculation */
+ 	bool crc_enabled;
+ 
++	/*
++	 * appledrm.experimental_vrr: the APTFixedRR value last sent to DCP and
++	 * the one the current CRTC state wants (0: refresh follows the swaps,
++	 * the firmware's default; N: fixed at N 240 Hz subframes). U32_MAX
++	 * after a modeset that followed a fixed rate, until the next swap.
++	 */
++	u32 apt_fixed_rr;
++	u32 apt_fixed_rr_want;
++
+ 	/* Modes valid for the connected display */
+ 	struct dcp_display_mode *modes;
+ 	unsigned int nr_modes;
+diff --git a/drivers/gpu/drm/apple/dcp.c b/drivers/gpu/drm/apple/dcp.c
+--- a/drivers/gpu/drm/apple/dcp.c
++++ b/drivers/gpu/drm/apple/dcp.c
+@@ -54,6 +54,11 @@ bool hdmi_audio;
+ module_param(hdmi_audio, bool, 0644);
+ MODULE_PARM_DESC(hdmi_audio, "Enable unstable HDMI audio support");
+ 
++bool dcp_experimental_vrr;
++module_param_named(experimental_vrr, dcp_experimental_vrr, bool, 0444);
++MODULE_PARM_DESC(experimental_vrr, "Expose ProMotion on internal panels as "
++		 "vrr_capable and follow VRR_ENABLED (DCP 13.5 firmware, untested)");
++
+ static bool unstable_edid = true;
+ module_param(unstable_edid, bool, 0644);
+ MODULE_PARM_DESC(unstable_edid, "Enable unstable EDID retrival support");
+@@ -523,6 +528,41 @@ void dcp_link(struct platform_device *pdev, struct apple_crtc *crtc,
+ 	dcp->connector = connector;
+ }
+ 
++/*
++ * With appledrm.experimental_vrr, attach "vrr_capable" before the device is
++ * registered; dcp_update_vrr_capable() sets it once the modes are known.
++ */
++int dcp_attach_vrr_property(struct drm_connector *connector)
++{
++	if (!dcp_experimental_vrr)
++		return 0;
++
++	return drm_connector_attach_vrr_capable_property(connector);
++}
++
++/*
++ * Only the internal ProMotion panels in their 120 Hz timing (the modes
++ * parse_mode() marks vrr) vary their refresh, and only the 13.5 firmware's
++ * handling of that has been looked at. See dcp_swap_vrr().
++ */
++void dcp_update_vrr_capable(struct apple_dcp *dcp)
++{
++	bool capable = false;
++	unsigned int i;
++
++	if (!dcp_experimental_vrr || !dcp->connector)
++		return;
++
++	if (dcp->connector->connected &&
++	    dcp->fw_compat == DCP_FIRMWARE_V_13_5 &&
++	    dcp->connector_type == DRM_MODE_CONNECTOR_eDP) {
++		for (i = 0; i < dcp->nr_modes; i++)
++			capable |= dcp->modes[i].vrr;
++	}
++
++	drm_connector_set_vrr_capable_property(&dcp->connector->base, capable);
++}
++
+ 
+ bool dcp_fw_compat_is_12_x(struct platform_device *pdev)
+ {
+diff --git a/drivers/gpu/drm/apple/dcp.h b/drivers/gpu/drm/apple/dcp.h
+--- a/drivers/gpu/drm/apple/dcp.h
++++ b/drivers/gpu/drm/apple/dcp.h
+@@ -56,6 +56,9 @@ bool dcp_crtc_mode_fixup(struct drm_crtc *crtc,
+ 			 const struct drm_display_mode *mode,
+ 			 struct drm_display_mode *adjusted_mode);
+ void dcp_set_dimensions(struct apple_dcp *dcp);
++extern bool dcp_experimental_vrr;
++int dcp_attach_vrr_property(struct drm_connector *connector);
++void dcp_update_vrr_capable(struct apple_dcp *dcp);
+ void dcp_send_message(struct apple_dcp *dcp, u8 endpoint, u64 message);
+ 
+ int dcp_dptx_connect_oob(struct platform_device *pdev, u32 port);
+diff --git a/drivers/gpu/drm/apple/iomfb.c b/drivers/gpu/drm/apple/iomfb.c
+--- a/drivers/gpu/drm/apple/iomfb.c
++++ b/drivers/gpu/drm/apple/iomfb.c
+@@ -247,6 +247,8 @@ void dcp_hotplug(struct work_struct *work)
+ 		connector->drm_edid = NULL;
+ 	}
+ 
++	dcp_update_vrr_capable(dcp);
++
+ 	/*
+ 	 * DCP defers link training until we set a display mode. But we set
+ 	 * display modes from atomic_flush, so userspace needs to trigger a
+@@ -378,6 +380,8 @@ int dcp_get_modes(struct drm_connector *connector)
+ 	if (dcp->nr_modes && apple_connector->drm_edid)
+ 		drm_edid_connector_update(connector, apple_connector->drm_edid);
+ 
++	dcp_update_vrr_capable(dcp);
++
+ 	return dcp->nr_modes;
+ }
+ 
+@@ -531,6 +535,13 @@ int dcp_crtc_atomic_modeset(struct drm_crtc *crtc,
+ 	if (crtc_state->mode.hdisplay == 0 && crtc_state->mode.vdisplay == 0)
+ 		return 0;
+ 
++	/*
++	 * After forcing a fixed rate, send APTFixedRR again with the first
++	 * swap in the new timing; that also clears a rate it cannot do.
++	 */
++	if (dcp->apt_fixed_rr)
++		dcp->apt_fixed_rr = U32_MAX;
++
+ 	switch (dcp->fw_compat) {
+ 	case DCP_FIRMWARE_V_12_3:
+ 		ret = iomfb_modeset_v12_3(dcp, crtc_state);
+diff --git a/drivers/gpu/drm/apple/iomfb.h b/drivers/gpu/drm/apple/iomfb.h
+--- a/drivers/gpu/drm/apple/iomfb.h
++++ b/drivers/gpu/drm/apple/iomfb.h
+@@ -55,6 +55,18 @@ enum iomfb_parameter {
+ 	IOMFBPARAM_ADAPTIVE_SYNC = 14,
+ };
+ 
++/*
++ * IOMFB runtime properties, set with UnifiedPipeline2::applyProperty (A352).
++ * The IDs are those of the DCP 13.5 firmware (its property name table).
++ *
++ * APTFixedRR forces the panel refresh of an APT (ProMotion) panel to a fixed
++ * number of 240 Hz subframes, within the timing's [min, max] subframes
++ * (2..10 in the 120 Hz timing, so 120..24 Hz); 0 lets it follow the swaps.
++ */
++enum iomfb_runtime_property {
++	IOMFB_RTPROP_APT_FIXED_RR = 74,
++};
++
+ #define IOMFB_MESSAGE_TYPE	GENMASK_ULL( 3,  0)
+ 
+ /* Message */
+@@ -166,6 +178,7 @@ enum dcpep_method {
+ 	iomfbep_last_client_close,
+ 	iomfbep_abort_swaps_dcp,
+ 	iomfbep_set_matrix,
++	iomfbep_apply_property,
+ 	dcpep_num_methods
+ };
+ 
+@@ -386,6 +399,15 @@ struct iomfb_set_matrix_resp {
+ 	u32 ret;
+ } __packed;
+ 
++struct iomfb_apply_property_req {
++	u32 id;
++	u32 value;
++} __packed;
++
++struct iomfb_apply_property_resp {
++	u32 ret;
++} __packed;
++
+ struct dcpep_get_tiling_state_req {
+ 	u32 event;
+ 	u32 param;
+diff --git a/drivers/gpu/drm/apple/iomfb_template.c b/drivers/gpu/drm/apple/iomfb_template.c
+--- a/drivers/gpu/drm/apple/iomfb_template.c
++++ b/drivers/gpu/drm/apple/iomfb_template.c
+@@ -1189,6 +1189,61 @@ static void do_swap(struct apple_dcp *dcp, void *data, void *cookie)
+ 		dcp_drm_crtc_vblank(dcp->crtc);
+ }
+ 
++/*
++ * appledrm.experimental_vrr. The internal ProMotion panels vary their refresh
++ * by themselves in the 120 Hz timing: DCP hands each swap with a non-zero ts1
++ * (iomfb_flush() sets one in that timing) to the panel's timing controller,
++ * which shows it on the next 240 Hz subframe at least 2 subframes after the
++ * previous refresh and repeats the last frame after 10 (120..24 Hz). That is
++ * adaptive sync. Without VRR_ENABLED the panel is held at the timing's
++ * nominal 120 Hz with the APTFixedRR runtime property (2 subframes), which
++ * the 13.5 firmware's apt_fixed_rr_changed() accepts within those bounds.
++ * applyProperty and the property ID are only known for 13.5 firmware.
++ */
++#if DCP_FW_VER >= DCP_FW_VERSION(13, 2, 0) && DCP_FW_VER < DCP_FW_VERSION(14, 0, 0)
++#define APT_FIXED_RR_120HZ 2
++
++IOMFB_THUNK_INOUT(apply_property);
++
++static u32 dcp_apt_fixed_rr(struct apple_dcp *dcp,
++			    struct drm_crtc_state *crtc_state)
++{
++	if (!dcp_experimental_vrr || !dcp->use_timestamps || crtc_state->vrr_enabled)
++		return 0;
++
++	return APT_FIXED_RR_120HZ;
++}
++
++static void dcp_swap_vrr(struct apple_dcp *dcp, void *data, void *cookie)
++{
++	struct iomfb_apply_property_req req = {
++		.id = IOMFB_RTPROP_APT_FIXED_RR,
++		.value = dcp->apt_fixed_rr_want,
++	};
++
++	if (dcp->apt_fixed_rr == dcp->apt_fixed_rr_want) {
++		do_swap(dcp, data, cookie);
++		return;
++	}
++
++	dev_info(dcp->dev, "APTFixedRR %u (%s)\n", req.value,
++		 req.value ? "fixed refresh" : "adaptive sync");
++	dcp->apt_fixed_rr = req.value;
++	iomfb_apply_property(dcp, false, &req, do_swap, NULL);
++}
++#else
++static u32 dcp_apt_fixed_rr(struct apple_dcp *dcp,
++			    struct drm_crtc_state *crtc_state)
++{
++	return 0;
++}
++
++static void dcp_swap_vrr(struct apple_dcp *dcp, void *data, void *cookie)
++{
++	do_swap(dcp, data, cookie);
++}
++#endif
++
+ static void complete_set_digital_out_mode(struct apple_dcp *dcp, void *data,
+ 					  void *cookie)
+ {
+@@ -1439,6 +1494,8 @@ void DCP_FW_NAME(iomfb_flush)(struct apple_dcp *dcp, struct drm_crtc *crtc, stru
+ 		dcp->brightness.update = false;
+ 	}
+ 
++	dcp->apt_fixed_rr_want = dcp_apt_fixed_rr(dcp, crtc_state);
++
+ 	if (crtc_state->color_mgmt_changed) {
+ 		struct iomfb_set_matrix_req mat = {
+ 			.location = 9,
+@@ -1451,9 +1508,9 @@ void DCP_FW_NAME(iomfb_flush)(struct apple_dcp *dcp, struct drm_crtc *crtc, stru
+ 			mat.matrix[0] = mat.matrix[4] = mat.matrix[8] = 1LLU << 32;
+ 		}
+ 
+-		iomfb_set_matrix(dcp, false, &mat, do_swap, NULL);
++		iomfb_set_matrix(dcp, false, &mat, dcp_swap_vrr, NULL);
+ 	} else
+-		do_swap(dcp, NULL, NULL);
++		dcp_swap_vrr(dcp, NULL, NULL);
+ }
+ 
+ static void res_is_main_display(struct apple_dcp *dcp, void *out, void *cookie)
+diff --git a/drivers/gpu/drm/apple/iomfb_v13_3.c b/drivers/gpu/drm/apple/iomfb_v13_3.c
+--- a/drivers/gpu/drm/apple/iomfb_v13_3.c
++++ b/drivers/gpu/drm/apple/iomfb_v13_3.c
+@@ -12,6 +12,7 @@ static const struct dcp_method_entry dcp_methods[dcpep_num_methods] = {
+ 	IOMFB_METHOD("A029", dcpep_setup_video_limits),
+ 	IOMFB_METHOD("A131", iomfbep_a131_pmu_service_matched),
+ 	IOMFB_METHOD("A132", iomfbep_a132_backlight_service_matched),
++	IOMFB_METHOD("A352", iomfbep_apply_property),
+ 	IOMFB_METHOD("A373", dcpep_set_create_dfb),
+ 	IOMFB_METHOD("A374", iomfbep_a358_vi_set_temperature_hint),
+ 	IOMFB_METHOD("A401", dcpep_start_signal),

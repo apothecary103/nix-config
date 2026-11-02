@@ -28,7 +28,9 @@
 
 Built on `flake-parts` using the dendritic pattern (`import-tree`). No giant manual import lists.
 
-Drop a `.nix` file in `modules/desktop/`, `modules/programs/`, or `modules/system/`, and it's auto-discovered. Features declare themselves once, and hosts (`hosts/frieren` or `hosts/fern`) pull in what they need via shared base classes. Hjem and hjem-rum manage the user environment directly from the NixOS and nix-darwin rebuilds; Home Manager is not used.
+Drop a `.nix` file in `modules/desktop/`, `modules/programs/`, or `modules/system/`, and it's auto-discovered.
+
+Everything that makes Asahi behave like this MacBook's macOS (kernel, Mesa, libinput, wlroots and river patches, the trackpad's macOS acceleration rebuilt from its IORegistry, the panel's Display P3, AVD decode) lives in [`silicon-bakery/`](./silicon-bakery), **Silicon Bakery for NixOS**, a flake of its own that frieren imports as `hardware.siliconBakery`. Features declare themselves once, and hosts (`hosts/frieren` or `hosts/fern`) pull in what they need via shared base classes. Hjem and hjem-rum manage the user environment directly from the NixOS and nix-darwin rebuilds; Home Manager is not used.
 
 ## Daily Driving
 

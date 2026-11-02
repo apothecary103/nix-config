@@ -1,0 +1,54 @@
+Keep hysteresis off on Apple trackpads, as macOS has none.
+
+libinput turns on a hysteresis margin of a quarter of the resolution (a
+quarter millimetre) the first time a touch wobbles left, right and left
+within 40 ms, and it then stays on for the life of the device. A finger
+held still on Apple's trackpads can read that way, and from then on every
+movement under the margin is swallowed and every change of direction loses
+it: the fine, slow adjustments macOS passes on report by report. These
+trackpads filter their contacts in firmware and report no fuzz, so only the
+wobble detector could turn hysteresis on; for ModelAppleTouchpad it no
+longer does.
+
+diff --git a/src/evdev-mt-touchpad.c b/src/evdev-mt-touchpad.c
+index 583e5b2..b3fa717 100644
+--- a/src/evdev-mt-touchpad.c
++++ b/src/evdev-mt-touchpad.c
+@@ -190,7 +190,8 @@ tp_detect_wobbling(struct tp_dispatch *tp, struct tp_touch *t, usec_t time)
+ 	if (tp->nfingers_down != 1 || tp->nfingers_down != tp->old_nfingers_down)
+ 		return;
+ 
+-	if (tp->hysteresis.enabled || t->history.count == 0)
++	if (!tp->hysteresis.detect_wobbling || tp->hysteresis.enabled ||
++	    t->history.count == 0)
+ 		return;
+ 
+ 	if (!(tp->queued & TOUCHPAD_EVENT_MOTION)) {
+@@ -3688,6 +3689,14 @@ tp_init_hysteresis(struct tp_dispatch *tp)
+ 	tp->hysteresis.margin.x = xmargin;
+ 	tp->hysteresis.margin.y = ymargin;
+ 	tp->hysteresis.enabled = (ax->fuzz || ay->fuzz);
++
++	/* Apple's trackpads filter their contacts in firmware, and macOS moves
++	 * the pointer by every report, however small. A finger resting still on
++	 * them can still read as a left-right-left wobble, and the hysteresis
++	 * that switches on then stays on for good, swallowing every movement
++	 * under a quarter millimetre: the fine adjustments macOS keeps. */
++	tp->hysteresis.detect_wobbling =
++		!evdev_device_has_model_quirk(tp->device, QUIRK_MODEL_APPLE_TOUCHPAD);
+ 	if (tp->hysteresis.enabled)
+ 		evdev_log_debug(tp->device,
+ 				"hysteresis enabled. "
+diff --git a/src/evdev-mt-touchpad.h b/src/evdev-mt-touchpad.h
+index f809076..a97c16c 100644
+--- a/src/evdev-mt-touchpad.h
++++ b/src/evdev-mt-touchpad.h
+@@ -345,6 +345,8 @@ struct tp_dispatch {
+ 
+ 	struct {
+ 		bool enabled;
++		/* Whether jitter seen in use may turn hysteresis on. */
++		bool detect_wobbling;
+ 		struct device_coords margin;
+ 		unsigned int other_event_count;
+ 		usec_t last_motion_time;

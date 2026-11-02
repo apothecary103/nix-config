@@ -1,0 +1,756 @@
+#!/usr/bin/env python3
+# SPDX-License-Identifier: GPL-2.0-only
+"""bakery-ave-fw: the apple-ave encoder driver's run-time files, from this Mac's own copy of macOS 13.5.
+
+The out-of-tree AVE driver (github.com/aquarat/apple-m-series-ave-driver, plus
+the Silicon Bakery t6020 port) carries no Apple data. What it needs from
+Apple's binaries is made on the owner's machine from the owner's copy and
+loaded with request_firmware():
+
+  apple/ave_<variant>.bin              the AVE firmware image (unwrapped Mach-O)
+                                       that iBoot preloads for macOS 13.5; the
+                                       driver checks it against what is in DRAM
+  apple/ave-13.5-dpe-<set>.bin         AVE_DPE register tunables, from
+                                       AppleAVE2.kext gs_sAVE_DPE_CfgSet_<set>
+  apple/ave-13.5-axi2af-<set>.bin      AVE_AXI2AF register tunables, from
+                                       gs_sAVE_AXI2AF_Cfg_<set> (t602x only)
+  apple/ave-13.5-<v>-data-pristine.bin optional: the cold DATA the driver
+                                       captured in debugfs on Linux, checked
+                                       here (--capture) before it is kept
+
+The inputs are the files the Asahi installer copied into the stub's Preboot
+volume (the macOS 13.5 "OS firmware" the Linux boot runs on):
+
+  <Preboot>/<VG-UUID>/Restore/BuildManifest.plist       board -> file names
+  <Preboot>/<VG-UUID>/Restore/SystemVersion.plist       must say 13.5
+  <Preboot>/<VG-UUID>/Restore/Firmware/ave/AppleAVE2FW_<variant>.im4p
+  <Preboot>/<VG-UUID>/Restore/kernelcache.release.<x>   (IM4P, LZFSE)
+  <Preboot>/<VG-UUID>/Restore/Firmware/all_flash/DeviceTree.<board>.im4p
+
+On macOS the stub's Preboot is not mounted by default:
+
+  diskutil list                         # the ~2.5 GB container with "NixOS"
+  diskutil mount readOnly diskNs3       # its "Preboot" volume
+  bakery-ave-fw -o ./out                # finds /Volumes/Preboot*/.../Restore
+  diskutil unmount diskNs3
+
+An unpacked UniversalMac_13.5_22G74_Restore.ipsw works the same (--restore DIR).
+
+Everything is Python 3 standard library. LZFSE (the kernelcache) is decoded
+with macOS's libcompression through ctypes, or the `lzfse` command elsewhere.
+The output is deterministic: the same inputs give byte-identical files, and
+SHA256SUMS/MANIFEST name inputs by basename and sha256, without timestamps.
+
+Credits: the DPE file format, the Image4/kernelcache/CfgSet decoding and the
+pristine-DATA check are ports of tools/ave_fwgen.py from aquarat's driver
+(GPL-2.0, commit 9ab14e45281e8f61fb499b760408028171a5f2b5); the AXI2AF file,
+the device-row and table cross-checks and the ADT check are new (t6020 port).
+"""
+import argparse
+import ctypes
+import ctypes.util
+import glob
+import hashlib
+import os
+import plistlib
+import shutil
+import struct
+import subprocess
+import sys
+
+VERSION = "1"
+OS_FW_VERSION = "13.5"          # the AVE ABI the driver speaks (ave_version.c)
+
+# Per SoC. Firmware variant and DevID row: 13.5 BuildManifest and the kext's
+# gs_saAVE_DevID_Conversion; TEXT window digests: sha256 of 16 KiB of the
+# image's __TEXT at each offset (the t6020 ones computed by the port, the
+# others as published in the driver's ave_soc.c). 'devid' is the row the
+# driver sends (t6001/t6002 send t6000's, docs/09).
+SOCS = {
+    "t6020": dict(boards=("j414sap", "j416sap", "j474sap"), variant="H14S", soc_number=6020,
+                  devid=19, row=(11, 16, 19, 1, 1), dpe="Hera_6020", axi2af="Hera_6020",
+                  image_sha256="b5f928acfae711dbaf978ad24625c1923e2f21f03f0feb66e22b6036a9058c1c",
+                  text_win=((0x0, "196dbd4c29edc7fa94eb7bead8afc782cf9f36aa630d76941775fb8613c81a2a"),
+                            (0x80000, "949c837ae8591d73810f51dd0ad1d4046a147d7efda1f1f1d8a84576d2ea0570"),
+                            (0xec000, "aacdd55ebaf86bf556d98de02eed9dd23fd14912e3f93982fd71aebf3d250322")),
+                  tags=dict(CpAd=0x40D800000, IOBA=None, SOC_=None)),
+    "t8112": dict(boards=("j413ap", "j415ap", "j473ap", "j493ap"), variant="H14G", soc_number=8112,
+                  devid=18, row=(10, 15, 18, 1, 1), dpe="Atlas_8112", axi2af=None,
+                  image_sha256="6dce40f140e117d480c2ed4e8c3fb95a34d7b67f6ed262346ef75f6ebdb851bd",
+                  text_win=((0x0, "86c355f340476cc3ac9b6a577928b5109eb95bb449723d341b2cc6c91d3213ef"),
+                            (0x80000, "7a5d765e2a20c1c683ccc58d5f5e711577b3ea00aa2f735366410ec0181d31bb"),
+                            (0xcc000, "34bb1e488f4c2709199c540c020c4866e8f862c79efdf76fb3ff8ab68b6970a1")),
+                  tags=dict(CpAd=0x267800000, IOBA=0, SOC_=0x8112)),
+    "t6000": dict(boards=("j314sap", "j316sap"), variant="H13S", soc_number=6000,
+                  devid=14, row=(8, 11, 14, 1, 1), dpe="Castor_6000", axi2af=None,
+                  image_sha256="a4271f0917886028e83c7109c8a5692e48f19a74623a1935521b7150176af44f",
+                  text_win=((0x0, "d40ac3cf8b07cee90f89c2fe416c2df62863239c02e07cc46985b980261d7f31"),
+                            (0x80000, "7c2897fbf888b7d4c3bd69c698e9da9426b4b6d57f1d5886b40ffe45c0909eef"),
+                            (0xcc000, "d75c1918e14172d280a24279dfd1668fd454afd3664e9db1bb769f28c5baaec8")),
+                  tags=dict(CpAd=0x40D800000, IOBA=0x40C000000, SOC_=0x6000)),
+    "t6001": dict(boards=("j314cap", "j316cap", "j375cap"), variant="H13C", soc_number=6001,
+                  devid=14, row=(8, 11, 14, 1, 1), dpe="Castor_6000", axi2af=None, image_sha256=None,
+                  text_win=((0x0, "885a783738b3f7f891ad16d3d549b7d90d114f677ba112c6e3e542b95c72b9be"),
+                            (0x80000, "37547c9389fb84c32b4f888dde061dd7d4ccb7f03c1e49eed965fd4e9bee7fbf"),
+                            (0xe8000, "4d57014ba773d576d65d1fdbcb51a66d6d8c59959a48292ef2cbb5b8f4170d09")),
+                  tags=dict(CpAd=0x40D800000, IOBA=0x40C000000, SOC_=0x6001)),
+    "t8103": dict(boards=("j274ap", "j293ap", "j313ap", "j456ap", "j457ap"), variant="H13G",
+                  soc_number=8103, devid=13, row=(7, 10, 13, 1, 1), dpe="Acis_8103", axi2af=None,
+                  image_sha256=None,
+                  text_win=((0x0, "73d0a1bdd07019c19f7293ab9e99d2fc44a9fea9858a61669978e6c3e0f30b71"),
+                            (0x80000, "73d2c4e6bdcd94c1c4f3740afc154b3f90851c80c67d0d917afa86cad380d70c"),
+                            (0xc8000, "f841539f10a098edbf1078a22e99eeaf71855a375951e46c8cb626eec131d068")),
+                  tags=dict(CpAd=0x267800000, IOBA=0, SOC_=0x8103)),
+}
+
+# What the t6020 DT node / overlay assume, checked against the stub's ADT
+# (bus addresses, as the ADT has them; the CPU address adds /arm-io ranges).
+ADT_EXPECT = {
+    "t6020": dict(
+        ave=dict(node="ave0", reg=((0x20D100000, 0x45C000), (0x20D800000, 0x800000),
+                                   (0x20D050000, 0x8000), (0x902803E0, 0x7C44),
+                                   (0x20C000000, 0x1000000)), irq0=1110, soc_id="t6020"),
+        dart=dict(node="dart-ave0", reg=((0x20D030000, 0x4000), (0x20D040000, 0x4000),
+                                         (0x20D020000, 0x4000), (0x20D044000, 0x4000)),
+                  irq0=1107, vm_base=0x10000000000, compatible="dart,t8110")),
+}
+
+KEXT = "com.apple.driver.AppleAVE2"
+DPE_MAGIC = b"AVEDPE01"
+DPE_CAT_BASE, DPE_CAC_BASE = 0xDC000, 0xDC400
+DPE_SLOTS = (("cat_default", 0), ("cac_default", 3), ("cac_8bit", 4))
+AXI2AF_MAGIC = b"AVEAXI01"
+AXI2AF_BANK_SIZE = 0x1000000
+TEXT_WINDOW = 0x4000
+FILL_TAGS = (("STKG", 8), ("SOC_", 4), ("SOCR", 4), ("CpAd", 8), ("WrAd", 8), ("IOBA", 8))
+
+
+class Refused(Exception):
+    """An input that is not what it must be. Nothing has been written."""
+
+
+def sha256(b):
+    return hashlib.sha256(b).hexdigest()
+
+
+def log(msg):
+    print(msg, file=sys.stderr)
+
+
+# --------------------------------------------------------------------------
+# Image4 (DER). IM4P = SEQUENCE { "IM4P", type, description, OCTET STRING
+# payload, [keybags], [SEQUENCE { INTEGER algorithm, INTEGER size }] };
+# IMG4 = SEQUENCE { "IMG4", IM4P, [0] IM4M ... }.
+# --------------------------------------------------------------------------
+def der(buf, off, end):
+    if off + 2 > end:
+        raise Refused("truncated DER element")
+    tag, n = buf[off], buf[off + 1]
+    off += 2
+    if n & 0x80:
+        k = n & 0x7F
+        if not 0 < k <= 4 or off + k > end:
+            raise Refused("bad DER length")
+        n = int.from_bytes(buf[off:off + k], "big")
+        off += k
+    if off + n > end:
+        raise Refused("DER element runs past its container")
+    return tag, off, off + n
+
+
+def der_kids(buf, start, end):
+    out, off = [], start
+    while off < end:
+        tag, vs, ve = der(buf, off, end)
+        out.append((tag, off, vs, ve))
+        off = ve
+    return out
+
+
+def im4p(buf, depth=0):
+    """(fourcc, payload, (algorithm, size) or None) of an IM4P or IMG4."""
+    tag, vs, ve = der(buf, 0, len(buf))
+    kids = der_kids(buf, vs, ve) if tag == 0x30 else []
+    if not kids or kids[0][0] != 0x16:
+        raise Refused("not an Image4 file")
+    magic = bytes(buf[kids[0][2]:kids[0][3]])
+    if magic == b"IMG4" and not depth and len(kids) > 1:
+        return im4p(buf[kids[1][1]:kids[1][3]], 1)
+    if magic != b"IM4P" or [k[0] for k in kids[:4]] != [0x16, 0x16, 0x16, 0x04]:
+        raise Refused("not an IM4P")
+    fourcc = bytes(buf[kids[1][2]:kids[1][3]]).decode("ascii", "replace")
+    payload = bytes(buf[kids[3][2]:kids[3][3]])
+    comp = None
+    for k in kids[4:]:
+        if k[0] == 0x04:
+            raise Refused("the IM4P payload is encrypted")
+        if k[0] == 0x30:
+            ck = der_kids(buf, k[2], k[3])
+            if len(ck) != 2 or ck[0][0] != 0x02 or ck[1][0] != 0x02:
+                raise Refused("bad IM4P compression info")
+            comp = tuple(int.from_bytes(buf[c[2]:c[3]], "big") for c in ck)
+    return fourcc, payload, comp
+
+
+def lzfse(data, size):
+    lib = ctypes.util.find_library("compression")
+    if lib:
+        f = ctypes.CDLL(lib).compression_decode_buffer
+        f.restype = ctypes.c_size_t
+        f.argtypes = [ctypes.c_void_p, ctypes.c_size_t, ctypes.c_void_p, ctypes.c_size_t,
+                      ctypes.c_void_p, ctypes.c_int]
+        dst = ctypes.create_string_buffer(size + 1)
+        n = f(dst, size + 1, data, len(data), None, 0x801)  # COMPRESSION_LZFSE
+        out = dst.raw[:n]
+    else:
+        exe = shutil.which("lzfse")
+        if not exe:
+            raise Refused("LZFSE: neither libcompression (macOS) nor the lzfse command is available")
+        p = subprocess.run([exe, "-decode"], input=data, capture_output=True, check=False)
+        if p.returncode:
+            raise Refused("lzfse -decode failed")
+        out = p.stdout
+    if len(out) != size:
+        raise Refused(f"LZFSE gave {len(out)} bytes, the IM4P says {size}")
+    return out
+
+
+def unwrap(path, want_fourcc):
+    raw = open(path, "rb").read()
+    if raw[:4] == b"\xcf\xfa\xed\xfe":
+        return raw, raw
+    fourcc, payload, comp = im4p(raw)
+    if fourcc not in want_fourcc:
+        raise Refused(f"{os.path.basename(path)}: IM4P type {fourcc!r}, expected {'/'.join(want_fourcc)}")
+    if comp is None:
+        if payload[:4] in (b"bvx2", b"bvx1", b"bvxn", b"bvx-"):
+            raise Refused(f"{os.path.basename(path)}: compressed payload without compression info")
+        return raw, payload
+    if comp[0] != 1:
+        raise Refused(f"{os.path.basename(path)}: unknown compression {comp[0]}")
+    return raw, lzfse(payload, comp[1])
+
+
+# --------------------------------------------------------------------------
+# Mach-O and the kernelcache (MH_FILESET)
+# --------------------------------------------------------------------------
+def load_commands(d, base=0):
+    if len(d) < base + 32 or struct.unpack_from("<I", d, base)[0] != 0xFEEDFACF:
+        raise Refused("not a 64-bit Mach-O")
+    ncmds, sizeofcmds = struct.unpack_from("<II", d, base + 16)
+    off, end = base + 32, base + 32 + sizeofcmds
+    for _ in range(ncmds):
+        if off + 8 > min(end, len(d)):
+            raise Refused("truncated Mach-O load commands")
+        cmd, size = struct.unpack_from("<II", d, off)
+        if size < 8 or off + size > len(d):
+            raise Refused("bad Mach-O load command")
+        yield cmd, off, size
+        off += size
+
+
+def segments(d, base=0):
+    out = {}
+    for cmd, off, size in load_commands(d, base):
+        if cmd == 0x19 and size >= 72:
+            out[d[off + 8:off + 24].rstrip(b"\0").decode("ascii", "replace")] = \
+                struct.unpack_from("<QQQQ", d, off + 24)
+    return out
+
+
+class Kernelcache:
+    def __init__(self, d):
+        self.d = d
+        self.segs = list(segments(d).values())
+        self.base = min(va for va, vs, fo, fs in self.segs if fs)
+        self.kext_off = None
+        for cmd, off, size in load_commands(d):
+            if (cmd & 0x7FFFFFFF) == 0x35:
+                fileoff, stroff = struct.unpack_from("<QI", d, off + 16)
+                end = d.find(b"\0", off + stroff, off + size)
+                if d[off + stroff:end] == KEXT.encode():
+                    self.kext_off = fileoff
+        if self.kext_off is None:
+            raise Refused(f"no {KEXT} in this kernelcache")
+        self.kext_segs = segments(d, self.kext_off)
+        self.syms = self._symbols()
+
+    def off(self, va, n=1):
+        for sva, vs, fo, fs in self.segs:
+            if sva <= va and va + n <= sva + min(vs, fs):
+                return fo + (va - sva)
+        raise Refused(f"VA {va:#x}+{n:#x} is not file-backed")
+
+    def _symbols(self):
+        for cmd, off, size in load_commands(self.d, self.kext_off):
+            if cmd == 0x2:
+                symoff, nsyms, stroff, strsize = struct.unpack_from("<IIII", self.d, off + 8)
+                break
+        else:
+            raise Refused("the kext has no symbol table")
+        out = {}
+        for i in range(nsyms):
+            strx, _t, _s, _d, value = struct.unpack_from("<IBBHQ", self.d, symoff + 16 * i)
+            if strx < strsize:
+                s = stroff + strx
+                e = self.d.find(b"\0", s, stroff + strsize)
+                if e > s:
+                    out[self.d[s:e].decode("utf-8", "replace")] = value
+        return out
+
+    def sym(self, suffix):
+        hits = [va for name, va in self.syms.items()
+                if name.endswith(suffix) and name[:-len(suffix)].lstrip("_ZL0123456789") == ""]
+        if len(hits) != 1:
+            raise Refused(f"{KEXT} has {len(hits)} symbol(s) for {suffix}")
+        return hits[0]
+
+    def pointer(self, raw):
+        """DYLD_CHAINED_PTR_64_KERNEL_CACHE: 30-bit offset from the cache base, level 0."""
+        if (raw >> 30) & 3:
+            raise Refused(f"pointer {raw:#x} names another cache level")
+        return self.base + (raw & 0x3FFFFFFF)
+
+    def pointer_tables(self, prefix, length, start_devid):
+        """Every run of `length` pointers in the kext's __DATA_CONST that all
+        resolve to `prefix`* symbols: the anonymous DevID -> config tables
+        AVE_DPE_GetTunables / AVE_AXI2AF_GetTunables index by DevID - n."""
+        by_va = {va: n for n, va in self.syms.items() if prefix in n}
+        seg = self.kext_segs.get("__DATA_CONST")
+        if not seg:
+            return []
+        va0, vs, fo, fs = seg
+        found = []
+        for i in range(0, fs - 8 * length + 1, 8):
+            ok = True
+            names = []
+            for k in range(length):
+                raw = struct.unpack_from("<Q", self.d, fo + i + 8 * k)[0]
+                if not raw or (raw >> 30) & 3:
+                    ok = False
+                    break
+                n = by_va.get(self.base + (raw & 0x3FFFFFFF))
+                if n is None:
+                    ok = False
+                    break
+                names.append(n.split(prefix)[-1])
+            if ok:
+                found.append({start_devid + k: names[k] for k in range(length)})
+        return found
+
+
+def devid_rows(kc):
+    """gs_saAVE_DevID_Conversion: 0x28-byte rows {chipType, devType, devID,
+    maxNum, maxPerGroup, pad, name pointer, u64 SoC number}."""
+    va = kc.sym("gs_saAVE_DevID_Conversion")
+    o = kc.off(va, 0x28)
+    rows = {}
+    for i in range(64):
+        try:
+            chip, typ, did, mx, pg, _p, _n, socn = struct.unpack_from("<6IQQ", kc.d, o + 0x28 * i)
+        except struct.error:
+            break
+        if did != i + 1 or not 1000 <= socn <= 9999:
+            break
+        rows[socn] = (chip, typ, did, mx, pg)
+    if not rows:
+        raise Refused("gs_saAVE_DevID_Conversion is not the expected table")
+    return rows
+
+
+def dpe_tables(kc, setname):
+    want = "gs_sAVE_DPE_CfgSet_" + setname
+    o = kc.off(kc.sym(want), 0x80)
+    hdr = struct.unpack_from("<4Q", kc.d, o)
+    if (hdr[0] & 0xFFFFFFFF) != DPE_CAT_BASE or (hdr[2] & 0xFFFFFFFF) != DPE_CAC_BASE:
+        raise Refused(f"{want}: CAT/CAC windows {hdr[0]:#x}/{hdr[2]:#x} are not the driver's")
+    out = []
+    for key, slot in DPE_SLOTS:
+        raw, n = struct.unpack_from("<QQ", kc.d, o + 0x20 + 16 * slot)
+        if n > 512:
+            raise Refused(f"{want}: {key} has an implausible {n} entries")
+        ents = []
+        if n:
+            to = kc.off(kc.pointer(raw), 16 * n)
+            for i in range(n):
+                off, width, clear, value = struct.unpack_from("<4I", kc.d, to + 16 * i)
+                if width != 4 or off & 3 or off >= 0x400:
+                    raise Refused(f"{want}: {key}[{i}] = {off:#x}/{width} is not a 32-bit register")
+                ents.append((off, clear, value))
+        out.append(ents)
+    return out
+
+
+def dpe_encode(t):
+    b = bytearray(DPE_MAGIC) + struct.pack("<4I", len(t[0]), len(t[1]), len(t[2]), 0)
+    for ents in t:
+        for e in ents:
+            b += struct.pack("<3I", *e)
+    return bytes(b)
+
+
+def axi2af_table(kc, setname):
+    want = "gs_sAVE_AXI2AF_Cfg_" + setname
+    o = kc.off(kc.sym(want), 0xA0)
+    raw = struct.unpack_from("<Q", kc.d, o + 0x90)[0]
+    n = struct.unpack_from("<I", kc.d, o + 0x98)[0]
+    if not raw or not n or n > 256:
+        raise Refused(f"{want}: no plausible register list ({n} entries)")
+    to = kc.off(kc.pointer(raw), 16 * n)
+    out = []
+    for i in range(n):
+        off, width, clear, value = struct.unpack_from("<4I", kc.d, to + 16 * i)
+        if width != 4 or off & 3 or off + 4 > AXI2AF_BANK_SIZE or value & ~clear:
+            raise Refused(f"{want}[{i}] = {off:#x}/{width} {clear:#x}/{value:#x} is not a field write")
+        out.append((off, clear, value))
+    return out
+
+
+def axi2af_encode(t):
+    b = bytearray(AXI2AF_MAGIC) + struct.pack("<2I", len(t), 0)
+    for e in t:
+        b += struct.pack("<3I", *e)
+    return bytes(b)
+
+
+# --------------------------------------------------------------------------
+# The firmware image: identity, layout, and the pristine-DATA check
+# --------------------------------------------------------------------------
+def image_layout(img):
+    segs = segments(img)
+    if "__TEXT" not in segs or "__DATA" not in segs:
+        raise Refused("the firmware image has no __TEXT/__DATA")
+    return segs["__TEXT"], segs["__DATA"]
+
+
+def check_image(img, soc):
+    (tv, ts, tf, tfs), (dv, ds, df, dfs) = image_layout(img)
+    for off, want in soc["text_win"]:
+        if off + TEXT_WINDOW > tfs or sha256(img[tf + off:tf + off + TEXT_WINDOW]) != want:
+            raise Refused(f"__TEXT+{off:#x} is not the 13.5 {soc['variant']} image the driver's row identifies")
+    if soc["image_sha256"] and sha256(img) != soc["image_sha256"]:
+        raise Refused(f"the unwrapped image's sha256 is not 13.5 {soc['variant']}'s {soc['image_sha256'][:16]}...")
+    return dict(text=(tv, ts), data=(dv, ds, dfs))
+
+
+def data_of(img):
+    _t, (dv, ds, df, dfs) = image_layout(img)
+    d = bytearray(ds)
+    d[:dfs] = img[df:df + dfs]
+    return d, dv
+
+
+def walk_tags(d):
+    i = bytes(d).find(b"GKTS\x08\x00\x00\x00")
+    if i < 0:
+        raise Refused("no STKG record in the image's __DATA")
+    out = {}
+    for _ in range(64):
+        if i + 8 > len(d):
+            break
+        code, n = bytes(d[i:i + 4]), struct.unpack_from("<I", d, i + 4)[0]
+        if not all(0x20 <= c < 0x7F for c in code) or n > 0x100:
+            break
+        out[code[::-1].decode()] = (i + 8, n)
+        if code == b"ZSOI":
+            break
+        i += 8 + n
+    return out
+
+
+def check_pristine(img, blob, soc):
+    """The driver's ave_fw_blob_by_image, in Python: blob must be img's
+    __DATA except iBoot's fill set, with a well-formed tunables table and
+    this encoder's address tags."""
+    d, dv = data_of(img)
+    tags = walk_tags(d)
+    for name, n in FILL_TAGS + (("TUNS", 8), ("TUNZ", 4)):
+        if tags.get(name, (0, None))[1] != n:
+            raise Refused(f"the image's tag list has no {name} of length {n}")
+    tun = int.from_bytes(d[tags["TUNS"][0]:tags["TUNS"][0] + 8], "little") - dv
+    tunz = int.from_bytes(d[tags["TUNZ"][0]:tags["TUNZ"][0] + 4], "little")
+    if len(blob) != len(d):
+        raise Refused(f"the capture is {len(blob):#x} bytes, DATA is {len(d):#x}")
+    fill = set(range(tun, tun + tunz))
+    for name, n in FILL_TAGS:
+        fill.update(range(tags[name][0], tags[name][0] + n))
+    diff = [k for k in range(len(d)) if blob[k] != d[k] and k not in fill]
+    if diff:
+        raise Refused(f"{len(diff)} byte(s) outside iBoot's fill set differ from the image (first "
+                      f"DATA+{diff[0]:#x}): not a cold DATA of this image (did a core run on it?)")
+    cap, cnt = blob[tun + 2], blob[tun + 3]
+    if bytes(blob[tun:tun + 3]) != bytes(d[tun:tun + 3]) or cnt > cap or 8 + 20 * cap > tunz \
+            or any(blob[tun + 8 + 20 * cnt:tun + 8 + 20 * cap]):
+        raise Refused("the tunables table is not well formed")
+    val = {name: int.from_bytes(blob[tags[name][0]:tags[name][0] + n], "little") for name, n in FILL_TAGS}
+    t = soc["tags"]
+    if val["CpAd"] != t["CpAd"] or val["WrAd"] != t["CpAd"] + 0x400000 or \
+            (t["IOBA"] is not None and val["IOBA"] != t["IOBA"]) or \
+            (t["SOC_"] is not None and val["SOC_"] != t["SOC_"]):
+        raise Refused(f"the capture's SOC_ {val['SOC_']:#x} CpAd {val['CpAd']:#x} IOBA {val['IOBA']:#x} "
+                      f"are not this encoder's")
+    val["tunables"] = cnt
+    return val
+
+
+# --------------------------------------------------------------------------
+# The ADT (DeviceTree.<board>.im4p): what the DT node assumes, checked
+# --------------------------------------------------------------------------
+def adt_nodes(b):
+    """{path: {prop: bytes}} of an Apple Device Tree."""
+    out = {}
+
+    def node(off, path):
+        nprops, nkids = struct.unpack_from("<II", b, off)
+        off += 8
+        props = {}
+        for _ in range(nprops):
+            name = b[off:off + 32].split(b"\0")[0].decode("ascii", "replace")
+            size = struct.unpack_from("<I", b, off + 32)[0] & 0x7FFFFFFF
+            props[name] = b[off + 36:off + 36 + size]
+            off += 36 + ((size + 3) & ~3)
+        nm = props.get("name", b"?").split(b"\0")[0].decode("ascii", "replace")
+        p = (path + "/" + nm) if path else nm
+        out[p] = props
+        for _ in range(nkids):
+            off = node(off, p)
+        return off
+
+    node(0, "")
+    return out
+
+
+def check_adt(adt, soc_name):
+    exp = ADT_EXPECT.get(soc_name)
+    if not exp:
+        return ["no ADT expectations for this SoC; not checked"]
+    nodes = adt_nodes(adt)
+    notes = []
+    arm = nodes.get("device-tree/arm-io")
+    if arm is None:
+        raise Refused("ADT: no /arm-io")
+    rng = arm.get("ranges", b"")
+    ranges = [struct.unpack_from("<3Q", rng, i) for i in range(0, len(rng) - 23, 24)]
+
+    def cpu(bus):
+        for child, parent, size in ranges:
+            if child <= bus < child + size:
+                return parent + bus - child
+        return None
+
+    for key in ("ave", "dart"):
+        e = exp[key]
+        p = nodes.get("device-tree/arm-io/" + e["node"])
+        if p is None:
+            raise Refused(f"ADT: no /arm-io/{e['node']}")
+        reg = p.get("reg", b"")
+        regs = tuple(struct.unpack_from("<2Q", reg, i) for i in range(0, len(reg) - 15, 16))
+        if regs != e["reg"]:
+            raise Refused(f"ADT: /arm-io/{e['node']} reg {[(hex(a), hex(s)) for a, s in regs]} "
+                          f"is not what the t6020 DT node assumes")
+        irq0 = struct.unpack_from("<I", p.get("interrupts", b"\0\0\0\0"))[0]
+        if irq0 != e["irq0"]:
+            raise Refused(f"ADT: /arm-io/{e['node']} interrupt {irq0}, the DT node has {e['irq0']}")
+        if "soc_id" in e and p.get("soc-id", b"").split(b"\0")[0].decode() != e["soc_id"]:
+            raise Refused(f"ADT: /arm-io/{e['node']} soc-id is not {e['soc_id']}")
+        if "compatible" in e and e["compatible"].encode() not in p.get("compatible", b"").split(b"\0"):
+            raise Refused(f"ADT: /arm-io/{e['node']} is not {e['compatible']}")
+        if "vm_base" in e and struct.unpack_from("<Q", p.get("vm-base", bytes(8)))[0] != e["vm_base"]:
+            raise Refused(f"ADT: /arm-io/{e['node']} vm-base is not {e['vm_base']:#x}")
+        notes.append(f"ADT /arm-io/{e['node']}: reg (CPU) "
+                     + ", ".join(f"{cpu(a):#x}+{s:#x}" for a, s in regs)
+                     + f"; interrupt {irq0}: as the DT node")
+        for k in sorted(p):
+            if k.startswith("dapf-instance") or k.startswith("filter-data-instance"):
+                v = p[k]
+                ents = [struct.unpack_from("<QQ", v, i) for i in range(0, len(v) - 51, 52)]
+                notes.append(f"ADT /arm-io/{e['node']} {k}: "
+                             + ", ".join(f"{a:#x}-{b:#x}" for a, b in ents)
+                             + " (other encoders' ASC windows on t6020: not programmed)")
+    return notes
+
+
+# --------------------------------------------------------------------------
+def find_restore(args):
+    if args.restore:
+        return args.restore
+    cands = []
+    for pat in ("/Volumes/Preboot*/*/Restore", "/System/Volumes/Preboot/*/Restore"):
+        for d in sorted(glob.glob(pat)):
+            try:
+                v = plistlib.load(open(os.path.join(d, "SystemVersion.plist"), "rb"))
+            except (OSError, plistlib.InvalidFileException):
+                continue
+            if v.get("ProductVersion") == OS_FW_VERSION and \
+                    os.path.exists(os.path.join(d, "BuildManifest.plist")):
+                cands.append(d)
+    if len(cands) != 1:
+        raise Refused(f"found {len(cands)} macOS {OS_FW_VERSION} Restore directories "
+                      f"({', '.join(cands) or 'none'}): mount the stub's Preboot read-only "
+                      "(diskutil mount readOnly diskNs3) or pass --restore DIR")
+    return cands[0]
+
+
+def board_default():
+    try:
+        t = subprocess.run(["sysctl", "-n", "hw.target"], capture_output=True, text=True,
+                           check=False).stdout.strip().lower()
+    except OSError:
+        t = ""
+    return t or None
+
+
+def manifest_paths(restore, board):
+    m = plistlib.load(open(os.path.join(restore, "BuildManifest.plist"), "rb"))
+    for bi in m.get("BuildIdentities", []):
+        info = bi.get("Info", {})
+        if info.get("DeviceClass") == board and info.get("Variant", "").endswith("Customer"):
+            man = bi.get("Manifest", {})
+            get = lambda k: man.get(k, {}).get("Info", {}).get("Path")
+            return dict(ave=get("AVE"), kernelcache=get("KernelCache"), devicetree=get("DeviceTree"),
+                        build=m.get("ProductBuildVersion"), version=m.get("ProductVersion"))
+    raise Refused(f"BuildManifest has no customer identity for {board}")
+
+
+def write(out, rel, data, sums):
+    path = os.path.join(out, rel)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    tmp = path + ".tmp"
+    with open(tmp, "wb") as f:
+        f.write(data)
+    os.replace(tmp, path)
+    sums.append((sha256(data), rel))
+    log(f"  wrote {rel} ({len(data)} bytes, sha256 {sha256(data)})")
+
+
+def main(argv=None):
+    ap = argparse.ArgumentParser(description=__doc__.splitlines()[0],
+                                 formatter_class=argparse.RawDescriptionHelpFormatter, epilog=__doc__)
+    ap.add_argument("-o", "--out", required=True, help="output directory (gets apple/... and SHA256SUMS)")
+    ap.add_argument("--restore", help="a macOS 13.5 Restore directory (BuildManifest.plist etc.); "
+                    "default: the mounted stub Preboot's")
+    ap.add_argument("--board", help="ADT board, e.g. j414sap (default: this Mac's hw.target)")
+    ap.add_argument("--firmware", help="override: AppleAVE2FW_<variant>.im4p (or its Mach-O)")
+    ap.add_argument("--kernelcache", help="override: kernelcache IM4P/IMG4 (or its Mach-O)")
+    ap.add_argument("--devicetree", help="override: DeviceTree.<board>.im4p")
+    ap.add_argument("--capture", help="a DATA capture from Linux (/sys/kernel/debug/apple_ave_iboot_data) "
+                    "to check and keep as the pristine blob")
+    ap.add_argument("--no-firmware", action="store_true", help="do not write the firmware image")
+    a = ap.parse_args(argv)
+    try:
+        board = (a.board or board_default() or "").lower()
+        if board and not board.endswith("ap"):
+            board += "ap"
+        socs = [k for k, v in SOCS.items() if board in v["boards"]]
+        if len(socs) != 1:
+            raise Refused(f"board {board or '?'} is not one this tool knows "
+                          f"({', '.join(b for v in SOCS.values() for b in v['boards'])}); pass --board")
+        soc_name = socs[0]
+        soc = SOCS[soc_name]
+        log(f"board {board}: SoC {soc_name}, firmware {soc['variant']}")
+
+        if a.restore or not (a.firmware and a.kernelcache):
+            restore = find_restore(a)
+        else:
+            try:
+                restore = find_restore(a) if not a.devicetree else None
+            except Refused:
+                restore = None     # explicit inputs only; no ADT check
+        paths = {}
+        prov = []
+        if restore and not a.restore and a.firmware and a.kernelcache:
+            try:
+                manifest_paths(restore, board)
+            except Refused:
+                restore = None     # another board's stub: explicit inputs only
+        if restore:
+            sv = plistlib.load(open(os.path.join(restore, "SystemVersion.plist"), "rb"))
+            if sv.get("ProductVersion") != OS_FW_VERSION:
+                raise Refused(f"{restore} is macOS {sv.get('ProductVersion')}, the driver speaks "
+                              f"the {OS_FW_VERSION} firmware ABI")
+            mp = manifest_paths(restore, board)
+            paths = {k: os.path.join(restore, v) for k, v in mp.items()
+                     if k in ("ave", "kernelcache", "devicetree") and v}
+            prov.append(f"source: macOS {sv.get('ProductVersion')} ({sv.get('ProductBuildVersion')}) "
+                        f"Restore files, BuildManifest identity {board}")
+            want_fw = f"AppleAVE2FW_{soc['variant']}.im4p"
+            if os.path.basename(paths.get("ave", "")) != want_fw:
+                raise Refused(f"BuildManifest gives {board} {paths.get('ave')}, the driver's row expects {want_fw}")
+        if a.firmware:
+            paths["ave"] = a.firmware
+        if a.kernelcache:
+            paths["kernelcache"] = a.kernelcache
+        if a.devicetree:
+            paths["devicetree"] = a.devicetree
+
+        # the firmware image
+        fw_raw, img = unwrap(paths["ave"], ("avef",))
+        lay = check_image(img, soc)
+        prov.append(f"input {os.path.basename(paths['ave'])} sha256 {sha256(fw_raw)}")
+        log(f"  {os.path.basename(paths['ave'])}: 13.5 {soc['variant']}, TEXT {lay['text'][1]:#x}, "
+            f"DATA {lay['data'][0]:#x}+{lay['data'][1]:#x} (file-backed {lay['data'][2]:#x})")
+
+        # the kernelcache: device row, DevID -> table cross-checks, tunables
+        kc_raw, kc_d = unwrap(paths["kernelcache"], ("krnl",))
+        prov.append(f"input {os.path.basename(paths['kernelcache'])} sha256 {sha256(kc_raw)}")
+        kc = Kernelcache(kc_d)
+        rows = devid_rows(kc)
+        if rows.get(soc["soc_number"]) != soc["row"]:
+            raise Refused(f"kext device row for {soc['soc_number']} is {rows.get(soc['soc_number'])}, "
+                          f"expected {soc['row']}")
+        log(f"  kext gs_saAVE_DevID_Conversion[{soc['soc_number']}] = chipType/devType/DevID/maxNum/"
+            f"perGroup {soc['row']}")
+        dpe_tabs = kc.pointer_tables("gs_sAVE_DPE_CfgSet_", 28, 1)
+        hits = {t.get(soc["devid"]) for t in dpe_tabs}
+        if hits != {soc["dpe"]}:
+            raise Refused(f"the kext's DevID -> DPE CfgSet table gives {hits}, expected {soc['dpe']}")
+        log(f"  kext DevID {soc['devid']} -> gs_sAVE_DPE_CfgSet_{soc['dpe']} (pointer table)")
+        t = dpe_tables(kc, soc["dpe"])
+        files = [(f"apple/ave-13.5-dpe-{soc['dpe'].lower()}.bin", dpe_encode(t))]
+        log(f"  DPE {soc['dpe']}: {len(t[0])} CAT + {len(t[1])} CAC Default + {len(t[2])} CAC 8-bit")
+        if soc["axi2af"]:
+            ax_tabs = kc.pointer_tables("gs_sAVE_AXI2AF_Cfg_", 26, 3)
+            hits = {tt.get(soc["devid"]) for tt in ax_tabs}
+            if hits != {soc["axi2af"]}:
+                raise Refused(f"the kext's DevID -> AXI2AF table gives {hits}, expected {soc['axi2af']}")
+            ax = axi2af_table(kc, soc["axi2af"])
+            files.append((f"apple/ave-13.5-axi2af-{soc['axi2af'].lower()}.bin", axi2af_encode(ax)))
+            log(f"  kext DevID {soc['devid']} -> gs_sAVE_AXI2AF_Cfg_{soc['axi2af']}: {len(ax)} register writes")
+        if not a.no_firmware:
+            files.append((f"apple/ave_{soc['variant'].lower()}.bin", img))
+
+        # the ADT, for the DT node's values
+        if paths.get("devicetree"):
+            dt_raw, adt = unwrap(paths["devicetree"], ("dtre", "rdtr"))
+            prov.append(f"input {os.path.basename(paths['devicetree'])} sha256 {sha256(dt_raw)}")
+            for n in check_adt(adt, soc_name):
+                log("  " + n)
+
+        if a.capture:
+            blob = open(a.capture, "rb").read()
+            val = check_pristine(img, blob, soc)
+            log("  capture: " + ", ".join(f"{k} {v:#x}" for k, v in val.items()))
+            files.append((f"apple/ave-13.5-{soc['variant'].lower()}-data-pristine.bin", blob))
+            prov.append(f"input capture sha256 {sha256(blob)} (STKG {val['STKG']:#x})")
+
+        sums = []
+        for rel, data in sorted(files):
+            write(a.out, rel, data, sums)
+        sums_txt = "".join(f"{h}  {rel}\n" for h, rel in sorted(sums, key=lambda x: x[1]))
+        with open(os.path.join(a.out, "SHA256SUMS"), "w") as f:
+            f.write(sums_txt)
+        with open(os.path.join(a.out, "MANIFEST"), "w") as f:
+            f.write(f"bakery-ave-fw {VERSION}: apple-ave run-time files for {board} ({soc_name})\n")
+            f.write("Generated from Apple's macOS files on the owner's machine; not redistributable.\n")
+            for p in prov:
+                f.write(p + "\n")
+            f.write(sums_txt)
+        log(f"done: {len(sums)} file(s) in {a.out}")
+    except (Refused, OSError, KeyError) as e:
+        log(f"bakery-ave-fw: {e}")
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

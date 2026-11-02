@@ -1,0 +1,182 @@
+#!/usr/bin/env python3
+"""Read a Mac's own description of its input hardware from macOS and print it
+as a Silicon Bakery profile (JSON), for profiles/<model>.json.
+
+Run it on macOS, on the Mac the profile is for:
+
+    m=$(sysctl -n hw.model); mkdir -p "profiles/$m"
+    ./tools/bakery-probe > "profiles/$m/macos.json"
+
+What can only be measured on Linux (palm sizes in evdev units, say) goes in
+profiles/<model>/linux.json by hand.
+
+Everything comes from the IORegistry (`ioreg -a`), `defaults` and `sysctl`;
+nothing is written. Fixed-point values (16.16, as IOHIDFamily keeps them) are
+left as the integers macOS publishes, so the curves built from them on Linux
+are bit-for-bit the ones macOS starts from.
+"""
+
+import datetime
+import json
+import plistlib
+import subprocess
+import sys
+
+
+def run(*argv):
+    return subprocess.run(argv, check=True, capture_output=True).stdout
+
+
+def ioreg_class(name):
+    """Properties of every registry entry of class `name`, without children."""
+    data = run("ioreg", "-a", "-r", "-d", "1", "-c", name)
+    return plistlib.loads(data) if data.strip() else []
+
+
+def defaults(domain, key=None):
+    """A defaults domain (or one key of it) as Python values, None if unset."""
+    argv = ["defaults", "export", domain, "-"]
+    try:
+        values = plistlib.loads(run(*argv))
+    except subprocess.CalledProcessError:
+        return None
+    return values if key is None else values.get(key)
+
+
+def first_with(entries, key):
+    for entry in entries:
+        if key in entry:
+            return entry
+    raise SystemExit(f"bakery-probe: no registry entry has {key}")
+
+
+def curves(raw):
+    """HIDAccelCurves / HIDScrollAccelCurves, keys shortened, values as published."""
+    names = {
+        "HIDAccelIndex": "index",
+        "HIDAccelGainLinear": "gainLinear",
+        "HIDAccelGainParabolic": "gainParabolic",
+        "HIDAccelGainCubic": "gainCubic",
+        "HIDAccelGainQuartic": "gainQuartic",
+        "HIDAccelTangentSpeedLinear": "tangentSpeedLinear",
+        "HIDAccelTangentSpeedParabolicRoot": "tangentSpeedParabolicRoot",
+    }
+    out = []
+    for curve in raw:
+        out.append({names[k]: v for k, v in sorted(curve.items()) if k in names})
+    return out
+
+
+def live_hid_parameter(key):
+    """A value the HID event system pushes to every service (HIDEventServiceProperties)."""
+    data = run("ioreg", "-a", "-l", "-r", "-d", "1", "-c", "IOHIDEventService")
+    for entry in plistlib.loads(data) if data.strip() else []:
+        props = entry.get("HIDEventServiceProperties", {})
+        if key in props:
+            return props[key]
+    return None
+
+
+def sensor_surface(descriptor):
+    """The 16-byte "Sensor Surface Descriptor", which is also what the trackpad
+    firmware answers to feature report 0xd9 on Linux (hid-magicmouse): width
+    and height in 1/100 mm (le32), then min x, min y, max x, max y (le16)."""
+    width = int.from_bytes(descriptor[0:4], "little")
+    height = int.from_bytes(descriptor[4:8], "little")
+    s16 = lambda o: int.from_bytes(descriptor[o : o + 2], "little", signed=True)
+    return {
+        "widthHundredthsMM": width,
+        "heightHundredthsMM": height,
+        "minX": s16(8),
+        "minY": s16(10),
+        "maxX": s16(12),
+        "maxY": s16(14),
+    }
+
+
+def soc():
+    """The SoC, from the GPU's compatible string in the device tree ("gpu,t6020")."""
+    data = run("ioreg", "-a", "-p", "IODeviceTree", "-n", "sgx")
+    stack = [plistlib.loads(data)] if data.strip() else []
+    while stack:
+        node = stack.pop()
+        if isinstance(node, list):
+            stack.extend(node)
+            continue
+        compatible = node.get("compatible", b"").split(b"\0")[0].decode()
+        if node.get("IORegistryEntryName") == "sgx" and compatible.startswith("gpu,"):
+            return compatible[len("gpu,"):]
+        stack.extend(node.get("IORegistryEntryChildren", []))
+    return None
+
+
+def main():
+    model = run("sysctl", "-n", "hw.model").decode().strip()
+    version = run("sw_vers", "-productVersion").decode().strip()
+    build = run("sw_vers", "-buildVersion").decode().strip()
+
+    driver = first_with(ioreg_class("AppleMultitouchTrackpadHIDEventDriver"), "HIDAccelCurves")
+    device = first_with(ioreg_class("AppleMultitouchDevice"), "Sensor Surface Descriptor")
+
+    fixed = lambda v: None if v is None else v  # kept as published (16.16)
+    pointer_type = driver.get("HIDPointerAccelerationType", "HIDTrackpadAcceleration")
+    scroll_type = driver.get("HIDScrollAccelerationType", "HIDTrackpadScrollAcceleration")
+
+    global_prefs = defaults("-g") or {}
+    trackpad_prefs = defaults("com.apple.AppleMultitouchTrackpad") or {}
+
+    profile = {
+        "model": model,
+        "soc": soc(),
+        "source": {
+            "macos": f"{version} ({build})",
+            "date": datetime.date.today().isoformat(),
+            "tool": "silicon-bakery/tools/bakery-probe",
+        },
+        "trackpad": {
+            "product": driver.get("Product"),
+            "sensor": sensor_surface(device["Sensor Surface Descriptor"]),
+            "sensorRows": device.get("Sensor Rows"),
+            "sensorColumns": device.get("Sensor Columns"),
+            "reportIntervalMicroseconds": driver.get("ReportInterval", device.get("ReportInterval")),
+            "forceSupported": bool(device.get("ForceSupported", False)),
+            "pointer": {
+                "accelerationType": pointer_type,
+                # 16.16; the user's tracking speed, -1 when acceleration is off.
+                "acceleration": fixed(live_hid_parameter(pointer_type)),
+                "resolution": driver.get("HIDPointerResolution"),
+                # Integer reports per second (not 16.16); IOHIDPointerAccelerator
+                # clamps the time between reports to 1/rate.
+                "reportRate": device.get("HIDPointerReportRate", driver.get("HIDPointerReportRate")),
+                "curves": curves(driver["HIDAccelCurves"]),
+            },
+            "scroll": {
+                "accelerationType": scroll_type,
+                "acceleration": fixed(live_hid_parameter(scroll_type)),
+                "resolution": driver.get("HIDScrollResolutionY", driver.get("HIDScrollResolution")),
+                # 16.16 when set; unset means IOHIDFamily's FRAME_RATE (67).
+                "reportRate": driver.get("HIDScrollReportRate"),
+                "curves": curves(driver["HIDScrollAccelCurves"]),
+            },
+            "preferences": trackpad_prefs,
+            # Natural scrolling unless the user turned it off.
+            "naturalScroll": bool(global_prefs.get("com.apple.swipescrolldirection", True)),
+            "forceClick": bool(global_prefs.get("com.apple.trackpad.forceClick", True)),
+        },
+        "keyboard": {
+            # Nanoseconds, as the HID system applies them.
+            "initialKeyRepeat": live_hid_parameter("HIDInitialKeyRepeat"),
+            "keyRepeat": live_hid_parameter("HIDKeyRepeat"),
+        },
+        "pointer": {
+            # Double-click interval in nanoseconds.
+            "clickTime": live_hid_parameter("HIDClickTime"),
+        },
+    }
+
+    json.dump(profile, sys.stdout, indent=2, sort_keys=True, default=lambda b: b.hex())
+    sys.stdout.write("\n")
+
+
+if __name__ == "__main__":
+    main()

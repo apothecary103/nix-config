@@ -26,11 +26,11 @@
         "nixpkgs": "nixpkgs"
       },
       "locked": {
-        "lastModified": 1792772387,
-        "narHash": "sha256-MK6/UsOv1Ii71c+2U28GpmKn+Fm4MZG2TmIscuvUERw=",
+        "lastModified": 1793517866,
+        "narHash": "sha256-LKNAawXT7zHrnOkzzYKM+Kakkhkiz6f9nn+2+Aukfi8=",
         "owner": "nix-community",
         "repo": "nixos-apple-silicon",
-        "rev": "46e80bc641f5aaee6ed7ef90a12314a81492f48f",
+        "rev": "f88fb8087b3f9a0b5f70275fe8e6aca48a95235e",
         "type": "github"
       },
       "original": {
@@ -427,11 +427,11 @@
     },
     "nixpkgs": {
       "locked": {
-        "lastModified": 1791456040,
-        "narHash": "sha256-H83yz/do+hjOO0uujHyH8RgtIQP2v7Mw+cLwcZK/xKc=",
+        "lastModified": 1792502884,
+        "narHash": "sha256-IoNisKcGbUjdd45qCqywGMCYmZ5EnkxezvLII0FWwNA=",
         "owner": "NixOS",
         "repo": "nixpkgs",
-        "rev": "e7439b6b14ad3cc35d05608ebca9bce01a25f5f8",
+        "rev": "02c087f3fe673c9e317f206a627cb6b910336dbe",
         "type": "github"
       },
       "original": {
@@ -509,11 +509,11 @@
         ]
       },
       "locked": {
-        "lastModified": 1793457058,
-        "narHash": "sha256-tD5c+tvyVv1aywNwiTjXHt+xOOnl57OqnxA3INJlVas=",
+        "lastModified": 1793483412,
+        "narHash": "sha256-9R0kopEQ/+EuViCIYqXv1nLzPfG7BpkFaJdCM1R4hfs=",
         "owner": "apothecary103",
         "repo": "nix-orchard",
-        "rev": "371e5af32c64c0c509b67d8796a63a168b2c9990",
+        "rev": "66fe02610202a15c39313b12bbce0b2dc7207669",
         "type": "github"
       },
       "original": {
@@ -542,6 +542,7 @@
         "nixpkgs": "nixpkgs_3",
         "nvf": "nvf",
         "orchard": "orchard",
+        "silicon-bakery": "silicon-bakery",
         "steelix": "steelix",
         "yabai-src": "yabai-src",
         "zmk-nix": "zmk-nix"
@@ -567,6 +568,25 @@
         "repo": "rust-overlay",
         "type": "github"
       }
+    },
+    "silicon-bakery": {
+      "inputs": {
+        "apple-silicon": [
+          "apple-silicon"
+        ],
+        "nixpkgs": [
+          "nixpkgs"
+        ]
+      },
+      "locked": {
+        "path": "./silicon-bakery",
+        "type": "path"
+      },
+      "original": {
+        "path": "./silicon-bakery",
+        "type": "path"
+      },
+      "parent": []
     },
     "steelix": {
       "inputs": {

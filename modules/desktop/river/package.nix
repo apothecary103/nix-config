@@ -1,33 +1,20 @@
 {
-  # The compositor is river with ./patches/river applied in order, then wrapped
+  # The compositor is Silicon Bakery's river (the panel's colour, HDR, blur by
+  # namespace, on its wlroots and libinput; see silicon-bakery/pkgs), wrapped
   # with the settings those patches read. nixpkgs' river module still means
   # river-classic, but takes the new river as its package: it brings the
   # session file, portals and the rest of a wayland session.
   flake.modules.nixos.base =
     { lib, pkgs, ... }:
-    let
-      # libinput with typing that tightens palm rejection rather than turning
-      # the touchpad off (patches/libinput); its own tests assert the old way.
-      libinput = pkgs.libinput.overrideAttrs (old: {
-        patches = (old.patches or [ ]) ++ lib.filesystem.listFilesRecursive ./patches/libinput;
-        doCheck = false;
-      });
-      wlroots = (pkgs.wlroots_0_20.override { inherit libinput; }).overrideAttrs (old: {
-        patches = (old.patches or [ ]) ++ lib.filesystem.listFilesRecursive ./patches/wlroots;
-      });
-    in
     {
       programs.river-classic = {
         enable = true;
-        # wlroots with backdrop blur (patches/wlroots), which river's layer
-        # surfaces ask for by namespace (patches/river/0003-blur.patch).
-        package = (pkgs.river.override { wlroots_0_20 = wlroots; inherit libinput; }).overrideAttrs (old: {
-          patches = (old.patches or [ ]) ++ lib.filesystem.listFilesRecursive ./patches/river;
+        package = pkgs.siliconBakery.river.overrideAttrs (old: {
           nativeBuildInputs = old.nativeBuildInputs ++ [ pkgs.makeWrapper ];
           # Vulkan is the only wlroots renderer that applies an output colour
           # transform (and advertises colour management to clients); 10-bit
           # scanout keeps the P3 transform from banding (on Asahi it needs
-          # hosts/frieren/graphics.nix, or every new frame flickers the edges).
+          # Silicon Bakery's Mesa patch, or every new frame flickers the edges).
           postInstall = old.postInstall + ''
             wrapProgram $out/bin/river \
               --set-default WLR_RENDERER vulkan \

@@ -34,6 +34,9 @@ rec {
       lib.boolToString v
     else if v == null then
       "null"
+    # Full precision: toString keeps six significant digits of a float.
+    else if builtins.isFloat v then
+      builtins.toJSON v
     else
       toString v;
 

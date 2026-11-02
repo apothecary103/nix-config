@@ -6,6 +6,7 @@
     {
       lib,
       pkgs,
+      osConfig,
       palette,
       accent,
       ...
@@ -14,7 +15,12 @@
       zon = import ./_zon.nix { inherit lib; };
       inherit (zon) enum;
 
-      kwim = pkgs.callPackage ./_kwim.nix { };
+      # This MacBook as Silicon Bakery knows it: its trackpad curves and key
+      # repeat come from the Mac's own numbers (silicon-bakery/profiles).
+      bakery = osConfig.hardware.siliconBakery;
+
+      # kwim with custom acceleration curves, which kwm starts.
+      inherit (pkgs.siliconBakery) kwim;
       kwm = pkgs.callPackage ./_kwm.nix { inherit kwim; };
 
       colour = hex: zon.colour hex "ff";
@@ -187,10 +193,13 @@
           "--toggle"
           "*"
         ]))
+        # --no-daemonize: while eww.service restarts, fail rather than fork an
+        # eww of its own that systemd would then never manage.
         (key [ "mod4" ] "b" (spawn [
           "eww"
           "open"
           "--toggle"
+          "--no-daemonize"
           "bar"
         ]))
 
@@ -303,11 +312,8 @@
         };
 
         bindings = {
-          # Key repeat as on macOS here: HIDInitialKeyRepeat 166 ms, HIDKeyRepeat 33 ms.
-          repeat_info = {
-            rate = 30;
-            delay = 167;
-          };
+          # Key repeat as on macOS here (HIDInitialKeyRepeat, HIDKeyRepeat).
+          repeat_info = bakery.keyboard.repeat;
           key = bindings;
           pointer = [
             {
@@ -351,26 +357,17 @@
         ];
       };
 
-      # The trackpad's macOS acceleration, rebuilt from its IORegistry curves.
-      macosAccel = import ./_macos-accel.nix { };
-
       kwmConfig = kwmConfigWith palette.ui.accent;
       kwmLive = "${accent.state}/kwm.zon";
 
       kwimConfig = {
-        input_device_rules = [
-          {
-            repeat_info = {
-              rate = 30;
-              delay = 167;
-            };
-          }
-        ];
+        input_device_rules = [ { repeat_info = bakery.keyboard.repeat; } ];
 
         # macOS trackpad behaviour, from this machine's preferences: tap to
         # click, two-finger click/tap for secondary, no tap-and-drag, three-
-        # finger drag, natural scrolling, and the IORegistry's acceleration
-        # curves for pointer and scroll at their default speeds.
+        # finger drag, natural scrolling, and macOS's own acceleration for
+        # pointer and scroll at the speeds set there (Silicon Bakery rebuilds
+        # them from the IORegistry curves and IOHIDFamily's code).
         libinput_device_rules = [
           {
             name.str = "Apple MTP multi-touch";
@@ -386,8 +383,8 @@
             disable_while_trackpointing = enum "enabled";
             accel_profile = enum "custom";
             accel_custom = {
-              motion = macosAccel.pointer;
-              scroll = macosAccel.scroll;
+              motion = bakery.trackpad.curves.pointer;
+              scroll = bakery.trackpad.curves.scroll;
             };
           }
         ];
@@ -437,8 +434,11 @@
         };
       };
 
-      # ProMotion's top fixed rate (VRR is not in the kernel yet), at the
-      # integer 2x macOS uses for its default 1512x982.
+      # ProMotion's 120 Hz timing, at the integer 2x macOS uses for its
+      # default 1512x982. With Silicon Bakery's experimentalVrr the panel
+      # varies 24 to 120 Hz with the frames in it, as on macOS, once adaptive
+      # sync is on; without it the kernel offers no VRR and kanshi leaves
+      # adaptive sync off.
       systemd.services.kanshi = {
         description = "Output configuration";
         wantedBy = [ "river-session.target" ];
@@ -466,7 +466,9 @@
         "kwim/config.zon".text = zon.render kwimConfig;
         "kanshi/config".text = ''
           profile {
-            output eDP-1 mode 3024x1964@120Hz scale 2
+            output eDP-1 mode 3024x1964@120Hz scale 2${
+              lib.optionalString (bakery.display.experimentalVrr or false) " adaptive_sync on"
+            }
           }
         '';
       };

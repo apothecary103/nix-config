@@ -31,6 +31,14 @@
       flake = false;
     };
     apple-silicon.url = "github:nix-community/nixos-apple-silicon";
+    # Asahi Linux finished to behave like this MacBook's macOS: its patches,
+    # the Mac's own numbers and the modules that apply them. A flake of its
+    # own in ./silicon-bakery, so it can be imported elsewhere or split out.
+    silicon-bakery = {
+      url = "path:./silicon-bakery";
+      inputs.nixpkgs.follows = "nixpkgs";
+      inputs.apple-silicon.follows = "apple-silicon";
+    };
     asahi-firmware = {
       url = "git+ssh://git@codeberg.org/frieren/asahi-firmware?ref=main";
       flake = false;

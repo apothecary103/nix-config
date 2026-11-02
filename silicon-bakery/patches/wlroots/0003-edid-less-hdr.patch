@@ -1,0 +1,85 @@
+Lets an EDID-less internal panel advertise BT.2020 and PQ when its driver
+takes them.
+
+The DRM backend only learns an output's HDR support from the EDID: BT.2020
+from the colorimetry data block and PQ from the HDR static metadata block,
+each only if the connector has the matching Colorspace or HDR_OUTPUT_METADATA
+property. The MacBook Pro internal panels under appledrm have no EDID at all,
+so they could never advertise either, whatever the kernel exposes.
+
+For an eDP connector with no EDID that nonetheless has HDR_OUTPUT_METADATA and
+a Colorspace property listing BT2020_RGB, take the driver's word and set both
+bits. appledrm attaches those properties only with experimental_hdr=1, so
+without that the panel advertises nothing new. Outputs with an EDID, and
+connectors of any other type, are untouched.
+
+diff --git a/backend/drm/drm.c b/backend/drm/drm.c
+index bd29872..9e70f90 100644
+--- a/backend/drm/drm.c
++++ b/backend/drm/drm.c
+@@ -1745,6 +1745,20 @@ static bool connect_drm_connector(struct wlr_drm_connector *wlr_conn,
+ 	}
+ 	free(edid);
+ 
++	// An internal panel without an EDID has no colorimetry or HDR static
++	// metadata block to read. If its driver still takes the BT2020_RGB
++	// Colorspace and HDR_OUTPUT_METADATA, as appledrm does for the MacBook
++	// panels with experimental_hdr, the driver vouches for BT.2020 and PQ.
++	if (edid_len == 0 && drm_conn->connector_type == DRM_MODE_CONNECTOR_eDP &&
++			wlr_conn->props.colorspace != 0 &&
++			wlr_conn->props.hdr_output_metadata != 0 &&
++			introspect_drm_prop_enum(drm->fd, wlr_conn->props.colorspace,
++				"BT2020_RGB")) {
++		wlr_log(WLR_INFO, "EDID-less panel takes BT.2020 and PQ from its driver");
++		output->supported_primaries |= WLR_COLOR_NAMED_PRIMARIES_BT2020;
++		output->supported_transfer_functions |= WLR_COLOR_TRANSFER_FUNCTION_ST2084_PQ;
++	}
++
+ 	char *subconnector = NULL;
+ 	if (wlr_conn->props.subconnector) {
+ 		subconnector = get_drm_prop_enum(drm->fd,
+diff --git a/backend/drm/properties.c b/backend/drm/properties.c
+index 3140239..76920d7 100644
+--- a/backend/drm/properties.c
++++ b/backend/drm/properties.c
+@@ -3,6 +3,7 @@
+ #include <stddef.h>
+ #include <stdint.h>
+ #include <stdlib.h>
++#include <string.h>
+ #include <inttypes.h>
+ #include <wlr/util/log.h>
+ #include <xf86drm.h>
+@@ -214,3 +215,21 @@ bool introspect_drm_prop_range(int fd, uint32_t prop_id,
+ 	drmModeFreeProperty(prop);
+ 	return true;
+ }
++
++bool introspect_drm_prop_enum(int fd, uint32_t prop_id, const char *name) {
++	drmModePropertyRes *prop = drmModeGetProperty(fd, prop_id);
++	if (!prop) {
++		return false;
++	}
++
++	bool found = false;
++	for (int i = 0; i < prop->count_enums; i++) {
++		if (strcmp(prop->enums[i].name, name) == 0) {
++			found = true;
++			break;
++		}
++	}
++
++	drmModeFreeProperty(prop);
++	return found;
++}
+diff --git a/include/backend/drm/properties.h b/include/backend/drm/properties.h
+index c02d655..093fd39 100644
+--- a/include/backend/drm/properties.h
++++ b/include/backend/drm/properties.h
+@@ -78,5 +78,6 @@ char *get_drm_prop_enum(int fd, uint32_t obj, uint32_t prop);
+ 
+ bool introspect_drm_prop_range(int fd, uint32_t prop_id,
+ 	uint64_t *min, uint64_t *max);
++bool introspect_drm_prop_enum(int fd, uint32_t prop_id, const char *name);
+ 
+ #endif

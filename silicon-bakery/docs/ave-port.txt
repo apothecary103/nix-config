@@ -1,0 +1,564 @@
+AVE (Apple Video Encoder) port to t6020 / M2 Pro (MacBook Pro 14" Mac14,9, j414s)
+===============================================================================
+Silicon Bakery, 2026-11-02. Written on the Mac14,9 itself under macOS 27.2.
+STATUS: static port only. Nothing here has been compiled, built with Nix or run
+on Linux. Every claim carries one of these labels:
+
+  [ADT]   read from the macOS 13.5 j414sap device tree (DeviceTree.j414sap.im4p,
+          the Asahi stub's copy = the 22G74 IPSW member), or from this Mac's
+          live IODeviceTree under macOS 27.2 where marked [ADT-27.2]
+  [KEXT]  disassembly/data of AppleAVE2.kext in the stub's 13.5 kernelcache
+          (kernelcache.release.mac14j, sha256 ea70fb77...0c11)
+  [FW]    disassembly/data of AppleAVE2FW_H14S (13.5, im4p sha256
+          4686e962...5142, Mach-O b5f928ac...8c1c); H14G/H13S/H14C for
+          comparison were range-read from the 13.5 IPSW (4 members, ~5.6 MB)
+  [DT]    Asahi Linux device trees / drivers at tag asahi-7.2.12-2
+  [COMM]  taken from the community driver or its docs (aquarat, 9ab14e45)
+  [INF]   inference, not verified
+  [HW]    only a run on the machine can settle it
+
+Files, as they sit in Silicon Bakery:
+  patches/apple-ave/0001-t6020.patch    the port, against aquarat/apple-m-series-ave-driver
+                                        9ab14e45281e8f61fb499b760408028171a5f2b5
+  patches/linux-ave/ave-dt-t6020.patch  DT nodes for asahi-7.2.12-2 (media.encode.deviceTree)
+  tools/bakery-ave-fw                   firmware/table generator (Python 3 stdlib, macOS)
+  pkgs/apple-ave.nix                    the out-of-tree module derivation
+  patches/ffmpeg/0001-ave-v4l2m2m.patch the community ffmpeg series rebased onto
+                                        FFmpeg n9.0.1 (pkgs.siliconBakery.ffmpeg-ave)
+  modules/media.nix                     hardware.siliconBakery.media.encode
+No Apple binary is in this repository: the generator makes the driver's files
+from the owner's own copy of macOS 13.5, for the private firmware input.
+
+
+1. Upstream state (checked 2026-11-02)
+--------------------------------------
+- aquarat/apple-m-series-ave-driver: HEAD is still 9ab14e45 (2026-10-18).
+  Branches: main only. One fork (henriSchulz, 2026-10-01): README edits, no
+  t6020. Issues/PRs: #3 (second t6000 on Arch, open), #1/#2/#4 closed. Nobody
+  has looked at t6020/t6021 (docs/90 §10 "M2 Pro/Max: not looked at"). [COMM]
+- aurora-silicon/linux aurora-wip (HEAD b2418f4e, 2026-11-02),
+  drivers/media/platform/apple/ave: in-tree-style rewrite; encodes on T8140 and
+  T6041 (M4 Pro, 2026-10-31); t6000/t8112 lifecycle only; no t6020. It takes
+  the firmware placement from "apple,asc-mem" reserved-memory regions that its
+  own m1n1 work provides (stock m1n1 does not reserve AVE memory). Not used
+  here; the community driver is the one with a working t8112 (translated
+  fetch, t8110 DART), which t6020 resembles. [COMM]
+- Stock m1n1 HEAD (34c1a1e2, 2026-11-01) programs DAPFs only for aop, mtp,
+  pmp, isp (src/dapf.c) and publishes the ADT as reserved-memory "phram"
+  label "adt" (kboot.c dt_setup_mtd_phram). nixpkgs at the owner's pin builds
+  m1n1 2.0.0, which has the latter. [COMM][INF: 2.0.0 contains it, it predates]
+
+2. The community driver in one page [COMM]
+-------------------------------------------
+apple-ave.ko is a V4L2 stateful mem2mem H.264/HEVC encoder ("apple-ave-enc").
+iBoot preloads the 13.5 AVE firmware (TEXT read-only, DATA in DRAM); the driver
+never loads its own image: probe adopts iBoot's, checks it (RVBAR, the DATA
+literal at TEXT+0x423c, three sha256 windows of TEXT), maps TEXT/DATA into its
+DART domain at the DVAs the core uses, writes the boot scratch registers
+(magic 0x08042006, instance, DevID), starts the ASC (AVE_IOP_Start: four writes),
+then speaks the 13.5 RTKit/IPC protocol (msg1..msg5: 7 channels, 0x9bc0 bytes
+of channel memory), sends Config, and per stream Open/Start/Process/Stop/Close.
+Per-SoC facts live in one table (driver/ave_soc.c); the register banks come
+from the DT node (dpe, asc, sve, unk3 = VENC PMGR PS, axi2af, plus read-only
+cpudart/dapf/smmu windows). Probe is split into stages 1..16 (stop_after=);
+stage 6 powers on, 7 is Apple's first write (SVE+0x38) plus the AVE_DPE
+tunables, 10 adopts the firmware, 13 starts the core, 16 is Config + V4L2.
+No Apple data is compiled in: the firmware image, the AVE_DPE tunables
+("AVEDPE01" files) and an optional pristine DATA blob are request_firmware()
+files made on the user's machine (docs/100). A runtime overlay module
+(test/ave-overlay.ko variant=N) adds the DT node, because Asahi's DTs have
+none. Differences by SoC: t6001/t6000 fetch firmware physically through a DAPF
+the driver programs; t8112 (H14G) has a "dart,t8110" DART and fetches through
+the CPUDART at dart vm-base (iboot.translated), needs the source size in
+PICMGMT +0x964/+0x968 (src_dims), and programs no DAPF.
+
+3. t6020 facts, item by item (docs/79 checklist)
+------------------------------------------------
+3.1 Compatible / table row
+  "apple,t6020-ave", "apple,ave"; row ave_soc_t6020, one encoder (inst 0),
+  picked by DPE bank 0x40d100000. (patch: driver/ave_soc.c, ave_drv.c)
+
+3.2 Device row (sent in the boot handshake: DevID in scratch 2, DevType in msg4)
+  DevID 19, DevType 16, ChipType 11, maxNum 1, perGroup 1.
+  [KEXT] gs_saAVE_DevID_Conversion (0x28-byte rows, keyed by SoC number 6020).
+  [FW]   the same row in H14S's own table (file 0xf6760 = DATA+0x2760), used
+         by _AVE_FindByDevID (index DevID-1, stride 0x28).
+  Why it matters on H14S: PlatformIOPIPCManager's constructor (fw 0xa9f98)
+  reads perGroup (+0x10) of that row and sets up remote encoders' base
+  addresses (systemBaseAddr[i], the -0xFA000000 ave1 offset) only when
+  perGroup >= 2. DevID 19 keeps the firmware single-encoder. Do not send
+  t6021's DevID 20 (perGroup 2) here. [FW]
+
+3.3 MMIO, IRQ, power  [ADT] (CPU address = bus + 0x200000000 via /arm-io
+  "ranges" {0 -> 0x200000000, size 0x400000000}; [ADT-27.2] IODeviceMemory
+  agrees: 0x40d100000, ...)
+    DPE      0x40d100000 + 0x45c000         ave0 reg[0]
+    ASC      0x40d800000 + 0x800000         reg[1]
+    SVE      0x40d050000 + 0x8000           reg[2]
+    PMGR     0x2902803e0 + 0x7c44 (ADT)     reg[3] = pmgr_east+0x3e0 (venc_sys)
+             .. +0x8024 (venc_me1 + 4). The driver's "unk3" bank is
+             pmgr_east+0x8000 + 0x24 (venc_dma, pipe4, pipe5, me0, me1 at
+             +0..+0x20, read at +0x18/+0x20), as on every earlier SoC. [DT]
+    AXI2AF   0x40c000000 + 0x1000000        reg[4]
+    dart-ave0: reg[0] DART 0x40d030000, reg[1] CPUDART 0x40d040000,
+             reg[2] SMMU 0x40d020000, reg[3] CPU_APF (DAPF) 0x40d044000,
+             0x4000 each; "instance" = (DART,0,"DART") (DART,1,"CPUDART")
+             (SMMU,0,"SMMU") (DAPF,1,"CPU_APF"): the t8112 order, not t6000's.
+    IRQ      ave0 interrupts 1110, 1104, 1103, 1106, 1105; the kext registers
+             index 0 only (1110). dart-ave0: 1107 (shared by both DARTs, SMMU).
+             Linux AIC numbers = ADT numbers on t602x: Asahi's avd node uses
+             1088/1095, the ADT avd0/dart-avd0 say 0x440/0x447. [ADT][DT]
+    Power    The 13.5 ADT's ave0 power-gates ids, decoded against the pmgr
+             "devices" table of this Mac's live tree [ADT][ADT-27.2], are VENC_DMA,
+             VENC_PIPE4, VENC_PIPE5, VENC_ME0, VENC_ME1 (real PS registers,
+             psreg 0xf idx 0..4) under VENC_SYS, plus virtual VENC-SYS-V,
+             VENC-FAST, VENC-MEM-FAST, VENC-SOC-VMAX, VENC-SOC-VMID2,
+             VENC-FAB0-VMAX. Asahi t602x-pmgr.dtsi: ps_venc_sys
+             (pmgr_east@3e0), ps_venc_dma (@8000) <- sys, pipe4/pipe5 (@8008,
+             @8010) <- dma, me0 (@8018) <- pipe5 + pipe4, me1 (@8020) <- me0:
+             the t6001 shape. DT node lists sys, pipe5, me0, pipe4; the driver
+             powers me1 by path /soc/power-management@290280000/
+             power-controller@8020 (label "venc_me1") with its holder device.
+             [DT]
+    Streams  dart-ave0 sid = 0, 15, 12; bypass-15, bypass-12; remap = 1.
+             The node attaches streams 0 and 1 on both DARTs, CPUDART first
+             (as t8112, which ran with 0/1 while the ADT said 0/15). [ADT][COMM]
+             Whether stream 12 (new on t6020, bypass on macOS) carries
+             encoder traffic is [HW] (would show as a DART fault on stream 12).
+
+3.4 ASC start, SVE registers, DPE flow  [KEXT]
+  AVE_IOP_Config_Hera, _Start_Hera, _CheckIdle_Hera are instruction for
+  instruction AVE_IOP_*_Castor and _Atlas (normalised diff: only the
+  adrp/add of log strings differ): RVBAR = (fw & 0x3fffffff800) |
+  0x0102000000000000 at ASC+0x50000, then the same four start writes.
+  AVE_SVECtrl_GetReg maps chipType 4..15 (t6020 = 11) to
+  _gs_sAVE_SVECtrl_Reg_Rhea, the table the driver's SVE offsets come from.
+  AVE_DPE::Reset/Enable/Disable branch only on DevType == 8, so t6020 takes
+  the t600x/t8112 path.
+
+3.5 AVE_DPE tunables  [KEXT]
+  AVE_DPE_GetTunables indexes a 28-entry pointer table by DevID-1; DevID 19
+  (and 20, 21, 24-27) -> gs_sAVE_DPE_CfgSet_Hera_6020: CAT window 0xdc000,
+  CAC 0xdc400 (the driver's), 1 CAT Default + 121 CAC Default + 120 CAC 8-bit
+  (+120 CAC 10-bit, unused). File: apple/ave-13.5-dpe-hera_6020.bin.
+  Control: the same code (bakery-ave-fw) on the stub's kernelcache gives
+  Castor_6000 sha256 4995da8c... and Atlas_8112 43bef746..., the digests
+  docs/100 publishes for the community's generator. [COMM][verified here]
+
+3.6 AVE_AXI2AF tunables: NEW on t6020  [KEXT]
+  AVE_AXI2AF::Init (0xfffffe0008e90428) takes a config only for DevType 16-18
+  (sub w8, devtype, #0x13; cmn w8, #4; b.hi) - t6020/t6021/t6022. Every SoC
+  the community supports gets none, which is why the driver never wrote this
+  bank. AVE_HwC::PowerOn calls AVE_DPM_PowerOn, ResetDPE, then
+  AVE_AXI2AF::ApplyTunables, then DART SetActive. ApplyTunables
+  (0xfffffe0008e90860): for each {u32 off, u32 width, u32 clear, u32 set} of
+  cfg+0x90 (count cfg+0x98): Read32(type 4, off), bic clear, orr set,
+  Write32 - no read-back. AVE_Reg type 4 = the node's reg[4] (type 1 is the
+  ASC: IOP_Config writes RVBAR as type 1 + 0x50000). The AXI2AF table (DevID
+  - 3 index, 26 entries) gives DevID 19 -> gs_sAVE_AXI2AF_Cfg_Hera_6020
+  (20 -> _6021, 21 -> _6022); Hera_6020 has 26 writes at AXI2AF +0x0..+0x34,
+  +0x108..+0x134, +0x400 and +0xa00. Its BlockTraffic/CheckIdle field
+  descriptors are at +0xb38/+0xb98/+0xbf8 (+0x738.. on Castor/Atlas), but
+  nothing in the 13.5 kext calls BlockTraffic or CheckIdle.
+  The port applies the list right after the DPE tunables at stage 7 (and on
+  every re-power: reload, resume), param axi2af_tunables=1. A missing file is
+  a warning, not a failure (t600x/t8112 work with the bank untouched; whether
+  t6020 needs it is [HW]). File: apple/ave-13.5-axi2af-hera_6020.bin
+  ("AVEAXI01", u32 count, u32 0, {off, clear, set}...). The values are not in
+  the source; the generator writes them from the kernelcache.
+
+3.7 Firmware H14S  [FW]
+  Layout: __TEXT 0xf0000 (file 0x4000), __DATA vm 0xf0000 size 0x134000
+  (file 0xf4000 + 0x64000). STKG at DATA+0x3a10; tag list STKG..IOSZ (SOC_
+  +0x3b7b, SOCR +0x3b87, CpAd +0x3b93, WrAd +0x3ba3, IOBA +0x3bbc); tunables
+  table at DATA+0x60368, 0x5b0 bytes, header 01 03 24 00 ff ff ff ff.
+  RTKit start reads DATA's base from the 8 bytes at TEXT+0x423c (fw 0x308:
+  adr x0, #0x3f34; ldp w0, w1; zero = use the image's 0xf0000): the driver's
+  AVE_IBOOT_DATA_LITERAL_OFF holds. Build tags: AppleAVE2FW-6070.11.1,
+  RTKit-2062.141.1 (as H13x/H14G). Boot protocol: ChannelTableSizeGet returns
+  7 / 0x9bc0 in H14S exactly as in H14G (fw 0xa5f34), = the 13.5 ABI's msg1.
+  TEXT sha256 windows (16 KiB at 0x0, 0x80000, 0xec000): 196dbd4c...,
+  949c837a..., aacdd55e... in the row. Method check: the same computation on
+  H14G and H13S reproduces the community's t8112 and t6000 rows bit for bit
+  (and their STKG offsets 0x35d8/0x3380). The last window holds the tail of
+  _rtk_mtab, as on H13S/H14G whose windows matched DRAM on hardware [COMM].
+  H14S vs H14G (symbol tables): 1122 vs 1045 functions, 82 only in H14S, 5
+  only in H14G, 166 resized. New: the multi-encoder machinery
+  (PlatformIOPIPCManager, RTK_mbi_*, *Mcore/*MultiCore, MapRemoteRegs,
+  HandleMboxMessage, AVE_FindByDevID). H14S and H14C (M2 Max) are the same
+  build (same 1122 functions, same sizes). Source path:
+  CDMAController::ConfigPipeRdDMA is 0x4d4 bytes in both and H14S writes
+  PICMGMT +0x964/+0x968 (17 bits) to DPE+0x112003c/+0x1120040 and scaled
+  copies to +0x11200bc/+0x11200c0 on the linear arm (0x3bea0-0x3beb8) as on
+  the compressed arm: src_dims = true, as t8112. The H14 source fields
+  (ctx +0x703/+0x704/+0x708 = wire 0xFEC3/0xFEC4/0xFEC8) are read by
+  CAVCController::InitEncodingParameters (0x5d3a8-0x5d3e4) as in H14G; the
+  driver leaves them 0 as on t8112. New PICMGMT reads in H14S:
+  setPipe4PFrame reads +0x960 and +0x918 into pipe registers, gated by a
+  session byte (ctx 0x23fe4+0x1ab) and a second flag; everything else H14S
+  touches beyond H14G's set (+0x9e0..+0xbf8) are firmware-side writes
+  (CAVECommonDPB::setRefPointers). The gate is [INF] a multi-core/feature
+  flag macOS leaves off for one encoder; the driver sends 0. A heuristic
+  scan, not a proof: [HW] decides (wrong output on HEVC P frames would point
+  here).
+  IOBA: no adrp/add or ldr in H14S reaches DATA+0x3bbc (the only nearby
+  reference is the stack setup at 0x704 to 0xf3bd0), the docs/90 §3.3
+  finding for H14G. The row therefore does not compare IOBA in a captured
+  blob (iboot.ioba_unchecked), and SOC_ is not compared either (expected
+  0x6020 [INF], not read yet).
+
+3.8 iBoot placement, translated fetch, DART  [ADT][ADT-27.2][DT][INF]
+  13.5 ADT dart-ave0: compatible "dart,t8110", vm-base 0x10000000000, vm-size
+  0x30000000000, remap = 1, page-size 0x4000. Under macOS 27.2 this machine's
+  ave0 segment-ranges read TEXT phys 0x10000a14000 iova 0 remap
+  0x10000000000, DATA remap vm-base + iova: the core fetches through the
+  CPUDART at vm-base (t8112's mode). That 13.5's iBoot (the Linux stub) does
+  the same is [INF] from the identical ADT properties; RVBAR at stage 10 is the
+  test. The row is translated with text_dva 0x10000000000, data_dva and
+  data_literal 0x100000f0000, but text_phys/data_phys 0: they come from the
+  live ADT m1n1 publishes (docs/99), and with the new row flag
+  iboot.dva_from_adt the DVAs too (a segment's remap is the address the core
+  uses: RVBAR base for TEXT, the literal for DATA; t8103 TEXT remap = phys,
+  DATA remap = its literal [COMM]). No ADT -> probe refuses before touching
+  a register. DATA must lie outside System RAM (checked; t8103's Mac mini was
+  the exception, docs/89 §6) [HW].
+  The DVA 0x10000000000 needs a DART input width >= 41 bits. apple-dart reads
+  it from PARAMS3 (t8110) and logs "AS <ias> -> <oas>"; vm-base+vm-size =
+  2^42 suggests 42 [INF]. If AS < 41 the TEXT map fails "outside aperture".
+  Buffers stay 32-bit (dma mask 32, firmware uses low 32 bits) [COMM].
+
+3.9 DAPF decision  [ADT][COMM]
+  dart-ave0 has "dapf-instance-1" (instance 1 = CPU_APF, reg[3]; t8112's ADT
+  has none). Its 156 bytes are three 52-byte t8110 entries (m1n1 dapf.c
+  struct dapf_t8110_config): 0x507c0c100-0x507c2881f,
+  0x240dc0c100-0x240dc2881f, 0x2507c0c100-0x2507c2881f, r0 0x31, r20 1, r4 0.
+  Those are ASC+0x40c100..+0x42881f of t6021's ave1 and of t6022's two die-1
+  encoders: the mailbox windows the multi-encoder firmware writes to its
+  siblings (the ADT is shared by the whole t602x family). None exists on
+  t6020 and the firmware never routes to one with perGroup 1. The firmware
+  fetch is translated, so no physical TEXT entry is needed (t8112 runs with an
+  empty DAPF). Decision: program nothing (dapf_by_driver = false), leave
+  m1n1 alone. Read-only check: dapf_dump=1 prints the 16 slots at stage 8.
+  If the DAPF turns out to filter the core's own MMIO [HW], the entry to
+  try is the row's dapf_mmio_own (SVE..ASC+0x469000, r0 0x31).
+
+3.10 PMP vote  [DT][COMM]
+  asahi-7.2.12-2 t602x-die0.dtsi: pmp@28e700000 status "disabled",
+  pmp_report_venc_sys (report@10, label pmp-venc-sys) "disabled". So the
+  PMP is off and there is nothing to vote with. The row keeps
+  pmp_report_node = /soc/pmp_report@28e3c0000/report@10 and leaves every PMP
+  address 0 (tools/pmp_ptd_map.py was not run for t6020): pmp_report /
+  pmp_vote / perf_dump refuse with a warning. t6000 without the vote encodes
+  1080p in ~15.5 ms; t8112 needs none (AP-managed SOC domain). t6020's VENC
+  perf devices (VENC-SOC-VMAX/VMID2, VENC-FAB0-VMAX) look like t600x's
+  (PMP-managed) [INF]: expect t6000-like speed until a PMP DT exists [HW].
+
+4. The driver patch (apple-ave-t6020.patch)
+-------------------------------------------
+  driver/ave_soc.h   AVE_DPE_FW_HERA_6020, AVE_AXI2AF_FW_HERA_6020 + file
+                     magic and struct; row fields axi2af_fw,
+                     iboot.ioba_unchecked, iboot.dva_from_adt; t6020 externs.
+  driver/ave_soc.c   ave_soc_t6020 + set (every value commented with [ADT],
+                     [KEXT], [FW], [DT], [INF]).
+  driver/ave_drv.c   compatible; ave_axi2af_load/_program (axi2af_tunables=,
+                     default 1; logs read-back differences, never fails).
+  driver/ave.h       axi2af state.
+  driver/ave_fw.c    dva_from_adt: adopt remap DVAs + literal from the live
+                     ADT (rows without the flag behave exactly as before);
+                     ioba_unchecked in the pristine check.
+  tools/ave_fwgen.py Hera_6020 DPE set, `axi2af` subcommand, t6020 tags.
+                     (Modified community code; not executed here.)
+  test/              ave-overlay-t6020.dts = variant=15 (refused unless the
+                     machine is "apple,t6020"); Makefile; ave_overlay_mod.c.
+  tools/ave-load.sh  t6020 -> VARIANT=15.   dts/apple,ave.yaml: compatible.
+  Not changed: protocol, sessions, V4L2 (SoC-independent per docs/79).
+  pipe_diag false (H14S pipe register map not checked), two_refs_hang false
+  (as t8112; H.264 B-frames on H14 untested).
+
+5. Device tree: overlay first, kernel patch later
+-------------------------------------------------
+  Runtime overlay (variant=15): nothing changes at boot; `modprobe
+  ave_overlay variant=15` adds two "apple,t6020-dart","apple,t8110-dart"
+  nodes and the ave0 node under /soc, resolving AIC and venc_* phandles
+  by label at load. Apply once per boot (no module_exit by design [COMM]).
+  RECOMMENDED for bring-up.
+
+  Kernel patch (linux-ave-dt-t6020.patch): same nodes in t602x-die0.dtsi
+  (labels ave_dart, ave_cpudart, ave), status "disabled" (t6021/t6022 share
+  the file; only t6020 has a row), enabled in t6020.dtsi. Labels resolve on
+  every t602x DT (die 0 uses DIE = empty). Checked with git apply --check
+  only: dtc was not run (no dtc here; building it would need Nix).
+  HAZARD: nixos-apple-silicon's m1n1/boot.bin on the ESP carries the DTBs of
+  the CURRENT kernel and is rewritten on every switch, so an older generation
+  does not bring the old DT back. With the patch, apple-dart probes the two
+  DARTs at every boot (venc_sys on, DART reset). Use it only after the
+  overlay path has passed, and keep a copy: cp /boot/m1n1/boot.bin
+  /boot/m1n1/boot.bin.pre-ave before the switch. Recovery from macOS:
+  `diskutil mount disk0s4` (the "EFI - NIXOS" ESP), copy boot.bin.pre-ave
+  over m1n1/boot.bin, unmount, reboot. With the in-tree node udev autoloads
+  apple_ave at boot: blacklist it until it is trusted (boot.blacklistedKernelModules).
+
+6. Firmware files and the generator
+-----------------------------------
+Requested by the driver (request_firmware, so via hardware.firmware):
+  apple/ave_h14s.bin                     required (stage 10)
+  apple/ave-13.5-dpe-hera_6020.bin       required (stage 7; probe fails without)
+  apple/ave-13.5-axi2af-hera_6020.bin    wanted (stage 7; warning without)
+  apple/ave-13.5-h14s-data-pristine.bin  optional: lets a reload in the same
+                                         boot restore DATA (rmmod/modprobe,
+                                         hang recovery, suspend hook). The
+                                         first load of a boot needs none.
+Inputs on this Mac (stub "NixOS" APFS container, Preboot volume = disk3s3
+today; not mounted by default):
+  <Preboot>/029C64A9-1738-473F-9303-0244A5D45659/Restore/
+     SystemVersion.plist (13.5, 22G74), BuildManifest.plist (j414sap only),
+     Firmware/ave/AppleAVE2FW_H14S.im4p, kernelcache.release.mac14j,
+     Firmware/all_flash/DeviceTree.j414sap.im4p
+  (boot/<hash>/.../kernelcache are personalised IMG4s of the same kernel;
+  the generator gives identical output from them.)
+Run (on macOS):
+  diskutil mount readOnly disk3s3       # the stub's Preboot (check with diskutil list)
+  ./tools/bakery-ave-fw -o ~/asahi-firmware/ave
+  diskutil unmount disk3s3
+It finds the 13.5 Restore dir, takes the board from `sysctl hw.target`
+(J414sAP), resolves file names from BuildManifest, and refuses unless: macOS
+13.5; firmware variant H14S; the image's TEXT windows and sha256 match; the
+kext's device row for 6020 is (11,16,19,1,1); the kext's DevID tables map 19
+to Hera_6020 (DPE and AXI2AF); every tunable entry is a 32-bit field write in
+range; the ADT's ave0/dart-ave0 reg, IRQ, soc-id, compatible, vm-base equal
+what the DT node uses. Writes apple/... + SHA256SUMS + MANIFEST (input
+basenames and sha256, no timestamps). Ran here twice into the scratchpad:
+byte-identical.
+  d1ae1d15de2fc6e03a0ebedd8b3f661e0aa6dfe839dab2e3473be81500ad1a7c  apple/ave-13.5-axi2af-hera_6020.bin  (328 B)
+  457600722eca73fa23e2f34b83c66b3ba70519c69de7191d1246734be4973a61  apple/ave-13.5-dpe-hera_6020.bin    (2928 B)
+  b5f928acfae711dbaf978ad24625c1923e2f21f03f0feb66e22b6036a9058c1c  apple/ave_h14s.bin                  (1482328 B)
+  inputs: AppleAVE2FW_H14S.im4p 4686e962...5142, kernelcache.release.mac14j
+  ea70fb77...0c11, DeviceTree.j414sap.im4p 992afe5d...ca3a.
+After the first successful load on Linux, keep the cold DATA the driver
+captured: `sudo cat /sys/kernel/debug/apple_ave_iboot_data > ave-data.bin`,
+copy it to the Mac, then
+  ./tools/bakery-ave-fw -o ~/asahi-firmware/ave --capture ave-data.bin
+which checks it byte for byte against the image (outside iBoot's fill set)
+and the encoder's CpAd/WrAd, and adds apple/ave-13.5-h14s-data-pristine.bin.
+(Tested on synthetic captures: accepted; one flipped byte or another
+encoder's CpAd refused.) Other boards: --board j314sap etc. with --firmware
+and --kernelcache work for t6000/t6001/t8103/t8112 (DPE files only from
+this stub, whose Restore holds only H14S). The ESP is not used. Run it on
+macOS: the stub is APFS, which the NixOS system does not mount.
+
+7. NixOS packaging
+------------------
+default.nix: stdenv.mkDerivation, src = fetchFromGitHub aquarat/
+apple-m-series-ave-driver rev 9ab14e45..., hash
+sha256-Q3Bkd5O9pEiqEBF++8isagevBqy4Fj2m5Qb5VD2k0xw= (computed with `nix hash
+path` over git archive of the rev and over GitHub's tarball: equal; no Nix
+build), patches = [ ./apple-ave-t6020.patch ], nativeBuildInputs =
+kernel.moduleBuildDependencies ++ [ dtc python3 ], makeFlags =
+kernelModuleMakeFlags ++ [ "KDIR=${kernel.dev}/lib/modules/${kernel.modDirVersion}/build" ]
+(kernelModuleMakeFlags comes from the kernel package set: commonMakeFlags +
+KBUILD_OUTPUT; kernel.makeFlags itself carries the kernel build's O=). Builds
+driver/ and test/, installs apple-ave.ko and ave-overlay.ko to
+lib/modules/<ver>/extra. linux-asahi 7.2.12 has what it needs: V4L2 m2m and
+videobuf2-dma-contig (AVD selects them), OF_OVERLAY=y (nixpkgs common
+config), FW_LOADER_COMPRESS(_ZSTD) for hardware.firmware's compressed files;
+DEBUG_FS (the capture file) [INF: on in NixOS kernels, not checked in the
+7.2.12 config].
+
+Module sketch (frieren / the bakery; not applied):
+  { config, pkgs, ... }:
+  let
+    apple-ave = config.boot.kernelPackages.callPackage ./ave-port/default.nix { };
+    ave-fw = pkgs.runCommand "apple-ave-firmware" { } ''
+      mkdir -p $out/lib/firmware
+      cp -r ${inputs.asahi-firmware}/ave/apple $out/lib/firmware/   # bakery-ave-fw output
+    '';
+  in {
+    boot.extraModulePackages = [ apple-ave ];
+    hardware.firmware = [ ave-fw ];
+    # bring-up: nothing loads it by itself (no DT node without the kernel
+    # patch); later, e.g.:
+    # boot.extraModprobeConfig = "options apple_ave axi2af_tunables=1";
+    services.udev.extraRules = ''
+      SUBSYSTEM=="video4linux", ATTR{name}=="apple-ave-enc", SYMLINK+="apple-ave-enc", GROUP="video", MODE="0660"
+    '';
+    users.users.<you>.extraGroups = [ "video" ];
+    environment.systemPackages = [ pkgs.v4l-utils ];
+  }
+Module parameters worth knowing (apple_ave): stop_after= (staged probe),
+step_ms= (hold markers so netconsole flushes), dapf_dump=1, axi2af_tunables=,
+dpe_tunables=, iboot_adt= (1 use ADT, 2 log only), session_src_dims=
+(0 default/1 visible/2 MB-aligned/3 not sent), fw_capture=, reload=,
+pm_sleep= (0 none [default: do NOT suspend while loaded], 1 refuse suspend,
+2 halt/reboot firmware, untested), me1_off=, v4l2=. ave_overlay: variant=15.
+Users: ffmpeg h264_v4l2m2m / hevc_v4l2m2m (nixpkgs ffmpeg 9.0.1 has
+v4l2-m2m on Linux), GStreamer v4l2h264enc / v4l2h265enc (gst-plugins-good
+1.28.7, v4l2 on; the element name gains a device prefix if several V4L2
+encoders exist), and what sits on those (wf-recorder -c h264_v4l2m2m, OBS's
+"Custom Output (FFmpeg)" with h264_v4l2m2m, WiVRn [COMM issue #3]). No
+VA-API encode, so Firefox/WebRTC, gpu-screen-recorder and OBS's VA-API
+encoder will not use it.
+ffmpeg patches: stock 9.0.1 works for NV12 input whose width is a multiple
+of 64 (1280, 1920, 3840) written to a raw .h264/.h265 or MPEG-TS, rate
+control only. The community series (patches 1-7) adds bytesperline/height
+handling (720-wide shear, 1080-line crash), crop, yuv420p input, -device,
+-qp, B-frames, extradata for MP4/MKV. Against 9.0.1: 0001-0005 apply as is,
+0006 needs fuzz on one #include hunk, 0007 then applies; combined in
+ffmpeg/ffmpeg-9.0.1-ave-v4l2m2m.patch (git apply --check clean on n9.0.1;
+not compiled). Use it in a separate package (ffmpeg.overrideAttrs
+(o: { patches = o.patches ++ [ ./ffmpeg-9.0.1-ave-v4l2m2m.patch ]; }) named
+e.g. ffmpeg-ave), not a global override that rebuilds everything.
+
+8. Bring-up plan on the Mac14,9 (NixOS, linux-asahi 7.2.12)
+-----------------------------------------------------------
+Rules: one risky stage per boot. Never `rmmod apple_ave` after a probe that
+stopped before Config (stage < 16): that teardown is unclean by design and a
+second load is refused [COMM]; reboot instead. Do not put apple_ave or
+ave_overlay into boot.kernelModules. Do not suspend while apple_ave is
+loaded (pm_sleep=0). Close other work; `sync` before each insmod.
+
+0. Preparation (no hardware access)
+   - Build the system with apple-ave in boot.extraModulePackages and the
+     generated files in hardware.firmware. Reboot into it.
+   - Logging that survives a hang: a USB-C Ethernet adapter and netconsole
+     to a second machine (the internal Wi-Fi cannot do netpoll):
+       receiver:  nc -u -l 6666   (or: socat -u UDP-RECV:6666 -)
+       Mac:       sudo modprobe netconsole netconsole=6666@<mac-ip>/<usb-eth-if>,6666@<rx-ip>/<rx-mac>
+       sudo dmesg -n 8
+     plus an SSH session from the second machine running `dmesg -w`. Load
+     apple_ave with step_ms=200 in the risky boots so each marker leaves the
+     machine before the next step. (m1n1 hypervisor over USB is the heavier
+     option if a stage hangs silently.)
+   - Checks, all read-only:
+       tr -d '\0' < /proc/device-tree/chosen/asahi,os-fw-version     # 13.5
+       grep -l adt /proc/device-tree/reserved-memory/*/label          # m1n1's ADT
+       ls /run/current-system/firmware/apple/ | grep -E 'ave|h14s'   # 3 files (.zst/.xz ok)
+       modinfo apple_ave | grep -E 'alias|t6020'; modinfo ave_overlay
+     A missing ADT node means m1n1 is too old: stop.
+
+1. Boot A - overlay and DARTs only (low risk)
+     sudo modprobe -a videodev v4l2-mem2mem videobuf2-dma-contig
+     sudo modprobe ave_overlay variant=15
+   Expect: "ave-overlay: aic -> phandle ...", "venc_sys/venc_pipe5/venc_me0/
+   venc_pipe4 -> phandle ...", "applied", and two apple-dart lines
+     apple-dart 40d040000.iommu: DART [pagesize 4000, N streams, bypass
+     support: B, bypass forced: 0, locked: L, AS A -> P] initialized
+   Write down N, L, A. A >= 41 needed (TEXT at DVA 0x10000000000). L = 1
+   means iBoot locked the DART: apple-dart then allows one stream per
+   device - expect a WARN; fix by editing the overlay to <&dart_ave0_0 0>
+   only for the CPUDART and rebuilding. Then:
+     sudo cat /sys/kernel/debug/pm_genpd/pm_genpd_summary | grep venc
+   Failure: a hang here means apple-dart's probe touched an unpowered block
+   (wrong power domain) -> hard power-off (hold the button ~10 s), report.
+
+2. Boot B - power and first register access (the risky one)
+     sudo modprobe ave_overlay variant=15
+     sudo modprobe apple_ave stop_after=8 dapf_dump=1 step_ms=200
+   Expect, in order: "probe: SoC row t6020 (encoder 0)"; "adt: /arm-io/ave0:
+   pre-loaded yes, 2 segment(s); TEXT 0x..., DATA 0x..."; "adt: translated
+   fetch: TEXT DVA 0x10000000000, DATA DVA 0x100000f0000 (row: same)";
+   "adt: placement TEXT ... using the ADT's"; "OS firmware 13.5: using macOS
+   13.5 AVE ABI"; stages 1-6 OK ("attached 4 power domain(s)", "me1:
+   venc_me1 powered; PMGR PS ME1 = 0x...f"); stage 7 "writing 1 to SVE+0x38",
+   "dpe: apple/ave-13.5-dpe-hera_6020.bin tunables applied (1+121+120) and
+   enabled, read back OK", "axi2af: ... applied (26 entries), K read back
+   otherwise" (K > 0 is information, record the lines); stage 8 "ASC
+   CPU_STATUS = 0x0000002a" (cold) and the CPUDART/DART/DAPF dump.
+   Failures: hang at stage 7 (SVE write or tunables) -> power or bank
+   address wrong; next boot try `stop_after=8 dpe_tunables=0
+   axi2af_tunables=0` to separate the write from the tables. "dpe: CAC+... reads"
+   -> DPE set wrong. CPU_STATUS other than 0x2a -> core not cold (should
+   not happen on a first load). Reboot afterwards (stop < 16).
+
+3. Boot C - firmware adoption, no start
+     sudo modprobe ave_overlay variant=15
+     sudo modprobe apple_ave stop_after=10 step_ms=200
+   Expect "RVBAR (ASC+0x50000) = ..., base 0x10000000000" (t8112 read
+   0x800000001 there [COMM]),
+   "iboot: RVBAR base 0x10000000000, DATA literal 0x100000f0000 - placement
+   as expected", DATA outside System RAM, TEXT/DATA mapped (no "outside
+   aperture"). Refusals are clean (no core started):
+     "RVBAR ... constants assume ..."   DVA differs: send the adt: lines
+     "TEXT+0x423c holds DATA base X"    literal differs: send X
+     "intersects System RAM"            iBoot's DATA is in Linux RAM: needs
+                                        driver-owned DATA (AVE_DATA_OWNED_IF_RAM
+                                        and an image-built blob, not provided)
+     "outside aperture"                 DART AS too small (step 1's A)
+   Reboot.
+
+4. Boot D - full load
+     sudo modprobe ave_overlay variant=15
+     sudo modprobe apple_ave step_ms=0
+   Expect stage 13 "capture: this boot's cold DATA kept (0x134000 bytes,
+   STKG ...)", the start, "msg1: nch=7 chanmem=0x9bc0 ver=0x100 heap=...",
+   "coprocessor up, 7 IPC channel(s)", the firmware's own log relayed (on
+   t6000: "FW Cfg: prod, tag: AppleAVE2FW-6070.11.1" [COMM]), "session:
+   Config: ACCEPTED, status ...", and the V4L2 node:
+     for n in /sys/class/video4linux/video*/name; do echo "$n $(cat $n)"; done   # apple-ave-enc
+   Then save the capture at once (it is the reload source for later boots):
+     sudo cat /sys/kernel/debug/apple_ave_iboot_data > ~/ave-data.bin
+   Failures: DART faults ("apple-dart ... fault ... stream N") right after
+   the start -> mapping/streams (stream 12 or 15 would be new on t6020);
+   "msg1 MISMATCH" -> wrong firmware/ABI (not expected: 7/0x9bc0 verified);
+   no msg1 within the timeout -> the core did not run (RVBAR/DVA, DART);
+   a firmware ASSERT in the log -> report the text and line; a hang ->
+   power off, report the last marker. If Config fails do not rmmod: reboot.
+
+5. Encode (same boot)
+     DEV=/dev/$(basename $(dirname $(grep -lx apple-ave-enc /sys/class/video4linux/video*/name)))
+     v4l2-ctl -d $DEV --info --list-formats-out --list-formats
+     ffmpeg -f lavfi -i testsrc2=size=1280x720:rate=30 -frames:v 120 -pix_fmt nv12 -f rawvideo /tmp/in.nv12
+     v4l2-ctl -d $DEV --set-fmt-video-out=width=1280,height=720,pixelformat=NV12 \
+       --set-fmt-video=pixelformat=H264 --stream-mmap --stream-out-mmap \
+       --stream-from=/tmp/in.nv12 --stream-to=/tmp/ctl.h264 --stream-count=120
+     ffmpeg -f rawvideo -pix_fmt nv12 -s 1280x720 -r 30 -i /tmp/in.nv12 \
+       -c:v h264_v4l2m2m -b:v 8M -f h264 /tmp/ff.h264
+     ffmpeg -f h264 -i /tmp/ff.h264 -f rawvideo -pix_fmt nv12 -s 1280x720 -r 30 -i /tmp/in.nv12 \
+       -lavfi "[0:v][1:v]psnr" -f null - 2>&1 | grep PSNR
+     (HEVC: pixelformat=HEVC, hevc_v4l2m2m, -f hevc.)  Or the repo's
+     tools/v4l2-test.sh (share/apple-ave) 120 ctl|ffmpeg|gst, CODEC=hevc.
+     GStreamer: gst-launch-1.0 videotestsrc num-buffers=120 ! \
+       video/x-raw,format=NV12,width=1280,height=720,framerate=30/1 ! \
+       v4l2h264enc ! h264parse ! filesink location=/tmp/gst.h264
+   Expect 120/120 decodable frames, PSNR ~44 dB at fixed QP / >50 dB at
+   8 Mb/s (t8112: 44.2/53.0 [COMM]); the driver's per-frame "enc:" line gives
+   the time. Failures: all-black output -> the source size path: try
+   session_src_dims=2 or =3 on a reload and report; "enc: frame N timed out"
+   -> the firmware hung: the stream fails, the device resets when the last
+   user closes it [COMM]; save dmesg. Wrong only for HEVC P frames -> look at
+   §3.7's +0x960/+0x918 gate. Then 1920x1088 and 3840x2160 (W multiple of 64
+   with stock ffmpeg; apply the ffmpeg patch for 1080 crop and 720 widths).
+
+6. Compliance:  v4l2-compliance -d $DEV  (failures are expected in places the
+   stateful-encoder spec is not fully implemented; record, do not chase).
+
+7. Reload (needs the pristine blob in the firmware repo: regenerate with
+   --capture ~/ave-data.bin, rebuild, reboot). Then in one boot: full load,
+   encode, `sudo rmmod apple_ave` (clean after Config: Halt, CPU_STATUS
+   0x2e), `sudo modprobe apple_ave`: expect "reload: CPU_STATUS 0x2e;
+   resetting the core and restoring DATA", "TEXT at ... matches the 13.5
+   image over 3 x 0x4000 bytes", identical output.
+
+8. Suspend: until pm_sleep=2 has been tested, unload the encoder around
+   sleep (systemd system-sleep hook: pre `modprobe -r apple_ave`, post
+   `modprobe apple_ave`), which needs step 7 to work; or pm_sleep=1, which
+   blocks system suspend while the module is loaded.
+
+9. Only after all of the above: the kernel DT patch (§5), with boot.bin
+   backed up, apple_ave blacklisted for the first boot, and the overlay no
+   longer loaded (both would describe the same device).
+
+Hang recovery, in general: hold the power button until the machine is off
+(~10 s), boot NixOS (nothing AVE-related loads by itself on the overlay
+path); if Linux will not boot after the DT patch, restore boot.bin from macOS
+as in §5. Startup options (hold power at boot) always reach macOS.
+
+9. What only hardware can settle [HW]
+-------------------------------------
+  - that 13.5's iBoot preloads H14S on this Mac, fetches it translated at
+    vm-base, and leaves DATA outside Linux's RAM (§3.8);
+  - the dart-ave0 DART's input width (>= 41) and lock state;
+  - whether the AXI2AF tunables are needed and how the bridge reads back;
+  - whether the DAPF stays out of the way with nothing programmed (§3.9);
+  - stream use (12/15), the SOC_/IOBA values iBoot writes (§3.7), the
+    +0x960/+0x918 gate, B-frames on H14, encoder speed without the PMP;
+  - j416s/j474s (same SoC and firmware, [INF] same behaviour).

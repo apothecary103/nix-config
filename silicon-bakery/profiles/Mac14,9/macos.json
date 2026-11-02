@@ -1,0 +1,226 @@
+{
+  "keyboard": {
+    "initialKeyRepeat": 166666666,
+    "keyRepeat": 33333333
+  },
+  "model": "Mac14,9",
+  "pointer": {
+    "clickTime": 500000000
+  },
+  "soc": "t6020",
+  "source": {
+    "date": "2026-11-02",
+    "macos": "27.2 (26B5101f)",
+    "tool": "silicon-bakery/tools/bakery-probe"
+  },
+  "trackpad": {
+    "forceClick": true,
+    "forceSupported": true,
+    "naturalScroll": true,
+    "pointer": {
+      "acceleration": 45056,
+      "accelerationType": "HIDTrackpadAcceleration",
+      "curves": [
+        {
+          "gainLinear": 65536,
+          "index": 0,
+          "tangentSpeedLinear": 484966,
+          "tangentSpeedParabolicRoot": 1376256
+        },
+        {
+          "gainCubic": 5243,
+          "gainLinear": 64881,
+          "gainParabolic": 32768,
+          "index": 8192,
+          "tangentSpeedLinear": 478413,
+          "tangentSpeedParabolicRoot": 1310720
+        },
+        {
+          "gainCubic": 6554,
+          "gainLinear": 64225,
+          "gainParabolic": 43254,
+          "index": 32768,
+          "tangentSpeedLinear": 471859,
+          "tangentSpeedParabolicRoot": 1245184
+        },
+        {
+          "gainCubic": 7864,
+          "gainLinear": 62915,
+          "gainParabolic": 54395,
+          "index": 45056,
+          "tangentSpeedLinear": 465306,
+          "tangentSpeedParabolicRoot": 1179648
+        },
+        {
+          "gainCubic": 9830,
+          "gainLinear": 61604,
+          "gainParabolic": 65536,
+          "index": 57344,
+          "tangentSpeedLinear": 458752,
+          "tangentSpeedParabolicRoot": 1114112
+        },
+        {
+          "gainCubic": 11796,
+          "gainLinear": 60293,
+          "gainParabolic": 75366,
+          "index": 65536,
+          "tangentSpeedLinear": 458752,
+          "tangentSpeedParabolicRoot": 1048576
+        },
+        {
+          "gainCubic": 13763,
+          "gainLinear": 58327,
+          "gainParabolic": 85197,
+          "index": 98304,
+          "tangentSpeedLinear": 458752,
+          "tangentSpeedParabolicRoot": 983040
+        },
+        {
+          "gainCubic": 15729,
+          "gainLinear": 56361,
+          "gainParabolic": 95027,
+          "index": 131072,
+          "tangentSpeedLinear": 458752,
+          "tangentSpeedParabolicRoot": 917504
+        },
+        {
+          "gainCubic": 18350,
+          "gainLinear": 54395,
+          "gainParabolic": 108790,
+          "index": 163840,
+          "tangentSpeedLinear": 458752,
+          "tangentSpeedParabolicRoot": 851968
+        },
+        {
+          "gainCubic": 23593,
+          "gainLinear": 65536,
+          "gainParabolic": 123208,
+          "index": 196608,
+          "tangentSpeedLinear": 458752,
+          "tangentSpeedParabolicRoot": 786432
+        }
+      ],
+      "reportRate": 120,
+      "resolution": 26214400
+    },
+    "preferences": {
+      "ActuateDetents": 1,
+      "Clicking": true,
+      "DragLock": 0,
+      "Dragging": 0,
+      "FirstClickThreshold": 1,
+      "ForceSuppressed": false,
+      "SecondClickThreshold": 1,
+      "TrackpadCornerSecondaryClick": 0,
+      "TrackpadFiveFingerPinchGesture": 2,
+      "TrackpadFourFingerHorizSwipeGesture": 2,
+      "TrackpadFourFingerPinchGesture": 2,
+      "TrackpadFourFingerVertSwipeGesture": 2,
+      "TrackpadHandResting": true,
+      "TrackpadHorizScroll": 1,
+      "TrackpadMomentumScroll": true,
+      "TrackpadPinch": 1,
+      "TrackpadRightClick": true,
+      "TrackpadRotate": 1,
+      "TrackpadScroll": true,
+      "TrackpadThreeFingerDrag": true,
+      "TrackpadThreeFingerHorizSwipeGesture": 2,
+      "TrackpadThreeFingerTapGesture": 0,
+      "TrackpadThreeFingerVertSwipeGesture": 2,
+      "TrackpadTwoFingerDoubleTapGesture": 1,
+      "TrackpadTwoFingerFromRightEdgeSwipeGesture": 3,
+      "USBMouseStopsTrackpad": 0,
+      "UserPreferences": true,
+      "version": 12
+    },
+    "product": "Apple Internal Keyboard / Trackpad",
+    "reportIntervalMicroseconds": 8000,
+    "scroll": {
+      "acceleration": 20480,
+      "accelerationType": "HIDTrackpadScrollAcceleration",
+      "curves": [
+        {
+          "gainLinear": 65536,
+          "index": 0,
+          "tangentSpeedLinear": 393216,
+          "tangentSpeedParabolicRoot": 786432
+        },
+        {
+          "gainLinear": 62259,
+          "gainParabolic": 39322,
+          "index": 8192,
+          "tangentSpeedLinear": 406323,
+          "tangentSpeedParabolicRoot": 786432
+        },
+        {
+          "gainLinear": 58982,
+          "gainParabolic": 58982,
+          "index": 32768,
+          "tangentSpeedLinear": 419430,
+          "tangentSpeedParabolicRoot": 786432
+        },
+        {
+          "gainLinear": 55706,
+          "gainParabolic": 78643,
+          "index": 45056,
+          "tangentSpeedLinear": 432538,
+          "tangentSpeedParabolicRoot": 786432
+        },
+        {
+          "gainLinear": 52429,
+          "gainParabolic": 91750,
+          "index": 57344,
+          "tangentSpeedLinear": 445645,
+          "tangentSpeedParabolicRoot": 786432
+        },
+        {
+          "gainLinear": 49152,
+          "gainParabolic": 104858,
+          "index": 65536,
+          "tangentSpeedLinear": 458752,
+          "tangentSpeedParabolicRoot": 786432
+        },
+        {
+          "gainLinear": 45875,
+          "gainParabolic": 117965,
+          "index": 98304,
+          "tangentSpeedLinear": 471859,
+          "tangentSpeedParabolicRoot": 786432
+        },
+        {
+          "gainLinear": 42598,
+          "gainParabolic": 131072,
+          "index": 131072,
+          "tangentSpeedLinear": 484966,
+          "tangentSpeedParabolicRoot": 786432
+        },
+        {
+          "gainLinear": 39322,
+          "gainParabolic": 144179,
+          "index": 163840,
+          "tangentSpeedLinear": 498074,
+          "tangentSpeedParabolicRoot": 786432
+        },
+        {
+          "gainLinear": 36045,
+          "gainParabolic": 157286,
+          "index": 196608,
+          "tangentSpeedLinear": 511181,
+          "tangentSpeedParabolicRoot": 786432
+        }
+      ],
+      "reportRate": null,
+      "resolution": 26214400
+    },
+    "sensor": {
+      "heightHundredthsMM": 7680,
+      "maxX": 6416,
+      "maxY": 7363,
+      "minX": -5896,
+      "minY": -163,
+      "widthHundredthsMM": 12480
+    },
+    "sensorColumns": 24,
+    "sensorRows": 18
+  }
+}
