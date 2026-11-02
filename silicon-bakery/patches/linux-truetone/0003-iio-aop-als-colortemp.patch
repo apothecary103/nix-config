@@ -1,0 +1,147 @@
+iio: aop_als: report the sensor's colour temperature
+
+The VD6286 ("Redbird") report carries the AOP's correlated colour
+temperature as an f32 at 0x45, next to lux at 0x28; macOS 13.5's
+AppleSPUVD6286 reads it there into the HID event's CCT, which True Tone
+uses. Register it as a second IIO device, aop-sensors-als-cct
+(in_colortemp_input, K), fed by the same report: the AOP hands a
+service's reports to its first listener only, so one listener serves both.
+
+diff --git a/drivers/iio/common/aop_sensors/aop_als.rs b/drivers/iio/common/aop_sensors/aop_als.rs
+index 1f0424f..fb209ca 100644
+--- a/drivers/iio/common/aop_sensors/aop_als.rs
++++ b/drivers/iio/common/aop_sensors/aop_als.rs
+@@ -11,7 +11,7 @@ use kernel::{
+     iio::common::aop_sensors::{AopSensorData, IIORegistration, MessageProcessor},
+     module_platform_driver, of, platform,
+     prelude::*,
+-    soc::apple::aop::{EPICService, AOP},
++    soc::apple::aop::{EPICService, FakehidListener, AOP},
+     sync::Arc,
+     types::ForeignOwnable,
+ };
+@@ -20,12 +20,19 @@ const EPIC_SUBTYPE_GET_AOP_PROPERTY: u16 = 0xa;
+ const EPIC_SUBTYPE_SET_ALS_PROPERTY: u16 = 0x4;
+ const LUX_OFFSET_CT720: usize = 0x1d;
+ const LUX_OFFSET_VD6286: usize = 0x28;
++/// The AOP's correlated colour temperature (K, f32) in the VD6286 report, as
++/// macOS 13.5's AppleSPUVD6286 reads it into the HID event's CCT.
++const CCT_OFFSET_VD6286: usize = 0x45;
+ 
+-fn get_lux_offset(aop: &dyn AOP, dev: &platform::Device, svc: &EPICService) -> Result<usize> {
++fn get_offsets(
++    aop: &dyn AOP,
++    dev: &platform::Device,
++    svc: &EPICService,
++) -> Result<(usize, Option<usize>)> {
+     let name = get_aop_property(aop, svc, 0xf, 16)?.1;
+     match name.as_slice() {
+-        b"Redbird\0" => Ok(LUX_OFFSET_VD6286),
+-        b"FireFish2\0" => Ok(LUX_OFFSET_CT720),
++        b"Redbird\0" => Ok((LUX_OFFSET_VD6286, Some(CCT_OFFSET_VD6286))),
++        b"FireFish2\0" => Ok((LUX_OFFSET_CT720, None)),
+         _ => {
+             dev_warn!(
+                 dev.as_ref(),
+@@ -91,13 +98,35 @@ struct MsgProc(usize);
+ impl MessageProcessor for MsgProc {
+     fn process(&self, message: &[u8]) -> u32 {
+         let offset = self.0;
++        if message.len() < offset + 4 {
++            return 0;
++        }
+         let raw = u32::from_le_bytes(message[offset..offset + 4].try_into().unwrap());
+         f32_to_u32(raw)
+     }
+ }
+ 
+-#[repr(transparent)]
+-struct IIOAopAlsDriver(IIORegistration<MsgProc>);
++/// Hands each report to the lux and colour temperature channels: the AOP
++/// delivers a service's reports to its first listener only.
++struct Listeners {
++    lux: Arc<AopSensorData<MsgProc>>,
++    cct: Option<Arc<AopSensorData<MsgProc>>>,
++}
++
++impl FakehidListener for Listeners {
++    fn process_fakehid_report(&self, data: &[u8]) -> Result<()> {
++        self.lux.process_fakehid_report(data)?;
++        if let Some(cct) = &self.cct {
++            cct.process_fakehid_report(data)?;
++        }
++        Ok(())
++    }
++}
++
++struct IIOAopAlsDriver {
++    _lux: IIORegistration<MsgProc>,
++    _cct: Option<IIORegistration<MsgProc>>,
++}
+ 
+ kernel::of_device_table!(
+     OF_TABLE,
+@@ -124,18 +153,47 @@ impl platform::Driver for IIOAopAlsDriver {
+         // SAFETY: AOP sets the platform data correctly
+         let service = unsafe { *((*dev.as_raw()).platform_data as *const EPICService) };
+         let ty = bindings::BINDINGS_IIO_LIGHT;
+-        let offset = get_lux_offset(adata.as_ref(), pdev, &service)?;
++        let (offset, cct_offset) = get_offsets(adata.as_ref(), pdev, &service)?;
+         let data = AopSensorData::new(dev.into(), ty, MsgProc(offset))?;
+-        adata.add_fakehid_listener(service, data.clone())?;
++        let cct = match cct_offset {
++            Some(o) => Some(AopSensorData::new(
++                dev.into(),
++                bindings::BINDINGS_IIO_COLORTEMP,
++                MsgProc(o),
++            )?),
++            None => None,
++        };
++        let listeners = Arc::new(
++            Listeners {
++                lux: data.clone(),
++                cct: cct.clone(),
++            },
++            GFP_KERNEL,
++        )?;
++        adata.add_fakehid_listener(service, listeners)?;
+         enable_als(adata.as_ref(), pdev, &service)?;
+         let info_mask = 1 << bindings::BINDINGS_IIO_CHAN_INFO_PROCESSED;
+-        Ok(IIOAopAlsDriver(IIORegistration::<MsgProc>::new(
++        let lux = IIORegistration::<MsgProc>::new(
+             data,
+             c"aop-sensors-als",
+             ty,
+             info_mask,
+             &THIS_MODULE,
+-        )?))
++        )?;
++        let cct = match cct {
++            Some(cct) => Some(IIORegistration::<MsgProc>::new(
++                cct,
++                c"aop-sensors-als-cct",
++                bindings::BINDINGS_IIO_COLORTEMP,
++                info_mask,
++                &THIS_MODULE,
++            )?),
++            None => None,
++        };
++        Ok(IIOAopAlsDriver {
++            _lux: lux,
++            _cct: cct,
++        })
+     }
+ }
+ 
+diff --git a/rust/bindings/bindings_helper.h b/rust/bindings/bindings_helper.h
+index ce864cc..fbe0048 100644
+--- a/rust/bindings/bindings_helper.h
++++ b/rust/bindings/bindings_helper.h
+@@ -141,6 +141,7 @@ const u32 BINDINGS_IIO_CHAN_INFO_RAW = IIO_CHAN_INFO_RAW;
+ const u32 BINDINGS_IIO_CHAN_INFO_PROCESSED = IIO_CHAN_INFO_PROCESSED;
+ const u32 BINDINGS_IIO_ANGL = IIO_ANGL;
+ const u32 BINDINGS_IIO_LIGHT = IIO_LIGHT;
++const u32 BINDINGS_IIO_COLORTEMP = IIO_COLORTEMP;
+ 
+ const xa_mark_t RUST_CONST_HELPER_XA_PRESENT = XA_PRESENT;
+ 
