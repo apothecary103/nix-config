@@ -1,0 +1,129 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: "Silicon Bakery (t6020 port)" <noreply@localhost>
+Date: Mon, 2 Nov 2026 12:42:46 +0200
+Subject: [PATCH] resume a stream after system suspend by replaying Open +
+ Start
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+With pm_replay=1 (default 0) a stream running when the system suspends
+(pm_sleep=2) is not failed with EIO: the session is stopped as before,
+the context keeps the encoder, and before its next frame after resume
+the driver sends Open + Start again with the parameters of the original
+STREAMON; that frame is an IDR with parameter sets. Streams with B
+frames still fail (their held sources cannot be replayed).
+
+[KEXT13.5] macOS's AppleAVE2 power-cycles across sleep and re-sends Open
+and Start_* before the next frame (re-ave.md §3). No new wire fields.
+Untested on hardware (pm_sleep=2 itself is untested).
+---
+ driver/ave_v4l2.c | 59 ++++++++++++++++++++++++++++++++++++++++++++++-
+ 1 file changed, 58 insertions(+), 1 deletion(-)
+
+diff --git a/driver/ave_v4l2.c b/driver/ave_v4l2.c
+index 4b0d66a..321bd27 100644
+--- a/driver/ave_v4l2.c
++++ b/driver/ave_v4l2.c
+@@ -79,6 +79,17 @@ module_param(enc_vui, bool, 0644);
+ MODULE_PARM_DESC(enc_vui,
+ 		 "write VUI colour_description from the OUTPUT format's colorimetry when the application set it (default 1; 0 = never, the community stream)");
+ 
++/*
++ * Silicon Bakery: carry a stream across a system suspend (pm_sleep=2) the
++ * way macOS does - Open + Start again with the same parameters before the
++ * next frame, which then is an IDR - instead of failing it with EIO
++ * (docs/86). Streams without B frames only. 0 (default) = EIO as before.
++ */
++static bool pm_replay;
++module_param(pm_replay, bool, 0644);
++MODULE_PARM_DESC(pm_replay,
++		 "after a system suspend, restart a running stream (Open + Start replayed, next frame an IDR) instead of failing it with EIO (default 0; B-frame streams always fail)");
++
+ /*
+  * A test aid for docs/81's forced-key-frame run: v4l2-ctl cannot set
+  * FORCE_KEY_FRAME in the middle of a stream, so this does it for every Nth
+@@ -212,6 +223,13 @@ struct ave_ctx {
+ 	 * stops streaming and starts again.
+ 	 */
+ 	bool			pm_lost;
++	/*
++	 * Silicon Bakery (pm_replay): the session a suspend ended, to be
++	 * started again from cfg before the next frame. owner stays this
++	 * context meanwhile, so no other stream takes the encoder.
++	 */
++	bool			pm_replay;
++	struct ave_enc_cfg	cfg;
+ };
+ 
+ /*
+@@ -1174,6 +1192,8 @@ static int ave_start_streaming(struct vb2_queue *q, unsigned int count)
+ 
+ 		ret = ave_enc_start(av->ave, &cfg);
+ 		if (!ret) {
++			ctx->cfg = cfg;		/* for a pm_replay restart */
++			ctx->pm_replay = false;
+ 			av->owner = ctx;
+ 			ctx->session = true;
+ 			ctx->pm_lost = false;
+@@ -1199,8 +1219,17 @@ static void ave_end_session(struct ave_ctx *ctx)
+ {
+ 	struct ave_v4l2 *av = ctx->av;
+ 
+-	if (!ctx->session)
++	if (!ctx->session) {
++		/* a suspend ended it and the replay never ran (pm_replay) */
++		if (ctx->pm_replay) {
++			mutex_lock(&av->hw_mutex);
++			if (av->owner == ctx)
++				av->owner = NULL;
++			ctx->pm_replay = false;
++			mutex_unlock(&av->hw_mutex);
++		}
+ 		return;
++	}
+ 	/* The run work may be mid-Process; the hw mutex waits it out. */
+ 	mutex_lock(&av->hw_mutex);
+ 	if (ave_enc_stop(av->ave))
+@@ -1492,6 +1521,27 @@ static void ave_run_work(struct work_struct *work)
+ 	bool key = false, idr;
+ 	int ret;
+ 
++	/* Silicon Bakery: the stream a suspend ended starts again (pm_replay) */
++	if (ctx->pm_replay) {
++		int r;
++
++		mutex_lock(&av->hw_mutex);
++		r = ave_enc_start(av->ave, &ctx->cfg);
++		ctx->pm_replay = false;
++		if (!r) {
++			ctx->session = true;
++			ctx->frame_n = 0;	/* an IDR with its parameter sets */
++		} else {
++			ctx->pm_lost = true;
++			if (av->owner == ctx)
++				av->owner = NULL;
++		}
++		mutex_unlock(&av->hw_mutex);
++		dev_info(av->ave->dev,
++			 "pm: replay: Open + Start again after the suspend: %d%s\n",
++			 r, r ? " - the stream fails (EIO)" : "; next frame is an IDR");
++	}
++
+ 	if (ctx->nb && ctx->session) {
+ 		ave_run_work_b(ctx);
+ 		goto finish;
+@@ -1850,6 +1900,13 @@ void ave_v4l2_pm_quiesce(struct ave_device *ave)
+ 	if (!ctx)
+ 		return;
+ 	ret = ave_enc_stop(ave);
++	if (pm_replay && !ret && !ctx->nb) {
++		dev_info(ave->dev,
++			 "pm: system suspend during a stream: session ended; it is started again before the next frame after resume (pm_replay)\n");
++		ctx->session = false;
++		ctx->pm_replay = true;	/* owner stays ctx */
++		return;
++	}
+ 	dev_warn(ave->dev,
+ 		 "pm: system suspend during a stream: session ended (Stop/Close %d); the stream fails with EIO - stop both queues and start again after resume\n",
+ 		 ret);
