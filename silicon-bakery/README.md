@@ -182,11 +182,15 @@ Measurements written into the profile are picked up automatically.
   - `mesa-agx-g14x-metal-cdm-barrier`: the barrier after each compute launch
     is the one AGXMetalG14X writes on the M2 Pro/Max (5 bits) instead of
     every known bit.
+  - `mesa-hk-memory-budget`: advertises the `VK_EXT_memory_budget` support
+    Honeykrisp already has (Mesa !40238).
 - `patches/linux/drm-asahi-flush-stamps-last-command`: the last render and
   compute command of a submission flush their stamps again, as before the
   UAPI rework (AsahiLinux/linux#633).
 - `docs/gpu.md`: the driver checked against macOS's device tree, kext and
-  Metal driver, what matches, what was fixed and what is open.
+  Metal driver, what matches, what was fixed and what is open, and
+  Honeykrisp feature by feature against Metal. `tools/metal-probe` measures
+  the Metal side.
 - `WLR_RENDER_DRM_DEVICE` set to the GPU's render node for the profile's SoC:
   appledrm has no render node, and wlroots would otherwise hand the display
   node to the Vulkan renderer.

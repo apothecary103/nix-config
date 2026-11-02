@@ -79,13 +79,86 @@ Nothing from Apple is in this repository; only numbers and conclusions.
   per-dispatch cost halving on M1 with unk_5/6/8 alone; not yet measured
   here.
 
+- `patches/mesa/mesa-hk-memory-budget`: Honeykrisp has implemented
+  `VK_EXT_memory_budget` since its first commit but never advertised it
+  (Mesa !40238, open). DXVK and vkd3d-proton size themselves from it.
+
+## Honeykrisp against Metal
+
+What Metal does with this GPU and what Honeykrisp (Mesa 26.2.5, and main
+on 2026-11-02 where it differs) does. Metal's side is from AGXMetalG14X's
+symbols and encoders and from running Metal on this Mac
+(`MTLDevice` queries plus test kernels).
+
+| | Metal, M2 Pro | Honeykrisp |
+|---|---|---|
+| Clocks, power, thermals | firmware | same firmware, same constants (above) |
+| Tessellation | hardware tessellator (`HWTessellationContextA/B`, the VDM Tessellate block) | compute: count, prefix sum, tessellate, draw |
+| Geometry shaders, transform feedback | none | yes, in compute |
+| Isolines, point-mode tessellation | none | yes |
+| 64-bit atomics | min/max only, native | none |
+| Barycentrics | yes | off |
+| Raster order groups / fragment shader interlock | yes | not exposed |
+| Mesh shaders | yes | no |
+| Ray tracing | yes, in compute (no RT hardware before M3) | no |
+| Variable rate shading (rasterization rate maps) | yes | no |
+| Cooperative / simdgroup matrix | yes | no |
+| FP64 | none (no hardware) | none |
+| Memory budget | n/a | implemented, never advertised (fixed here) |
+| Per dispatch, dependent | 1.3-1.5 µs (measured here) | about 4 µs (llama.cpp #10982, M2 Ultra) |
+| Per dispatch, independent | 0.14-0.15 µs (measured here) | same as dependent: a barrier after every launch |
+| Hardware counters | AGXGPURawCounterBundle | no performance queries |
+
+So Honeykrisp does not use every part of the GPU, but the gaps are smaller
+than the table looks:
+
+- **Hardware tessellation was tried and dropped.** Alyssa Rosenzweig wrote a
+  VDM tessellation path and removed it on 2024-10-26 (Mesa a7843643c6c):
+  a couple of percent on terraintess, slower than the compute path on
+  Sascha Willems' other tessellation demo. It can't do isolines, point mode,
+  transform feedback or geometry shaders, all of which Vulkan needs and
+  Metal lacks.
+- **64-bit atomics are min and max only.** Under 64-way contention, 64-bit
+  `atomic_max` runs at 16.6 G/s, the same as 32-bit, so it is native. Metal
+  rejects 64-bit add, exchange, compare-exchange and or.
+  `VK_KHR_shader_atomic_int64` and `VK_EXT_shader_image_atomic_int64` need
+  all of them, so Vulkan can't expose what the hardware has. That is why
+  Nanite's 64-bit image atomics work under Metal on M2 and not here.
+- **Most missing features have no dedicated hardware on G14.** Mesh shaders,
+  ray tracing and simdgroup matrices are compiler and compute work in Metal
+  too, so Mesa could match them in software.
+- **Pixel-ordered sync is in the hardware.** Mesa already emits `wait_pix` and
+  `signal_pix` for blending, so fragment shader interlock is a missing
+  feature, not missing silicon. Barycentrics likewise: the compiler already
+  interpolates pull-model.
+
+## Where Linux can beat Metal
+
+- **API reach.** Geometry shaders, transform feedback, isolines, logic ops,
+  wide lines and BC/ETC2/ASTC together run under Vulkan and GL here. Metal
+  has none of the first five.
+- **Independent dispatches.** Honeykrisp ends every compute launch with a
+  CDM barrier. Vulkan only orders dispatches across a pipeline barrier, so
+  a barrier that waits for the next recorded dependency would let
+  independent dispatches overlap. Metal's concurrent mode shows the hardware
+  then costs about 0.15 µs a dispatch instead of 1.3-1.5 µs. Mesa's internal
+  users (meta operations, queries, the geometry and tessellation stages)
+  rely on today's ordering and would have to ask for it explicitly. That
+  needs testing on the machine.
+- **The barrier itself.** `patches/mesa/mesa-agx-g14x-metal-cdm-barrier`
+  already uses Metal's own bits.
+- **Not measured yet:** CPU overhead per draw, shader code quality and frame
+  pacing. These need the same workload timed under both systems;
+  `tools/metal-probe` gives the Metal half of the dispatch and atomics
+  numbers above.
+
 ## Open
 
 - **Lifetime servo.** `LifetimeServoFastDieTemperatureTarget` and its setter
   are `setProperties` keys, so userspace on macOS can retarget the fast-die
   loop at run time. Linux has no equivalent. Whether anything on macOS sets
   it is not known.
-- **Known gaps, from upstream** (not fixed here):
+- **Known gaps, from upstream** (not fixed here; see also above):
   - No compute preemption (AsahiLinux/linux#417): a long compute job stalls
     the desktop.
   - No cooperative matrix, mesh shaders or ray tracing in Honeykrisp.
