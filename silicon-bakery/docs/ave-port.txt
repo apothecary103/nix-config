@@ -20,6 +20,8 @@ on Linux. Every claim carries one of these labels:
 Files, as they sit in Silicon Bakery:
   patches/apple-ave/0001-t6020.patch    the port, against aquarat/apple-m-series-ave-driver
                                         9ab14e45281e8f61fb499b760408028171a5f2b5
+  patches/apple-ave/0002..0007-*.patch  features beyond the community driver, applied
+                                        in order on top of 0001 (§10)
   patches/linux-ave/ave-dt-t6020.patch  DT nodes for asahi-7.2.12-2 (media.encode.deviceTree)
   tools/bakery-ave-fw                   firmware/table generator (Python 3 stdlib, macOS)
   pkgs/apple-ave.nix                    the out-of-tree module derivation
@@ -36,9 +38,11 @@ from the owner's own copy of macOS 13.5, for the private firmware input.
   Branches: main only. One fork (henriSchulz, 2026-10-01): README edits, no
   t6020. Issues/PRs: #3 (second t6000 on Arch, open), #1/#2/#4 closed. Nobody
   has looked at t6020/t6021 (docs/90 §10 "M2 Pro/Max: not looked at"). [COMM]
-- aurora-silicon/linux aurora-wip (HEAD b2418f4e, 2026-11-02),
+- aurora-silicon/linux aurora-wip (HEAD 27c8c52a, 2026-11-02 09:27Z),
   drivers/media/platform/apple/ave: in-tree-style rewrite; encodes on T8140 and
-  T6041 (M4 Pro, 2026-10-31); t6000/t8112 lifecycle only; no t6020. It takes
+  T6041 (M4 Pro, 26.6.2 stub firmware, d6c1322d), HEVC Main 10 from P010 on
+  the 9003 firmware only (825e7a50); t6000/t8112 (6070.11.1 = 13.5) lifecycle
+  only, Start/Process EOPNOTSUPP; no t6020. It takes
   the firmware placement from "apple,asc-mem" reserved-memory regions that its
   own m1n1 work provides (stock m1n1 does not reserve AVE memory). Not used
   here; the community driver is the one with a working t8112 (translated
@@ -253,8 +257,8 @@ PICMGMT +0x964/+0x968 (src_dims), and programs no DAPF.
   perf devices (VENC-SOC-VMAX/VMID2, VENC-FAB0-VMAX) look like t600x's
   (PMP-managed) [INF]: expect t6000-like speed until a PMP DT exists [HW].
 
-4. The driver patch (apple-ave-t6020.patch)
--------------------------------------------
+4. The driver patch (patches/apple-ave/0001-t6020.patch)
+--------------------------------------------------------
   driver/ave_soc.h   AVE_DPE_FW_HERA_6020, AVE_AXI2AF_FW_HERA_6020 + file
                      magic and struct; row fields axi2af_fw,
                      iboot.ioba_unchecked, iboot.dva_from_adt; t6020 externs.
@@ -283,7 +287,7 @@ PICMGMT +0x964/+0x968 (src_dims), and programs no DAPF.
   by label at load. Apply once per boot (no module_exit by design [COMM]).
   RECOMMENDED for bring-up.
 
-  Kernel patch (linux-ave-dt-t6020.patch): same nodes in t602x-die0.dtsi
+  Kernel patch (patches/linux-ave/ave-dt-t6020.patch): same nodes in t602x-die0.dtsi
   (labels ave_dart, ave_cpudart, ave), status "disabled" (t6021/t6022 share
   the file; only t6020 has a row), enabled in t6020.dtsi. Labels resolve on
   every t602x DT (die 0 uses DIE = empty). Checked with git apply --check
@@ -348,11 +352,11 @@ macOS: the stub is APFS, which the NixOS system does not mount.
 
 7. NixOS packaging
 ------------------
-default.nix: stdenv.mkDerivation, src = fetchFromGitHub aquarat/
+pkgs/apple-ave.nix: stdenv.mkDerivation, src = fetchFromGitHub aquarat/
 apple-m-series-ave-driver rev 9ab14e45..., hash
 sha256-Q3Bkd5O9pEiqEBF++8isagevBqy4Fj2m5Qb5VD2k0xw= (computed with `nix hash
 path` over git archive of the rev and over GitHub's tarball: equal; no Nix
-build), patches = [ ./apple-ave-t6020.patch ], nativeBuildInputs =
+build), patches = [ 0001-t6020.patch 0002..0007 ] (patches/apple-ave/), nativeBuildInputs =
 kernel.moduleBuildDependencies ++ [ dtc python3 ], makeFlags =
 kernelModuleMakeFlags ++ [ "KDIR=${kernel.dev}/lib/modules/${kernel.modDirVersion}/build" ]
 (kernelModuleMakeFlags comes from the kernel package set: commonMakeFlags +
@@ -364,28 +368,13 @@ config), FW_LOADER_COMPRESS(_ZSTD) for hardware.firmware's compressed files;
 DEBUG_FS (the capture file) [INF: on in NixOS kernels, not checked in the
 7.2.12 config].
 
-Module sketch (frieren / the bakery; not applied):
-  { config, pkgs, ... }:
-  let
-    apple-ave = config.boot.kernelPackages.callPackage ./ave-port/default.nix { };
-    ave-fw = pkgs.runCommand "apple-ave-firmware" { } ''
-      mkdir -p $out/lib/firmware
-      cp -r ${inputs.asahi-firmware}/ave/apple $out/lib/firmware/   # bakery-ave-fw output
-    '';
-  in {
-    boot.extraModulePackages = [ apple-ave ];
-    hardware.firmware = [ ave-fw ];
-    # bring-up: nothing loads it by itself (no DT node without the kernel
-    # patch); later, e.g.:
-    # boot.extraModprobeConfig = "options apple_ave axi2af_tunables=1";
-    services.udev.extraRules = ''
-      SUBSYSTEM=="video4linux", ATTR{name}=="apple-ave-enc", SYMLINK+="apple-ave-enc", GROUP="video", MODE="0660"
-    '';
-    users.users.<you>.extraGroups = [ "video" ];
-    environment.systemPackages = [ pkgs.v4l-utils ];
-  }
+The NixOS wiring is modules/media.nix (hardware.siliconBakery.media.encode:
+enable, firmware, deviceTree, autoload): it adds apple-ave to
+boot.extraModulePackages, the generated files to hardware.firmware, the udev
+rule (/dev/apple-ave-enc, group video) and, without deviceTree, the overlay
+options. The earlier hand-written module sketch here is superseded by it.
 Module parameters worth knowing (apple_ave): stop_after= (staged probe),
-step_ms= (hold markers so netconsole flushes), dapf_dump=1, axi2af_tunables=,
+step_ms= (hold each stage marker so the synced log tee of §8 step 0 reaches disk), dapf_dump=1, axi2af_tunables=,
 dpe_tunables=, iboot_adt= (1 use ADT, 2 log only), session_src_dims=
 (0 default/1 visible/2 MB-aligned/3 not sent), fw_capture=, reload=,
 pm_sleep= (0 none [default: do NOT suspend while loaded], 1 refuse suspend,
@@ -403,12 +392,11 @@ control only. The community series (patches 1-7) adds bytesperline/height
 handling (720-wide shear, 1080-line crash), crop, yuv420p input, -device,
 -qp, B-frames, extradata for MP4/MKV. Against 9.0.1: 0001-0005 apply as is,
 0006 needs fuzz on one #include hunk, 0007 then applies; combined in
-ffmpeg/ffmpeg-9.0.1-ave-v4l2m2m.patch (git apply --check clean on n9.0.1;
-not compiled). Use it in a separate package (ffmpeg.overrideAttrs
-(o: { patches = o.patches ++ [ ./ffmpeg-9.0.1-ave-v4l2m2m.patch ]; }) named
-e.g. ffmpeg-ave), not a global override that rebuilds everything.
+patches/ffmpeg/0001-ave-v4l2m2m.patch (git apply --check clean on n9.0.1;
+not compiled), packaged as pkgs.siliconBakery.ffmpeg-ave (a separate
+package, not a global override that rebuilds everything).
 
-8. Bring-up plan on the Mac14,9 (NixOS, linux-asahi 7.2.12)
+8. Bring-up plan on the Mac14,9 (NixOS, linux-asahi 7.2.14)
 -----------------------------------------------------------
 Rules: one risky stage per boot. Never `rmmod apple_ave` after a probe that
 stopped before Config (stage < 16): that teardown is unclean by design and a
@@ -419,15 +407,33 @@ loaded (pm_sleep=0). Close other work; `sync` before each insmod.
 0. Preparation (no hardware access)
    - Build the system with apple-ave in boot.extraModulePackages and the
      generated files in hardware.firmware. Reboot into it.
-   - Logging that survives a hang: a USB-C Ethernet adapter and netconsole
-     to a second machine (the internal Wi-Fi cannot do netpoll):
-       receiver:  nc -u -l 6666   (or: socat -u UDP-RECV:6666 -)
-       Mac:       sudo modprobe netconsole netconsole=6666@<mac-ip>/<usb-eth-if>,6666@<rx-ip>/<rx-mac>
-       sudo dmesg -n 8
-     plus an SSH session from the second machine running `dmesg -w`. Load
-     apple_ave with step_ms=200 in the risky boots so each marker leaves the
-     machine before the next step. (m1n1 hypervisor over USB is the heavier
-     option if a stage hangs silently.)
+   - Logging that survives a hang, from this Mac alone (there is no second
+     machine, so no netconsole receiver and no m1n1 proxy/hypervisor):
+       a. Persistent journal: services.journald.storage = "persistent" (the
+          NixOS default when /var/log/journal exists). After a hang and a
+          hard power-off: `journalctl -k -b -1 | grep -E 'apple-ave|ave-|dart'`.
+          journald writes asynchronously, so the last lines before a hard
+          hang are usually lost; b. covers that.
+       b. A synced kernel-log tee, started before every risky insmod:
+            sudo sh -c 'dmesg -n 8; dmesg -w >> /var/log/ave-bringup.log &
+                        while sleep 0.2; do sync /var/log/ave-bringup.log; done &'
+          and load apple_ave with step_ms=500 in the risky boots: each
+          stage marker is held long enough for the loop to put it on disk
+          before the next step touches hardware. `sync` by hand before each
+          modprobe. After the reboot, the tail of /var/log/ave-bringup.log
+          is the last marker reached.
+       c. pstore/ramoops, if available: `zcat /proc/config.gz | grep -E
+          'PSTORE(_RAM|_CONSOLE|_PMSG)?='`. The kcheck harness's config
+          (an approximation of the NixOS asahi kernel config, not the real
+          one) has PSTORE=y, PSTORE_RAM=m, PSTORE_CONSOLE off, so only the
+          kmsg dumper on panic/oops would be recorded, not a silent hang. Even with CONFIG_PSTORE_RAM=y, ramoops
+          needs a "ramoops" reserved-memory node in the boot DT (a runtime
+          overlay cannot add reserved memory), and whether DRAM survives a
+          power-button reset through iBoot/m1n1 on Apple silicon is unknown
+          [INF: assume it does not]. There is no EFI variable store for
+          efi-pstore. Treat pstore as a bonus, not the plan.
+       d. stop_after= itself: one stage per boot (below) means a hang's
+          position is known from the stage asked for, even with no log.
    - Checks, all read-only:
        tr -d '\0' < /proc/device-tree/chosen/asahi,os-fw-version     # 13.5
        grep -l adt /proc/device-tree/reserved-memory/*/label          # m1n1's ADT
@@ -442,17 +448,27 @@ loaded (pm_sleep=0). Close other work; `sync` before each insmod.
    venc_pipe4 -> phandle ...", "applied", and two apple-dart lines
      apple-dart 40d040000.iommu: DART [pagesize 4000, N streams, bypass
      support: B, bypass forced: 0, locked: L, AS A -> P] initialized
-   Write down N, L, A. A >= 41 needed (TEXT at DVA 0x10000000000). L = 1
-   means iBoot locked the DART: apple-dart then allows one stream per
-   device - expect a WARN; fix by editing the overlay to <&dart_ave0_0 0>
-   only for the CPUDART and rebuilding. Then:
+   There are two such lines, one per dart-ave0 DART (40d030000 and
+   40d040000). Write down N, L and A for BOTH:
+     dmesg | grep -E 'apple-dart 40d0[34]0000'
+   STOP (do not go on to Boot B) if
+     - the two A values differ: apple_dart_of_xlate refuses a device whose
+       iommus DARTs report different input widths (-EINVAL), so apple_ave
+       would get no IOMMU domain [DT apple-dart.c];
+     - either A < 41: TEXT sits at DVA 0x10000000000 and needs 41 bits;
+     - either L = 1: the of_xlate ORs the two locked states, and
+       apple_dart_finalize_domain then limits a 3-level locked DART to a
+       36-bit domain, below TEXT's DVA; a locked DART also allows one stream
+       per device (the overlay's four entries WARN). This needs a new plan
+       (iBoot's mappings adopted as-is), not a workaround.
+   Then:
      sudo cat /sys/kernel/debug/pm_genpd/pm_genpd_summary | grep venc
    Failure: a hang here means apple-dart's probe touched an unpowered block
    (wrong power domain) -> hard power-off (hold the button ~10 s), report.
 
 2. Boot B - power and first register access (the risky one)
      sudo modprobe ave_overlay variant=15
-     sudo modprobe apple_ave stop_after=8 dapf_dump=1 step_ms=200
+     sudo modprobe apple_ave stop_after=8 dapf_dump=1 step_ms=500
    Expect, in order: "probe: SoC row t6020 (encoder 0)"; "adt: /arm-io/ave0:
    pre-loaded yes, 2 segment(s); TEXT 0x..., DATA 0x..."; "adt: translated
    fetch: TEXT DVA 0x10000000000, DATA DVA 0x100000f0000 (row: same)";
@@ -471,7 +487,7 @@ loaded (pm_sleep=0). Close other work; `sync` before each insmod.
 
 3. Boot C - firmware adoption, no start
      sudo modprobe ave_overlay variant=15
-     sudo modprobe apple_ave stop_after=10 step_ms=200
+     sudo modprobe apple_ave stop_after=10 step_ms=500
    Expect "RVBAR (ASC+0x50000) = ..., base 0x10000000000" (t8112 read
    0x800000001 there [COMM]),
    "iboot: RVBAR base 0x10000000000, DATA literal 0x100000f0000 - placement
@@ -556,9 +572,231 @@ as in §5. Startup options (hold power at boot) always reach macOS.
 -------------------------------------
   - that 13.5's iBoot preloads H14S on this Mac, fetches it translated at
     vm-base, and leaves DATA outside Linux's RAM (§3.8);
-  - the dart-ave0 DART's input width (>= 41) and lock state;
+  - both dart-ave0 DARTs' input width (equal, >= 41) and lock state (§8 step 1);
   - whether the AXI2AF tunables are needed and how the bridge reads back;
   - whether the DAPF stays out of the way with nothing programmed (§3.9);
   - stream use (12/15), the SOC_/IOBA values iBoot writes (§3.7), the
     +0x960/+0x918 gate, B-frames on H14, encoder speed without the PMP;
   - j416s/j474s (same SoC and firmware, [INF] same behaviour).
+
+10. Features beyond the community driver
+----------------------------------------
+Patches 0002..0007 in patches/apple-ave/, applied in order on top of 0001 at
+9ab14e45 (pkgs/apple-ave.nix lists them). Goal: what VideoToolbox does on
+this Mac, within the macOS 13.5 firmware ABI that Linux runs (H14S
+6070.11.1): 27.2's CRF, VBV/HRD, lookahead and firmware header generation
+are not reachable. Every feature is off, or leaves the command image
+byte-identical, by default; the default stream is the community's.
+Wire offsets are command offsets (VIDEO_PARAMS = wire - 0x60; PICMGMT at
+cmd+0x9C8; slice-header block at cmd+0x40). Labels as in the header, plus
+[LIVE] = measured with VideoToolbox on this Mac under macOS 27.2
+(ame-re/ghidra-ave/live, newer firmware). Static checks: every patch
+applies in sequence (git apply --check) and compiles without warnings,
+patch by patch, with clang W=1 against linux-asahi 7.2.14 (a private
+modules_prepare of the kcheck tree and config; modpost unresolved-symbol
+errors only, as expected without vmlinux). None has run on hardware.
+
+Common test setup (after §8 step 5 works):
+  DEV=/dev/apple-ave-enc
+  ffmpeg -f lavfi -i testsrc2=size=1920x1080:rate=30 -frames:v 120 -pix_fmt nv12 -f rawvideo /tmp/in.nv12
+  enc() { v4l2-ctl -d $DEV --set-fmt-video-out=width=1920,height=1088,pixelformat=${FMT:-NV12}$OUTX \
+            --set-fmt-video=pixelformat=${CODEC:-H264} ${CTRLS:+-c $CTRLS} \
+            --stream-mmap --stream-out-mmap --stream-from=${IN:-/tmp/in.nv12} --stream-to=$1 --stream-count=120; }
+  hdr() { ffmpeg -hide_banner -i "$1" -c copy -bsf:v trace_headers -f null - 2>&1; }
+(1088 lines: the source is 1088 rows; v4l2-ctl cannot set the 1080 crop.)
+Every case: also decode it (ffmpeg -i out -f null -) and expect no errors.
+
+10.1 VUI colour description (0002)
+  V4L2:   the OUTPUT format's colorspace / xfer_func / ycbcr_enc /
+          quantization; written only if the application set any of them
+          (enc_vui=1, default; enc_vui=0 never). Mapped to H.273: REC709 1,
+          470BG 5, SMPTE170M 6, SMPTE240M 7, BT2020 9, DCI-P3 11; xfer 709
+          1 (6 for 170M, 14 for BT2020), sRGB 13, 240M 7, NONE 8, PQ 16;
+          matrix 601 6 (5 for 470BG), 709 1, BT2020 9/10, 240M 7; anything
+          else 2 (unspecified). video_format 5 as macOS.
+  Wire:   H.264 [FW SPS::vui_parameters 0x18c68]: present 0x109F4,
+          video_signal_type 0x109F7, format 0x109F8, full_range 0x109FC,
+          colour_description 0x10A00, primaries/transfer/matrix
+          0x10A04/08/0C. HEVC [FW HEVC_SPS::vui_parameters 0x1d140],
+          SPS-relative (SPS[0] at 0x2468C): present +0x1C30, +0x1C41,
+          +0x1C44, +0x1C48, +0x1C4C, +0x1C50/54/58. Both writers omit the
+          syntax behind aspect_ratio_info, overscan_info, timing and HRD
+          (H.264) flags, so those stay 0; HEVC's writer has timing and HRD,
+          not used here.
+  Status: implemented; untested. [LIVE] macOS writes 9/16/9 for HDR10,
+          and no mastering-display/CLL SEI (HDR SEI is user space's job).
+  Test:   OUTX=,colorspace=bt2020,xfer=smpte2084,ycbcr=bt2020,quantization=lim-range CODEC=HEVC enc /tmp/v.hevc
+          hdr /tmp/v.hevc | grep -E 'video_signal_type_present|colour_primaries|transfer_characteristics|matrix_coeffs|video_full_range'
+          expect 1, 9, 16, 9, 0; and with no colorimetry options:
+          hdr /tmp/x.h264 | grep vui_parameters_present_flag   -> 0
+          GStreamer: ... ! video/x-raw,format=NV12,colorimetry=bt709 ! v4l2h264enc ...
+
+10.2 CBR with filler NAL units (0003)
+  V4L2:   VIDEO_BITRATE_MODE = CBR (1) with FRAME_RC_ENABLE = 1 and
+          VIDEO_BITRATE; enc_cbr_filler=1 (default) writes the fillers.
+  Wire:   0xFF50 RCFlag 1; 0xFF54 _E_AVE_RC = 2; 0xFF58 CBR target bits/s
+          [FW IEPs; CRateControl::ProcessInit 0x3faa0 reads +0xE0 when
+          mode == 2]. Filler: _S_AVE_FillerInfo at coded header +0xF4
+          (+12 per layer) [FW AVE_CBR_InsertFiller 0x43488]: start code,
+          NAL header (AVC 0x0C; HEVC FD_NUT 38), overhead 6/7 at +7, 0xFF
+          count at +8; the driver appends 00 00 00 01 hdr FF..FF 80 after
+          the last slice (after any cabac_zero_words).
+          Label fix: 0xFF80 is eStaticAreasLowQpSel, not the DRL enable;
+          the DRL enable is 0xFECE and its 40-byte config 0x10588 [FW].
+  Status: implemented; untested. No HRD/VBV in the 13.5 firmware, so the
+          SPS carries no hrd_parameters: CBR in rate, not a signalled CBR
+          stream. ffmpeg's h264_v4l2m2m does not set BITRATE_MODE: use
+          v4l2-ctl or GStreamer (extra-controls).
+  Test:   CTRLS=video_bitrate_mode=1,video_bitrate=6000000,frame_level_rate_control_enable=1 enc /tmp/cbr.h264
+          hdr /tmp/cbr.h264 | grep -c 'Filler Data'          (> 0 on easy content)
+          ffmpeg -i /tmp/cbr.h264 -c copy -f mp4 -r 30 /tmp/cbr.mp4 && ffprobe -v error -show_entries format=bit_rate -of csv=p=0 /tmp/cbr.mp4
+          (close to 6000000; per second: ffprobe -show_packets -select_streams v).
+
+10.3 Slices (0004)
+  V4L2:   MULTI_SLICE_MODE = MAX_MB (1) and MULTI_SLICE_MAX_MB. Slices are
+          whole rows: as many 16-line MB rows (H.264) or 32-line CTB rows
+          (HEVC, counted as 2 MB rows) as MAX_MB holds, at least one row,
+          at most 32 slices (more is clamped; the log names the count).
+          MAX_BYTES is not offered.
+  Wire:   per frame, H.264 SH+0x472 (wire 0x4B2) one byte per MB row =
+          slice index, SH+0x574 (0x5B4) = 0; HEVC S+0x44C per CTB row,
+          S+0x554 untouched (0) [KEXT13.5 AVC_/HEVC_Slice::GenerateMap
+          0xf556f0 / 0xf5c164, same row split]. The firmware counts slices
+          as map[last row] + 1 [FW CAVCController::PipePrepareParam
+          0x47ac0]. The VIDEO_PARAMS sSliceMap (0xFDAC, iNum 1) and
+          bSliceEncodingMode (0xFDA8, 0) are left as before.
+  Status: implemented; open: whether the HEVC header slots and the
+          coded-header slice records come out one per slice exactly as the
+          code expects (they are walked already); [LIVE] macOS emits
+          exactly N slices for NumberOfSlices 1..32.
+  Test:   1080p H.264 = 120 x 68 MB rows; 4 slices of 17 rows:
+          CTRLS=slice_partitioning_method=1,number_of_mbs_in_a_slice=2040 enc /tmp/s.h264
+          hdr /tmp/s.h264 | grep first_mb_in_slice | head -8   -> 0, 2040, 4080, 6120, 0, ...
+          HEVC (34 CTB rows; 9 rows = 18 MB rows = 2160 MBs -> 4 slices):
+          CODEC=HEVC CTRLS=slice_partitioning_method=1,number_of_mbs_in_a_slice=2160 enc /tmp/s.hevc
+          hdr /tmp/s.hevc | grep -E 'first_slice_segment_in_pic_flag|slice_segment_address' | head
+
+10.4 Intra refresh - not reachable on 13.5 (no patch)
+  The kext writes PICMGMT+0xF60/+0xF62 (u16 start/end of a refresh band
+  in 64-line rows, advancing each frame after a trigger) [KEXT13.5
+  AVE_CHM_SetDataInfo_Frame 0xfffffe0008eb70a8], but no instruction in the
+  13.5 H14S image uses either offset (scan of every instruction's
+  immediates: only +0xF54/+0xF58/+0xF5C/+0xF65 near there) [FW]. So
+  INTRA_REFRESH_PERIOD is not offered. Alternatives: short GOPs, or
+  (HEVC) the ROI rectangles (PICMGMT+0xCD0, count +0xF50, read by
+  CHEVCController::PipePrepareParam 0x64d08), whose semantics are unmapped.
+
+10.5 RealTime and throughput mode (0005, driver-private controls)
+  V4L2:   "AVE RealTime" (bool, id V4L2_CID_CODEC_BASE + 0x1f00) and
+          "AVE Throughput Mode" (0..3, + 0x1f01; 0 = not sent, 1 normal,
+          3 turbo). Not UAPI; the ids may move if this goes upstream.
+  Wire:   RealTimeClient 0xFF84 = 1 at Start [FW DebugInit 0x391f0; IEPs
+          -> ctrl+0xA80]; per frame PICMGMT+0x6DC = mode and +0x6E4 =
+          {3,2,0}[mode-1] [KEXT13.5 0xeb7f3c, table 0x7233864]; the HEVC
+          mode decision reads +0x6DC [FW SetMdFwParams 0x8b5c8]. Note: the
+          community stream sends +0x6E4 = 0, which is turbo's level; mode
+          1 sends macOS's 3.
+  Status: implemented; untested. [LIVE] macOS: HEVC 1080p 189 -> 312 fps
+          with PrioritizeEncodingSpeedOverQuality (+20 % bits), AVC
+          unchanged; RealTime paces, no speed-up.
+  Test:   CODEC=HEVC CTRLS=ave_throughput_mode=3 enc /tmp/t.hevc   (the
+          driver's "enc: N frames ... avg" line at STREAMOFF: compare with
+          mode 0; expect faster HEVC, equal H.264)
+          CTRLS=ave_realtime=1 enc /tmp/r.h264   (bitstream decodes;
+          dmesg shows no firmware assert)
+
+10.6 Resume by session replay (0006)
+  Module: pm_replay=1 (default 0), with pm_sleep=2.
+  What:   at suspend the session is stopped as before but the context
+          keeps the encoder; before the next frame after resume the driver
+          sends Open + Start with the original STREAMON parameters and
+          codes that frame as an IDR with parameter sets. B-frame streams
+          still fail with EIO. [KEXT13.5] macOS replays Open + Start the
+          same way. No wire changes.
+  Status: implemented; untested (pm_sleep=2 itself is untested, §8 step 8).
+  Test:   modprobe apple_ave pm_sleep=2 pm_replay=1; run a long encode
+          (--stream-count=3000 at 30 fps from a looping source), then
+          `systemctl suspend`, wake after ~10 s:
+          ffprobe -v error -select_streams v -show_frames -show_entries frame=key_frame -of csv=p=0 out.h264 | sort | uniq -c
+          expect one more key frame than the GOP alone gives, and dmesg
+          "pm: replay: Open + Start again after the suspend: 0".
+
+10.7 4:2:2, 4:4:4 and 4:0:0 input (0007)
+  V4L2:   enc_chroma_formats=1 (default 0) adds NV16, NV24, GREY to the
+          OUTPUT formats (8-bit semi-planar; NV24's CbCr lines are
+          2 x bytesperline). H.264 goes to High 4:2:2 (122) / High 4:4:4
+          Predictive (244) / High (4:0:0) (the H264_PROFILE menu gains 122
+          and 244); HEVC to RExt profile 4 (Main 4:2:2 10, Main 4:4:4,
+          Monochrome; with HEVC_PROFILE MAIN_10 the 10-bit variants coded
+          from 8-bit input). 10-bit 4:2:2/4:4:4 input: no V4L2 fourcc in
+          7.2.14 (no P210/P410; Y10 is LSB-aligned), not offered. H.264 B
+          frames are refused with 122/244 (untested).
+  Wire:   SPS chroma_format_idc (H.264 0x105D8; HEVC SPS+0x23C) - the AVC
+          IEP derives the pipe format (source code 0x12/0x14/0x16) from it,
+          HEVC from 0xFEB4 = 16 "as the SPS" [FW]; cropping and conformance
+          window in SubWidthC/SubHeightC units; HEVC PTL profile 4,
+          compat[4], RExt flags PTL+0x30..+0x38 [FW ptl_parameters
+          0x1a1ec] per H.265 Table A.2; PICMGMT in_chroma_stride = 2 x for
+          NV24. Sizes [KEXT13.5]: recon (AVE_CalcBufSizeOfRecon 0xeb177c,
+          chroma from w/2 or w and h/2 or h, none for 4:0:0), coded data
+          (0xeb1438: 4:2:2 x1.5/x1.2, 4:4:4 x1.6/x1.3 around 921600 px),
+          HEVC entropy (0xeb22b0: 2304/3072/4608/1536 per CTB column).
+  Status: implemented; untested; the riskiest patch (a wrong recon size is
+          silent chroma corruption, a wrong pipe format a firmware assert).
+          [LIVE] macOS encodes all six on this Mac.
+  Test:   modprobe apple_ave enc_chroma_formats=1
+          ffmpeg -f lavfi -i testsrc2=size=1920x1088:rate=30 -frames:v 120 -pix_fmt nv16 -f rawvideo /tmp/in.nv16
+          FMT=NV16 IN=/tmp/in.nv16 enc /tmp/422.h264
+          ffprobe -v error -show_entries stream=profile,pix_fmt -of csv=p=0 /tmp/422.h264   -> High 4:2:2,yuv422p
+          FMT=NV16 IN=/tmp/in.nv16 CODEC=HEVC enc /tmp/422.hevc   -> Rext,yuv422p
+          (NV24: -pix_fmt nv24, High 4:4:4 Predictive / yuv444p; GREY:
+          -pix_fmt gray, High / gray, HEVC Rext / gray)
+          ffmpeg -i /tmp/422.h264 -f rawvideo -pix_fmt nv16 -s 1920x1088 -i /tmp/in.nv16 -lavfi '[0:v][1:v]psnr' -f null - 2>&1 | grep PSNR
+          (PSNR u/v close to y; a broken chroma plane shows as u/v far
+          below y).
+
+10.8 HEVC temporal layers - design only
+  [FW] numTemporalLayers VIDEO_PARAMS+0xFE58 (wire 0xFEB8, u16) and
+  numBTemporalLayers (0xFEBA), checked by CFrameType::init (0x3ca20,
+  "numTemporalLayers <= HEVC"); VPS/SPS max_sub_layers_minus1 (+0x10),
+  temporal_id_nesting (+0x14, the :756 assert), and the sub-layer ordering
+  arrays (+0x278/+0x294/+0x2B0 per layer, sps_sublayer_info 0). [LIVE] on
+  27.2 NumberOfTemporalLayers alone does nothing; BaseLayerFrameRate 15
+  gives tid 0/1 with TSA_N, 7.5 three layers. Open before code: which RPS
+  set indices SetRpsVars picks per layer (the sets must exclude
+  higher-layer references), whether the firmware writes nuh_temporal_id
+  and TSA types itself, and the ave_hevc_verify nesting rule with
+  sub-layers. V4L2 would be HEVC_HIER_CODING_TYPE = P with
+  HEVC_HIER_CODING_LAYER = 2..3.
+
+10.9 Several streams on the one encoder - design only
+  [FW] up to 128 clients (CAVEClient asserts clientIndex <
+  kMaxNumberOfClients, fw 0x16710); [LIVE] macOS runs 32 sessions with flat
+  total throughput (time-sliced). Today: one ave_sess_bufs per device,
+  client_open, AVE_SESS_CLIENT_ID, and owner in V4L2 (a second STREAMON
+  gets EBUSY). Design: one session-buffer set per V4L2 context, a client
+  id per context in the command header (+0x10, ave_cmd_ctx.client_id),
+  Open/Start/Stop/Close per client, the IPC reply hook demultiplexing
+  replies by client id, Process slots partitioned (the kext uses 21 +
+  coded index per client: whether slots are per client or global is not
+  settled), Config and the shared-memory region stay device-wide, hw_mutex
+  per frame instead of owner per stream. Aurora runs 2 (AVE_MAX_SESSIONS).
+  Not implemented.
+
+10.10 Skipped, with the reason
+  - LTR: ltr_refidx 0xFD24, long_term_ref 0xFD28, max_num_ref_frames
+    0xFD2C [FW printer]; [LIVE] UseLongTermReference on the ave.* encoders
+    emits no LTR syntax at all (only the rtvc encoder does LTR), and the
+    host would have to run the long-term DPB. Not worth it on 13.5.
+  - Alpha (HEVC with alpha): iLayerNum = 2 (0xFF28), the second SPS/PPS
+    blocks (0x26580 / 0x2AA18) and a per-frame layer id; V4L2 has no UAPI
+    for an alpha plane.
+  - Per-MB QP map / ROI: bEnableMBInputCtrl (VIDEO_PARAMS+0x0D, wire 0x6D)
+    and PICMGMT+0x6E8 bUseQPMap (read by both ConfigureMCPUs, fw 0x6143c /
+    0x892a4) are known, but the map surface's IOVA field is not:
+    AVE_DRC::SetQPAndForceIntraBinaryMapAddress (kext 0xfffffe0008ea3690)
+    only stores a host pointer; the hand-off to PICMGMT was not found. V4L2
+    has no standard stateful-encoder QP-map control either.
+  - HDR SEI: neither firmware emits mastering-display/CLL SEI [LIVE];
+    applications insert it (V4L2_CID_COLORIMETRY_HDR10_* would need the
+    driver to prepend SEI on IDRs: possible later, host-side only).
