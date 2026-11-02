@@ -165,6 +165,7 @@ firmware hand-over, the per-block order and the open questions. For each one:
 | f | `media.jpeg.enable = true` | `docs/jpeg-port.txt` section 6 | high |
 | g | `media.prores.enable = true` | `docs/prores-port.txt` section 5 | high: a wrong DMA table can hang |
 | h | `media.encode.enable = true` (AVE) | `docs/ave-port.txt` section 8: Boot A, then B, then C, one per boot | high: Boot B is the risky one; needs the private firmware input |
+| i | `display.trueTone.enable = true` with `tables` | `docs/truetone.md`, "On the machine" | low: a kernel rebuild; the daemon only writes a matrix, `0` clears it; needs the private firmware input |
 
 Several of these have `autoload` and `deviceTree` sub-options; the docs say
 when to turn those on (generally only after the runtime overlay works).

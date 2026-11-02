@@ -44,7 +44,7 @@ where the driver reached mainline Linux.
 | Bluetooth | partial | no LE Audio |
 | SD card | partial | UHS-II unconfirmed; a card inserted before boot is missed |
 | Battery, charging | works | no adaptive (Optimized) charging; the charge limit resets at boot |
-| Ambient light | partial | needs calibration firmware; no True Tone |
+| Ambient light | partial | needs calibration firmware; True Tone with `display.trueTone` (untested) |
 | Motion and lid-angle sensors | missing | the accelerometer, gyroscope and lid angle have no driver |
 | Video decode (AVD) | bakery | VA-API covers less than V4L2; one stream at a time |
 | Video encode (AVE) | experimental | Silicon Bakery's t6020 port, never run |
@@ -97,7 +97,7 @@ where the driver reached mainline Linux.
 | Brightness | works | 2-500 nits | | the 1600-nit range for highlights |
 | Local dimming (mini-LED) | works | inside DCP, as on macOS | | |
 | Notch | works | `appledrm.show_notch=1` gives the full panel | frieren sets it | |
-| True Tone | missing | | | white point following the room's light |
+| True Tone | bakery, untested | the ALS's lux only; the CTM's negative terms reached DCP as large positive ones | `display.trueTone` (`docs/truetone.md`): CoreBrightness's engine, bit-exact against macOS's, setting DCP's matrix location 9 | the sensor's tint off the blackbody locus, which macOS 27.2's AOP reports as XYZ |
 | Night Shift | works | Night Light through the CTM | | |
 
 ## External displays and ports
@@ -155,7 +155,7 @@ where the driver reached mainline Linux.
 |---|---|---|---|---|
 | Battery, charge limit | works | macsmc-power, mainline 7.1; `charge_control_end_threshold` 80 or 100 | | Optimized Charging; the threshold resets at boot (persist with udev) |
 | Fans, temperatures | works | SMC hwmon, mainline 6.19 | | |
-| Ambient light (`als`, AOP) | partial | AOP ALS in linux-asahi 6.19+, needs calibration firmware from the installer's "rebuild vendor firmware" (not checked in frieren's firmware) | | auto-brightness out of the box, True Tone |
+| Ambient light (`als`, AOP) | partial | AOP ALS in linux-asahi 6.19+, needs calibration firmware from the installer's "rebuild vendor firmware" (not checked in frieren's firmware) | colour temperature as `aop-sensors-als-cct` with `display.trueTone` | auto-brightness out of the box |
 | Accelerometer, gyroscope (`accel`, `gyro`, SPU) | missing | none | | present on this Mac (SPU HID devices, 8 ms report interval); Linux has no SPU sensor driver |
 | Lid angle (`las`, SPU) | missing | none | | present on this Mac (HID usage page 0x20, usage 0x8a) |
 | Neural Engine (`ane0`, H11ANE) | missing | out of tree (eiln/ane); device tree bindings refused without a driver (#584) | | Core ML, Live Text, on-device ML |

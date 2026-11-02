@@ -171,6 +171,15 @@ Measurements written into the profile are picked up automatically.
   and macOS's HDR there is EDR (a backlight boost inside DCP), so whether DCP
   converts PQ surfaces for it is the open question. See `docs/hdr.md` for the
   evidence and an on-device test plan.
+- `display.trueTone`: True Tone as macOS's CoreBrightness does it.
+  `bakery-truetoned` (`tools/truetone`) runs CoreBrightness's colour engine,
+  transliterated to C and bit-exact against macOS's own, on the ambient light
+  sensor's lux and colour temperature, and sets the panel's white point at
+  DCP matrix location 9, where macOS sets it (`patches/linux-truetone`: the
+  sensor's CCT, an `ambient_matrix` attribute, and the CTM's sign fixed).
+  The engine's tables come from this Mac's macOS through
+  `tools/bakery-truetone-tables` into the private firmware input. Untested on
+  hardware; see `docs/truetone.md`.
 
 ### Graphics (`modules/graphics.nix`)
 
