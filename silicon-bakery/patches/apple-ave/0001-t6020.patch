@@ -95,7 +95,7 @@ index f3ebd51..81ea2ef 100644
 +		t[i].off = get_unaligned_le32(e);
 +		t[i].clear = get_unaligned_le32(e + 4);
 +		t[i].set = get_unaligned_le32(e + 8);
-+		if (t[i].off & 3 || t[i].off + 4 > ave->bank[AVE_BANK_FABRIC].size ||
++		if (t[i].off & 3 || (u64)t[i].off + 4 > ave->bank[AVE_BANK_FABRIC].size ||
 +		    t[i].set & ~t[i].clear)
 +			goto bad;
 +	}
