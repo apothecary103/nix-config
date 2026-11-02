@@ -1,0 +1,642 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: "Silicon Bakery (t6020 port)" <noreply@localhost>
+Date: Mon, 2 Nov 2026 12:42:48 +0200
+Subject: [PATCH] 4:2:2, 4:4:4 and 4:0:0 input: H.264 High 4:2:2/4:4:4, HEVC
+ RExt
+
+With enc_chroma_formats=1 (default 0) OUTPUT also offers NV16, NV24 and
+GREY. The chroma format is coded as given: H.264 moves to High 4:2:2
+(122), High 4:4:4 Predictive (244) or High (4:0:0); HEVC to Format range
+extensions (profile 4, Main 4:2:2 10 / Main 4:4:4 (10) / Monochrome
+(10)). 10-bit 4:2:2/4:4:4 input has no V4L2 fourcc in 7.2.14 (no
+P210/P410); NV16/NV24 with HEVC_PROFILE MAIN_10 codes 10-bit from 8-bit.
+
+Wire fields:
+- SPS chroma_format_idc: H.264 0x105D8 (SPS+0x28; [FW] the AVC IEP takes
+  the pipe's chroma format and source code 0x12/0x14/0x16 from it),
+  HEVC SPS+0x23C (with 0xFEB4 = 16, "input as the SPS" [FW] 0x82e40).
+- SPS cropping / conformance window in SubWidthC/SubHeightC units.
+- HEVC PTL: profile_idc 4, compat[4] only, and the nine RExt constraint
+  flags at PTL+0x30..+0x38 [FW HEVC_PTL::ptl_parameters 0x1a1ec], set
+  per H.265 Table A.2.
+- PICMGMT in_chroma_stride (+0x8D8) = 2 x stride for NV24 [FW
+  CDMAController::ConfigPipeRdDMA 0x3bab8 reads it as given].
+Buffer sizes [KEXT13.5]:
+- recon: AVE_CalcBufSizeOfRecon (0xfffffe0008eb177c), DevType > 8 arm:
+  chroma columns from w/2 (4:2:0, 4:2:2) or w (4:4:4), rows from h/2
+  (4:2:0) or h, no chroma planes for 4:0:0;
+- coded: AVE_CalcBufSizeOfCodedData (0xfffffe0008eb1438): 4:2:2 x1.5
+  up to 921600 px else x1.2, 4:4:4 x1.6 else x1.3;
+- HEVC entropy: AVE_CalcBufSizeOfEntropyCoding (0xfffffe0008eb22b0)
+  per-CTB 2304 / 3072 / 4608 / 1536 for 4:2:0 / 4:2:2 / 4:4:4 / 4:0:0.
+LowResRef, colocated and SrcNeighbor sizes do not depend on chroma on
+DevType 16. [LIVE] macOS 27.2 encodes all of these on this Mac. B frames
+are refused for H.264 122/244 (untested). Untested on hardware.
+---
+ driver/ave_abi.h     |   7 +++
+ driver/ave_cmd.c     |  69 +++++++++++++++++++++---
+ driver/ave_cmd.h     |   6 +++
+ driver/ave_session.c |  72 +++++++++++++++++++++----
+ driver/ave_session.h |  17 ++++++
+ driver/ave_v4l2.c    | 126 ++++++++++++++++++++++++++++++++++++++++---
+ 6 files changed, 274 insertions(+), 23 deletions(-)
+
+diff --git a/driver/ave_abi.h b/driver/ave_abi.h
+index 845c0b5..45b41b8 100644
+--- a/driver/ave_abi.h
++++ b/driver/ave_abi.h
+@@ -1754,6 +1754,12 @@ struct ave_hevc_ps_layout {
+ 	u32	ptl_non_packed;		/* u8 */
+ 	u32	ptl_frame_only;		/* u8 */
+ 	u32	ptl_level_idc;		/* u32 u(8) */
++	/*
++	 * Silicon Bakery: the nine RExt constraint flags, u8 each, max_12bit
++	 * .. lower_bit_rate (fw HEVC_PTL::ptl_parameters 0x1a1ec; coded when
++	 * profile_idc is 4 or compat[4]). 0 = not known.
++	 */
++	u32	ptl_rext_flags;
+ 	/* VPS */
+ 	u32	vps_id;
+ 	u32	vps_base_internal, vps_base_available;	/* u8 */
+@@ -2532,6 +2538,7 @@ const struct ave_cmd_abi ave_cmd_abi_13_5 = {
+ 		.ptl_non_packed		= 0x2e,
+ 		.ptl_frame_only		= 0x2f,
+ 		.ptl_level_idc		= 0x3c,
++		.ptl_rext_flags		= 0x30,	/* fw 0x1a1ec: +0x30..+0x38 */
+ 		/* VPS writer 0x1d294 (delegated) */
+ 		.vps_id			= 0x04,
+ 		.vps_base_internal	= 0x08,
+diff --git a/driver/ave_cmd.c b/driver/ave_cmd.c
+index af247e8..988968c 100644
+--- a/driver/ave_cmd.c
++++ b/driver/ave_cmd.c
+@@ -696,9 +696,23 @@ int ave_cmd_build_start_avc(const struct ave_cmd_abi *abi, u8 *buf, size_t len,
+ 	if (ret)
+ 		return ret;
+ 	prof = ave_avc_profile_enum(s->profile_idc);
++	/* High 4:2:2 / High 4:4:4 Predictive: raw profile_idc on 13.5 only */
++	if (prof < 0 && !sps->enum_profile_level &&
++	    (s->profile_idc == 122 || s->profile_idc == 244))
++		prof = s->profile_idc;
+ 	lvl = ave_avc_level_enum(s->level_idc);
+ 	if (prof < 0 || lvl < 0 || (s->profile_idc == 66 && s->cabac))
+ 		return -EINVAL;
++	/*
++	 * Chroma (Silicon Bakery): the SPS writer codes chroma_format_idc only
++	 * for the high profiles (fw SPS::seq_parameter_set_rbsp 0x18e24);
++	 * 4:2:2 needs 122+, 4:4:4 244 (H.264 A.2).
++	 */
++	if (s->chroma > 3 ||
++	    (s->chroma == 1 && s->profile_idc < 100) ||
++	    (s->chroma == 2 && s->profile_idc != 122 && s->profile_idc != 244) ||
++	    (s->chroma == 3 && s->profile_idc != 244))
++		return -EINVAL;
+ 	if (s->scaling_flat && abi->sps.scaling_4x4 == AVE_OFF_NONE)
+ 		return -EINVAL;
+ 	if (s->vui.present && (!sps->vui_signal_type || !sps->vui_matrix ||
+@@ -765,7 +779,8 @@ int ave_cmd_build_start_avc(const struct ave_cmd_abi *abi, u8 *buf, size_t len,
+ 	wr32(&w, sps->profile, sps->enum_profile_level ? (u32)prof : s->profile_idc);
+ 	wr32(&w, sps->level, sps->enum_profile_level ? (u32)lvl : s->level_idc);
+ 	wr32(&w, sps->seq_parameter_set_id, 0);		/* must be 0 (docs/37 §5.5) */
+-	wr32(&w, sps->chroma_format_idc, 1);		/* 4:2:0 */
++	/* 4:2:0 unless asked (the AVC IEP takes the pipe's format from it) */
++	wr32(&w, sps->chroma_format_idc, (s->chroma + 1) & 3);
+ 	wr32(&w, sps->bit_depth_luma_minus8, 0);	/* 8-bit */
+ 	wr32(&w, sps->bit_depth_chroma_minus8, 0);
+ 	wr32(&w, sps->log2_max_frame_num_minus4, 0);
+@@ -808,9 +823,10 @@ int ave_cmd_build_start_avc(const struct ave_cmd_abi *abi, u8 *buf, size_t len,
+ 		for (k = 0; k < 6 * 64; k++)
+ 			wr16(&w, sps->scaling_8x8 + 2 * k, s->scaling_flat);
+ 	}
+-	wr32(&w, sps->crop_right, (cw - dw) / 2);
++	/* CropUnitX/Y: SubWidthC/SubHeightC, 1 for 4:0:0 (H.264 7.4.2.1.1) */
++	wr32(&w, sps->crop_right, (cw - dw) / (s->chroma == 0 || s->chroma == 2 ? 2 : 1));
+ 	wr32(&w, sps->crop_top, 0);
+-	wr32(&w, sps->crop_bottom, (ch - dh) / 2);
++	wr32(&w, sps->crop_bottom, (ch - dh) / (s->chroma == 0 ? 2 : 1));
+ 	wr8(&w, sps->fw_creates_header, 1);		/* == PPS's (docs/37 §5.1) */
+ 	wr32(&w, sps->header_len, 0);			/* 26.6.2 checks == 0 */
+ 
+@@ -938,6 +954,37 @@ static bool ave_hevc_level_ok(u8 idc)
+ 	return false;
+ }
+ 
++/*
++ * Silicon Bakery: Format range extensions (general_profile_idc 4) for a
++ * chroma other than 4:2:0, with the H.265 Table A.2 constraint flags. The
++ * 13.5 PTL writer (fw HEVC_PTL::ptl_parameters 0x1a1ec) codes the nine
++ * flags from PTL+0x30..+0x38 when profile_idc is 4 or compat[4] is set,
++ * then 35 zero bits; otherwise 44 zero bits.
++ */
++static void ave_hevc_ptl_rext(struct ave_wr *w, const struct ave_hevc_ps_layout *p,
++			      u32 ptl, u8 chroma, bool ten)
++{
++	/* max_12bit, max_10bit, max_8bit, max_422, max_420, max_mono,
++	 * intra, one_picture_only, lower_bit_rate */
++	u8 f[9] = { 1, 1, !ten, 1, 1, 1, 0, 0, 1 };
++	u32 i;
++
++	if (chroma == 2)	/* Main 4:2:2 10 (8-bit coding is within it) */
++		f[2] = 0, f[4] = 0, f[5] = 0;
++	else if (chroma == 3)	/* Main 4:4:4 / Main 4:4:4 10 */
++		f[3] = 0, f[4] = 0, f[5] = 0;
++	else if (chroma == 1 && ten)	/* Monochrome 10: max_8bit 0 */
++		f[2] = 0;
++	/* Monochrome (8-bit): all of the first six */
++	wr32(w, ptl + p->ptl_profile_idc, 4);
++	/* not Main / Main 10 compatible; compat[4] only */
++	wr8(w, ptl + p->ptl_compat + 1, 0);
++	wr8(w, ptl + p->ptl_compat + 2, 0);
++	wr8(w, ptl + p->ptl_compat + 4, 1);
++	for (i = 0; i < 9; i++)
++		wr8(w, ptl + p->ptl_rext_flags + i, f[i]);
++}
++
+ /* profile_tier_level(), general_tier 0 (docs/77 §2.3, §5; docs/83 §2) */
+ static void ave_hevc_ptl(struct ave_wr *w, const struct ave_hevc_ps_layout *p,
+ 			 u32 ptl, u8 level_idc, bool main10)
+@@ -1067,6 +1114,10 @@ int ave_cmd_build_start_hevc(const struct ave_cmd_abi *abi, u8 *buf,
+ 	if (s->vui.present && (!p->vui_present || !p->vui_signal_type ||
+ 			       !p->vui_matrix))
+ 		return -EINVAL;
++	/* 4:2:0 input is the only one the input word may name (16 = SPS's) */
++	if (s->chroma > 3 || (s->chroma && (!p->ptl_rext_flags ||
++			((h->input_format_word >> 2) & 7) != 4)))
++		return -EINVAL;
+ 	/* :5118 - bits [4:2] 0 fails it for 4:2:0; >4 means nothing known. */
+ 	fmt = (h->input_format_word >> 2) & 7;
+ 	if (!fmt || fmt > 4)
+@@ -1159,6 +1210,8 @@ int ave_cmd_build_start_hevc(const struct ave_cmd_abi *abi, u8 *buf,
+ 	wr8(&w, vps + p->vps_base_available, 1);
+ 	wr8(&w, vps + p->vps_temporal_nesting, 1);
+ 	ave_hevc_ptl(&w, p, vps + p->ptl, h->level_idc, main10);
++	if (s->chroma)
++		ave_hevc_ptl_rext(&w, p, vps + p->ptl, s->chroma, main10);
+ 	wr8(&w, vps + p->vps_sublayer_info, 1);
+ 	wr32(&w, vps + p->vps_max_dec_pic_buf_m1, h->max_num_ref_frames);
+ 	/* One B between anchors is one picture held back (docs/81 App. B §3) */
+@@ -1170,7 +1223,10 @@ int ave_cmd_build_start_hevc(const struct ave_cmd_abi *abi, u8 *buf,
+ 	sps = hl->sps_block[0];
+ 	wr8(&w, sps + p->sps_temporal_nesting, 1);	/* :756 */
+ 	ave_hevc_ptl(&w, p, sps + p->ptl, h->level_idc, main10);
+-	wr32(&w, sps + p->chroma_format_idc, 1);
++	if (s->chroma)
++		ave_hevc_ptl_rext(&w, p, sps + p->ptl, s->chroma, main10);
++	/* the pipe's format follows it while 0xFEB4 says "as the SPS" (16) */
++	wr32(&w, sps + p->chroma_format_idc, (s->chroma + 1) & 3);
+ 	/* 0 or 2 only: the firmware's internal depth is binary (fw 0x83acc) */
+ 	wr32(&w, sps + p->bit_depth_luma_m8, main10 ? 2 : 0);
+ 	wr32(&w, sps + p->bit_depth_chroma_m8, main10 ? 2 : 0);
+@@ -1182,8 +1238,9 @@ int ave_cmd_build_start_hevc(const struct ave_cmd_abi *abi, u8 *buf,
+ 	dw = s->crop_width ? s->crop_width : s->width;
+ 	dh = s->crop_height ? s->crop_height : s->height;
+ 	wr8(&w, sps + p->conf_win_flag, cw != dw || ch != dh);
+-	wr32(&w, sps + p->conf_win_right, (cw - dw) / 2);
+-	wr32(&w, sps + p->conf_win_bottom, (ch - dh) / 2);
++	/* SubWidthC / SubHeightC (H.265 Table 6-1); 1 for 4:0:0 */
++	wr32(&w, sps + p->conf_win_right, (cw - dw) / (s->chroma == 0 || s->chroma == 2 ? 2 : 1));
++	wr32(&w, sps + p->conf_win_bottom, (ch - dh) / (s->chroma == 0 ? 2 : 1));
+ 	wr32(&w, sps + p->log2_max_poc_lsb_m4, h->log2_max_poc_lsb_minus4);
+ 	wr8(&w, sps + p->sps_sublayer_info, 1);
+ 	wr32(&w, sps + p->sps_max_dec_pic_buf_m1, h->max_num_ref_frames);
+diff --git a/driver/ave_cmd.h b/driver/ave_cmd.h
+index e744404..e15233e 100644
+--- a/driver/ave_cmd.h
++++ b/driver/ave_cmd.h
+@@ -118,6 +118,12 @@ struct ave_avc_session {
+ 	u8	level_idc;		/* 10..62 (not 1b) */
+ 	/* SPS VUI colour signalling, both codecs (HEVC: vp.vui) */
+ 	struct ave_vui	vui;
++	/*
++	 * Silicon Bakery: chroma_format_idc - 1 mod 4, so 0 (the default) is
++	 * 4:2:0: 0 = 4:2:0, 1 = 4:0:0, 2 = 4:2:2, 3 = 4:4:4 (AVE_ENC_CHROMA_*).
++	 * Both codecs; H.264 needs profile_idc 100 (4:0:0), 122 or 244.
++	 */
++	u8	chroma;
+ 	bool	cabac;			/* entropy_coding_mode_flag; not with 66 */
+ 	/*
+ 	 * B-frame groundwork (docs/81). poc_type0: SPS pic_order_cnt_type 0
+diff --git a/driver/ave_session.c b/driver/ave_session.c
+index 829cd9f..ed2de55 100644
+--- a/driver/ave_session.c
++++ b/driver/ave_session.c
+@@ -211,7 +211,7 @@ MODULE_PARM_DESC(session_lowres_kb,
+  * LSB (tile-metadata) plane. Without it the firmware never programs the pipe's
+  * recon writer ("Uncompress Ref is not supported") and the Pipe never finishes
+  * (F5). Layout per slot: the MSB pair at +0 and the LSB pair after it, both
+- * exactly sized by ave_recon_planes(); the firmware derives both chroma planes
++ * exactly sized by ave_recon_planes_cf(); the firmware derives both chroma planes
+  * from the two luma ones (fw 0x2d14c, 0x2c314).
+  */
+ /* Default on since f68: every working encode needed it (docs/53). */
+@@ -1120,6 +1120,7 @@ struct ave_sess_bufs {
+ 	u8		slice_map[0x100];
+ 	u32		slice_rows;
+ 	bool		realtime;	/* RealTimeClient = 1 at Start */
++	u32		chroma;		/* AVE_ENC_CHROMA_*; 0 = 4:2:0 */
+ 	u8		throughput_mode;	/* per frame; 0 = not sent */
+ 	/*
+ 	 * docs/81 "V4L2 implementation" (ave_enc_cfg). All 0 in the
+@@ -1616,23 +1617,33 @@ static u32 ave_npo2(u32 n)
+  * not change (docs/83 §3). setRefPointers puts UV at Y + this luma size,
+  * so it must be exact: a wrong size corrupts chroma with no assert.
+  */
+-static void ave_recon_planes(u32 w, u32 h, u32 bd, struct ave_recon_planes *p)
++/*
++ * Silicon Bakery: @chroma (AVE_ENC_CHROMA_*) as the same kext function's
++ * CHROMA_FORMAT argument (13.5 kext AVE_CalcBufSizeOfRecon
++ * 0xfffffe0008eb177c, DevType > 8 arm): chroma columns from w/2 for
++ * 4:2:0/4:2:2 and w for 4:4:4, rows from h/2 for 4:2:0 and h otherwise,
++ * no chroma planes for 4:0:0.
++ */
++static void ave_recon_planes_cf(u32 w, u32 h, u32 bd, u32 chroma,
++				struct ave_recon_planes *p)
+ {
++	const u32 idc = ave_enc_chroma_idc(chroma);
+ 	u32 cols   = DIV_ROUND_UP(w, 32);
+ 	u32 rows   = (h + 35) >> 5;		/* ceil((h + 4) / 32) */
+-	u32 cols_c = DIV_ROUND_UP(w / 2, 16);
+-	u32 rows_c = ((h / 2) + 19) >> 4;
++	u32 cols_c = DIV_ROUND_UP(idc == 3 ? w : w / 2, 16);
++	u32 rows_c = ((idc == 1 ? h / 2 : h) + 19) >> 4;
+ 
+ 	if (bd != 10)
+ 		bd = 8;
+ 	p->luma        = 1024u * cols * bd / 8 * rows;
+-	p->chroma      = ALIGN(512u * cols_c * bd / 8 * rows_c, 128);
++	p->chroma      = idc ? ALIGN(512u * cols_c * bd / 8 * rows_c, 128) : 0;
+ 	p->luma_meta   = ALIGN(32u * ave_npo2(cols)   * ave_npo2(rows),   128);
+-	p->chroma_meta = ALIGN(8u  * ave_npo2(cols_c) * ave_npo2(rows_c), 128);
++	p->chroma_meta = idc ? ALIGN(8u * ave_npo2(cols_c) * ave_npo2(rows_c), 128) : 0;
+ 	p->msb_span    = ALIGN(p->luma + p->chroma, 128);
+ 	p->lsb_span    = ALIGN(p->luma_meta + p->chroma_meta, 128);
+ }
+ 
++
+ static size_t ave_session_lowres_size(u32 cw, u32 ch, u32 *stride)
+ {
+ 	u32 lr_stride = ALIGN(4 * cw, 256);
+@@ -1690,7 +1701,7 @@ static void ave_session_alloc_dpb(struct ave_device *ave,
+ 	 * is the docs/38 over-estimate this driver has used since Start_AVC was
+ 	 * first accepted.
+ 	 */
+-	ave_recon_planes(cw, ch, bufs->bit_depth, &pl);
++	ave_recon_planes_cf(cw, ch, bufs->bit_depth, bufs->chroma, &pl);
+ 	recon_slot = ALIGN((size_t)pl.msb_span + (session_lsb ? pl.lsb_span : 0),
+ 			   SZ_4K);
+ 	dev_info(ave->dev,
+@@ -2199,6 +2210,17 @@ static int ave_session_start_prep(struct ave_device *ave,
+ 	 * (SetTranscode :7597/:7598).
+ 	 */
+ 	coded_size = ave_session_coded_size(cw, ch, bufs->bit_depth);
++	/*
++	 * Silicon Bakery: AVE_CalcBufSizeOfCodedData's chroma factors (13.5
++	 * kext 0xfffffe0008eb1438, doubles at 0xfffffe0007233230): 4:2:2 x1.5
++	 * up to 921600 pixels, else x1.2; 4:4:4 x1.6, else x1.3.
++	 */
++	if (bufs->chroma == AVE_ENC_CHROMA_422)
++		coded_size = ALIGN(cw * ch <= 0xe1000 ? coded_size * 3 / 2 :
++				   coded_size * 6 / 5, SZ_4K);
++	else if (bufs->chroma == AVE_ENC_CHROMA_444)
++		coded_size = ALIGN(cw * ch <= 0xe1000 ? coded_size * 8 / 5 :
++				   coded_size * 13 / 10, SZ_4K);
+ 	n = clamp_t(u32, bufs->req_slots, 1, AVE_SESS_FRAMES_MAX);
+ 	if (n > abi->start_avc.coded_max)
+ 		n = abi->start_avc.coded_max;
+@@ -2265,6 +2287,7 @@ static int ave_session_start_prep(struct ave_device *ave,
+ 	s->height = bufs->height;
+ 	s->vui = bufs->vui;
+ 	s->realtime = bufs->realtime;
++	s->chroma = bufs->chroma;
+ 	s->crop_width = bufs->crop_w;
+ 	s->crop_height = bufs->crop_h;
+ 	s->src_mode = (u16)session_src_mode;
+@@ -2998,10 +3021,17 @@ static size_t ave_session_entropy_size(u32 cw, u32 ch)
+  * 0xfffffe0008ea5c0c): 2304 * cW32 * (flag ? cH64 : 4) for 8-bit; the flag
+  * is not pinned, so the larger. 1080 KiB each at 1280x720.
+  */
+-static size_t ave_session_hevc_entropy_size(u32 cw, u32 ch, u32 bd)
++static size_t ave_session_hevc_entropy_size(u32 cw, u32 ch, u32 bd, u32 chroma)
+ {
++	/*
++	 * Silicon Bakery: the per-CTB factor by chroma format (13.5 kext
++	 * AVE_CalcBufSizeOfEntropyCoding 0xfffffe0008eb22b0, table at
++	 * 0xfffffe0007233264): 4:2:0 2304, 4:2:2 3072, 4:4:4 4608, else 1536.
++	 */
++	static const u16 k[4] = { 2304, 1536, 3072, 4608 };	/* AVE_ENC_CHROMA_* */
++
+ 	/* x2 above 8 bits (kext ...ea5c0c, cmp w4,#8; cinc) - docs/83 §3 */
+-	return (size_t)2304 * (bd > 8 ? 2 : 1) * DIV_ROUND_UP(cw, 32) *
++	return (size_t)k[chroma & 3] * (bd > 8 ? 2 : 1) * DIV_ROUND_UP(cw, 32) *
+ 	       max_t(u32, 4, DIV_ROUND_UP(ch, 64));
+ }
+ 
+@@ -3037,7 +3067,8 @@ static void ave_session_alloc_entropy(struct ave_device *ave,
+ 
+ 	each = session_entropy_kb ? (size_t)session_entropy_kb << 10
+ 		: bufs->codec == AVE_SESS_CODEC_HEVC
+-			? ave_session_hevc_entropy_size(cw, ch, bufs->bit_depth)
++			? ave_session_hevc_entropy_size(cw, ch, bufs->bit_depth,
++							bufs->chroma)
+ 			: ave_session_entropy_size(cw, ch);
+ 	if (!each || each > SZ_64M) {
+ 		dev_warn(ave->dev,
+@@ -3980,6 +4011,11 @@ static int ave_session_process_build(struct ave_device *ave,
+ 		stride = bufs->ext_stride;
+ 		luma_bytes = stride * ave_src_luma_rows(ch);
+ 		chroma_bytes = stride * ave_src_chroma_rows(ch);
++		/* Silicon Bakery: 4:2:2 h rows, 4:4:4 h rows of 2 * stride */
++		if (bufs->chroma == AVE_ENC_CHROMA_422)
++			chroma_bytes = stride * ave_src_luma_rows(ch);
++		else if (bufs->chroma == AVE_ENC_CHROMA_444)
++			chroma_bytes = 2 * stride * ave_src_luma_rows(ch);
+ 	} else if (bufs->src[idx].luma) {
+ 		/* This index's planes; the frame that last used them is done. */
+ 		luma = bufs->src[idx].luma;
+@@ -4106,7 +4142,8 @@ static int ave_session_process_build(struct ave_device *ave,
+ 	f.in_luma_stride = stride;
+ 	f.in_luma_size = luma_bytes;
+ 	f.in_chroma_addr = chroma_iova;
+-	f.in_chroma_stride = stride;
++	/* NV24's CbCr line is two samples a pixel (Silicon Bakery) */
++	f.in_chroma_stride = bufs->chroma == AVE_ENC_CHROMA_444 ? 2 * stride : stride;
+ 	/*
+ 	 * docs/90: PICMGMT +0x964/+0x968, the source picture's size. macOS
+ 	 * sends it every frame; the H13x firmware reads it only for compressed
+@@ -5692,6 +5729,18 @@ int ave_enc_start(struct ave_device *ave, const struct ave_enc_cfg *cfg)
+ 	if ((hevc && cfg->profile_idc > 2) ||
+ 	    (cfg->src_bitdepth == 10 && !hevc))
+ 		return -EINVAL;
++	/*
++	 * Silicon Bakery: other chroma formats from 8-bit semi-planar input
++	 * only, and the self-test's internal sources stay 4:2:0. H.264's
++	 * profile must be able to code them (the builder re-checks).
++	 */
++	if (cfg->chroma > AVE_ENC_CHROMA_444 ||
++	    (cfg->chroma && cfg->src_bitdepth == 10) ||
++	    (cfg->chroma && !hevc &&
++	     !(cfg->profile_idc == 244 ||
++	       (cfg->profile_idc == 122 && cfg->chroma != AVE_ENC_CHROMA_444) ||
++	       (cfg->profile_idc == 100 && cfg->chroma == AVE_ENC_CHROMA_400))))
++		return -EINVAL;
+ 	/* docs/81: up to 2 B frames (3+ is the pyramid, R5), never Baseline */
+ 	if (cfg->bframes > AVE_GOP_B_MAX || cfg->p_refs > 2 ||
+ 	    (cfg->bframes && !hevc && cfg->profile_idc < 77))
+@@ -5727,6 +5776,7 @@ int ave_enc_start(struct ave_device *ave, const struct ave_enc_cfg *cfg)
+ 	bufs->vui = cfg->vui;
+ 	bufs->cbr = cfg->cbr && cfg->bitrate;
+ 	bufs->realtime = cfg->realtime;
++	bufs->chroma = cfg->chroma;
+ 	bufs->throughput_mode = cfg->throughput_mode <= 3 ? cfg->throughput_mode : 0;
+ 	bufs->slice_rows = ave_sess_slice_map(bufs->slice_map, hevc ?
+ 			DIV_ROUND_UP(cfg->height, 32) : DIV_ROUND_UP(cfg->height, 16),
+diff --git a/driver/ave_session.h b/driver/ave_session.h
+index 4f9de45..71e187f 100644
+--- a/driver/ave_session.h
++++ b/driver/ave_session.h
+@@ -66,6 +66,16 @@ int ave_enc_init(struct ave_device *ave);
+  */
+ #define AVE_ENC_CODEC_H264	0
+ #define AVE_ENC_CODEC_HEVC	1
++/* ave_enc_cfg.chroma (Silicon Bakery); 0 is 4:2:0 so a zeroed cfg is it */
++#define AVE_ENC_CHROMA_420	0
++#define AVE_ENC_CHROMA_400	1
++#define AVE_ENC_CHROMA_422	2
++#define AVE_ENC_CHROMA_444	3
++/* -> chroma_format_idc */
++static inline u32 ave_enc_chroma_idc(u32 c)
++{
++	return c == AVE_ENC_CHROMA_400 ? 0 : c == AVE_ENC_CHROMA_420 ? 1 : c;
++}
+ /* True when this firmware ABI (and the module's settings) can run HEVC. */
+ bool ave_enc_hevc_supported(struct ave_device *ave);
+ /* B frames and two-reference P frames for @codec: off where they hang (docs/89 §9) */
+@@ -117,6 +127,13 @@ struct ave_enc_cfg {
+ 	 */
+ 	bool	realtime;
+ 	u8	throughput_mode;
++	/*
++	 * Silicon Bakery: the chroma format coded and read, AVE_ENC_CHROMA_*.
++	 * 0 = 4:2:0, every release's. The source is semi-planar 8-bit: Y, then
++	 * interleaved CbCr (4:2:2 h rows, 4:4:4 h rows of 2 * w bytes; none
++	 * for 4:0:0) - VideoToolbox's 422v / 444v / L008.
++	 */
++	u32	chroma;
+ 	/* SPS VUI colour signalling (Silicon Bakery); .present 0 = none */
+ 	struct ave_vui vui;
+ };
+diff --git a/driver/ave_v4l2.c b/driver/ave_v4l2.c
+index 321bd27..6cb11f6 100644
+--- a/driver/ave_v4l2.c
++++ b/driver/ave_v4l2.c
+@@ -90,6 +90,17 @@ module_param(pm_replay, bool, 0644);
+ MODULE_PARM_DESC(pm_replay,
+ 		 "after a system suspend, restart a running stream (Open + Start replayed, next frame an IDR) instead of failing it with EIO (default 0; B-frame streams always fail)");
+ 
++/*
++ * Silicon Bakery: offer NV16 (4:2:2), NV24 (4:4:4) and GREY (4:0:0) on
++ * OUTPUT - H.264 High 4:2:2 / High 4:4:4 Predictive / High, HEVC Format
++ * range extensions. Off by default: these paths have not run on hardware,
++ * and an application that finds them enumerated may pick them over NV12.
++ */
++static bool enc_chroma_formats;
++module_param(enc_chroma_formats, bool, 0444);
++MODULE_PARM_DESC(enc_chroma_formats,
++		 "also offer NV16, NV24 and GREY input (4:2:2 / 4:4:4 / 4:0:0 coding; untested on hardware, default 0)");
++
+ /*
+  * A test aid for docs/81's forced-key-frame run: v4l2-ctl cannot set
+  * FORCE_KEY_FRAME in the middle of a stream, so this does it for every Nth
+@@ -280,6 +291,57 @@ static u32 ave_out_size(u32 codec, u32 bpl, u32 h)
+ 	return bpl * h * 3 / 2;
+ }
+ 
++/*
++ * Silicon Bakery: the OUTPUT formats beyond NV12/P010 and what they code.
++ * Semi-planar like NV12: Y (bytesperline x h), then CbCr from
++ * bytesperline * h - 4:2:2 h rows of bytesperline, 4:4:4 h rows of
++ * 2 * bytesperline (V4L2's NV24) - with HEVC's 64-row slack as NV12.
++ */
++static u32 ave_fourcc_chroma(u32 fourcc)
++{
++	switch (fourcc) {
++	case V4L2_PIX_FMT_NV16:	return AVE_ENC_CHROMA_422;
++	case V4L2_PIX_FMT_NV24:	return AVE_ENC_CHROMA_444;
++	case V4L2_PIX_FMT_GREY:	return AVE_ENC_CHROMA_400;
++	default:		return AVE_ENC_CHROMA_420;
++	}
++}
++
++static bool ave_fourcc_extra(u32 fourcc)
++{
++	return enc_chroma_formats && (fourcc == V4L2_PIX_FMT_NV16 ||
++				      fourcc == V4L2_PIX_FMT_NV24 ||
++				      fourcc == V4L2_PIX_FMT_GREY);
++}
++
++static u32 ave_out_size_fmt(u32 codec, u32 fourcc, u32 bpl, u32 h)
++{
++	const u32 rows = codec == AVE_ENC_CODEC_HEVC ? ALIGN(h, 64) : h;
++
++	switch (fourcc) {
++	case V4L2_PIX_FMT_NV16:	return bpl * h + bpl * rows;
++	case V4L2_PIX_FMT_NV24:	return bpl * h + 2 * bpl * rows;
++	case V4L2_PIX_FMT_GREY:	return bpl * rows;
++	default:		return ave_out_size(codec, bpl, h);
++	}
++}
++
++/* The OUTPUT fourccs enumerated, in order: NV12 first, as before. */
++static u32 ave_out_fourccs(const struct ave_v4l2 *av, u32 *list)
++{
++	u32 n = 0;
++
++	list[n++] = V4L2_PIX_FMT_NV12;
++	if (av->hevc)
++		list[n++] = V4L2_PIX_FMT_P010;
++	if (enc_chroma_formats) {
++		list[n++] = V4L2_PIX_FMT_NV16;
++		list[n++] = V4L2_PIX_FMT_NV24;
++		list[n++] = V4L2_PIX_FMT_GREY;
++	}
++	return n;
++}
++
+ static u32 ave_cap_fourcc(u32 codec)
+ {
+ 	return codec == AVE_ENC_CODEC_HEVC ? V4L2_PIX_FMT_HEVC :
+@@ -302,15 +364,18 @@ static void ave_fill_out_fmt(const struct ave_ctx *ctx,
+ 	 * the only codec that takes it; H.264 + P010 is refused at STREAMON.
+ 	 */
+ 	const bool p010 = p->pixelformat == V4L2_PIX_FMT_P010 && ctx->av->hevc;
++	const bool extra = ave_fourcc_extra(p->pixelformat);
+ 
+ 	ave_clamp_size(&w, &h);
+ 	p->width = w;
+ 	p->height = h;
+-	p->pixelformat = p010 ? V4L2_PIX_FMT_P010 : V4L2_PIX_FMT_NV12;
++	if (!extra)
++		p->pixelformat = p010 ? V4L2_PIX_FMT_P010 : V4L2_PIX_FMT_NV12;
+ 	p->field = V4L2_FIELD_NONE;
+ 	/* Recomputed every time: ffmpeg sends back our stale 0x0 answer. */
+ 	p->bytesperline = ALIGN(w, 64) * (p010 ? 2 : 1);
+-	p->sizeimage = ave_out_size(ctx->codec, p->bytesperline, h);
++	p->sizeimage = ave_out_size_fmt(ctx->codec, p->pixelformat,
++					p->bytesperline, h);
+ 	/* Colorimetry is the application's to set; only fill in "default". */
+ 	if (p->colorspace == V4L2_COLORSPACE_DEFAULT)
+ 		p->colorspace = V4L2_COLORSPACE_REC709;
+@@ -366,9 +431,11 @@ static int ave_enum_fmt(struct file *file, void *priv, struct v4l2_fmtdesc *f)
+ 
+ 	if (V4L2_TYPE_IS_OUTPUT(f->type)) {
+ 		/* P010 whenever HEVC exists (see ave_fill_out_fmt) */
+-		if (f->index > (av->hevc ? 1 : 0))
++		u32 list[5], n = ave_out_fourccs(av, list);
++
++		if (f->index >= n)
+ 			return -EINVAL;
+-		f->pixelformat = f->index ? V4L2_PIX_FMT_P010 : V4L2_PIX_FMT_NV12;
++		f->pixelformat = list[f->index];
+ 	} else {
+ 		/* H.264 first: the default, and index 0 as before HEVC. */
+ 		if (f->index > (av->hevc ? 1 : 0))
+@@ -387,6 +454,7 @@ static int ave_enum_framesizes(struct file *file, void *priv,
+ 
+ 	if (fs->index || (fs->pixel_format != V4L2_PIX_FMT_NV12 &&
+ 			  !(fs->pixel_format == V4L2_PIX_FMT_P010 && av->hevc) &&
++			  !ave_fourcc_extra(fs->pixel_format) &&
+ 			  fs->pixel_format != V4L2_PIX_FMT_H264 &&
+ 			  !(fs->pixel_format == V4L2_PIX_FMT_HEVC && av->hevc)))
+ 		return -EINVAL;
+@@ -487,7 +555,8 @@ static int ave_s_fmt(struct file *file, void *priv, struct v4l2_format *f)
+ 				ctx->out_fourcc = V4L2_PIX_FMT_NV12;
+ 				ctx->bytesperline = ALIGN(ctx->width, 64);
+ 			}
+-			ctx->out_size = ave_out_size(codec, ctx->bytesperline,
++			ctx->out_size = ave_out_size_fmt(codec, ctx->out_fourcc,
++						     ctx->bytesperline,
+ 						     ctx->height);
+ 		}
+ 		ctx->cap_size = f->fmt.pix.sizeimage;
+@@ -646,6 +715,8 @@ static int ave_s_ctrl(struct v4l2_ctrl *c)
+ 		break;
+ 	case V4L2_CID_MPEG_VIDEO_H264_PROFILE:
+ 		ctx->profile_idc =
++			c->val == V4L2_MPEG_VIDEO_H264_PROFILE_HIGH_444_PREDICTIVE ? 244 :
++			c->val == V4L2_MPEG_VIDEO_H264_PROFILE_HIGH_422 ? 122 :
+ 			c->val == V4L2_MPEG_VIDEO_H264_PROFILE_HIGH ? 100 :
+ 			c->val == V4L2_MPEG_VIDEO_H264_PROFILE_MAIN ? 77 : 66;
+ 		break;
+@@ -807,6 +878,18 @@ static int ave_init_ctrls(struct ave_ctx *ctx)
+ 	 * High + CABAC by default: the best compression, and what any decoder
+ 	 * made this century handles (f74/f75). Baseline is always CAVLC.
+ 	 */
++	/* Silicon Bakery: High 4:2:2 / 4:4:4 Predictive with enc_chroma_formats */
++	if (enc_chroma_formats)
++		v4l2_ctrl_new_std_menu(h, o, V4L2_CID_MPEG_VIDEO_H264_PROFILE,
++				       V4L2_MPEG_VIDEO_H264_PROFILE_HIGH_444_PREDICTIVE,
++				       ~(BIT(V4L2_MPEG_VIDEO_H264_PROFILE_BASELINE) |
++					 BIT(V4L2_MPEG_VIDEO_H264_PROFILE_CONSTRAINED_BASELINE) |
++					 BIT(V4L2_MPEG_VIDEO_H264_PROFILE_MAIN) |
++					 BIT(V4L2_MPEG_VIDEO_H264_PROFILE_HIGH) |
++					 BIT(V4L2_MPEG_VIDEO_H264_PROFILE_HIGH_422) |
++					 BIT(V4L2_MPEG_VIDEO_H264_PROFILE_HIGH_444_PREDICTIVE)),
++				       V4L2_MPEG_VIDEO_H264_PROFILE_HIGH);
++	else
+ 	v4l2_ctrl_new_std_menu(h, o, V4L2_CID_MPEG_VIDEO_H264_PROFILE,
+ 			       V4L2_MPEG_VIDEO_H264_PROFILE_HIGH,
+ 			       ~(BIT(V4L2_MPEG_VIDEO_H264_PROFILE_BASELINE) |
+@@ -1180,6 +1263,34 @@ static int ave_start_streaming(struct vb2_queue *q, unsigned int count)
+ 		if (nb && !cfg.qp_b)
+ 			cfg.qp_b = min_t(u32, cfg.qp + AVE_B_QP_OFFSET, 51);
+ 		ave_ctx_vui(ctx, &cfg.vui);
++		/*
++		 * Silicon Bakery: the input's chroma is what is coded. H.264
++		 * moves up to the lowest profile that codes it (High for
++		 * 4:0:0, High 4:2:2, High 4:4:4 Predictive), as macOS's pool
++		 * per profile implies [LIVE]; HEVC goes to Format range
++		 * extensions in the builder.
++		 */
++		cfg.chroma = ave_fourcc_chroma(ctx->out_fourcc);
++		if (cfg.chroma && !hevc) {
++			u32 need = cfg.chroma == AVE_ENC_CHROMA_444 ? 244 :
++				   cfg.chroma == AVE_ENC_CHROMA_422 ? 122 : 100;
++
++			if (cfg.profile_idc < need ||
++			    (need == 244 && cfg.profile_idc != 244)) {
++				dev_info(av->ave->dev,
++					 "v4l2: H.264 profile %u cannot code this chroma format; using %u\n",
++					 cfg.profile_idc, need);
++				cfg.profile_idc = need;
++			}
++		}
++		if (cfg.chroma && !hevc && cfg.profile_idc >= 122 && cfg.bframes) {
++			/* B frames with 4:2:2/4:4:4: nothing has run; keep P only */
++			dev_warn(av->ave->dev,
++				 "v4l2: no B frames with H.264 %u (untested); P only\n",
++				 cfg.profile_idc);
++			cfg.bframes = 0;
++			nb = 0;
++		}
+ 		cfg.slices = ave_ctx_slices(ctx);
+ 		cfg.realtime = ctx->realtime;
+ 		cfg.throughput_mode = ctx->throughput;
+@@ -1401,7 +1512,9 @@ static void ave_b_batch(struct ave_ctx *ctx, const struct ave_gop_batch *b,
+ 		luma = vb2_dma_contig_plane_dma_addr(&s->vb2_buf, 0);
+ 		fr[i] = (struct ave_enc_frame){
+ 			.fn = b->f[i].fn, .type = b->f[i].type, .luma = luma,
+-			.chroma = luma + (dma_addr_t)ctx->bytesperline * ctx->height,
++			/* GREY: no chroma plane; the reader is off (4:0:0) */
++			.chroma = ctx->out_fourcc == V4L2_PIX_FMT_GREY ? luma :
++				  luma + (dma_addr_t)ctx->bytesperline * ctx->height,
+ 			.stride = ctx->bytesperline,
+ 		};
+ 		/* job_ready counted them; the work re-checked */
+@@ -1566,6 +1679,7 @@ static void ave_run_work(struct work_struct *work)
+ 	mutex_lock(&av->hw_mutex);
+ 	ret = ctx->session ?
+ 		ave_enc_encode(av->ave, ctx->frame_n, idr, luma,
++			       ctx->out_fourcc == V4L2_PIX_FMT_GREY ? luma :
+ 			       luma + (dma_addr_t)ctx->bytesperline * ctx->height,
+ 			       ctx->bytesperline,
+ 			       vb2_plane_vaddr(&dst->vb2_buf, 0),
