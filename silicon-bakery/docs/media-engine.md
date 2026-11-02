@@ -9,11 +9,11 @@ art. No Apple firmware or kernel binaries are kept here.
 
 | block | macOS node | firmware | Linux today |
 |---|---|---|---|
-| AVD, decoder | `avd0`, `avd,t6020` | Cortex-M3; Linux loads Asahi's open `avd-fw` | `apple-avd` V4L2 stateless decoder, device tree node present |
+| AVD, decoder | `avd0`, `avd,t6020` | Cortex-M3; Linux loads Asahi's open `avd-fw` | `apple-avd` V4L2 stateless decoder, device tree node present; Silicon Bakery's fixes in `media.decodeFixes` (docs/avd-port.txt) |
 | AVE, encoder | `ave0`, `ave2`, one instance | ARM64 RTKit "Chinook" core, preloaded by iBoot (`AppleAVE2FW_H14S`, build 6070.11.1 on the 13.5 stub), symbols not stripped | upstream nothing; Silicon Bakery's t6020 port of the community driver (`media.encode`, below) |
-| ProRes | `apr0` | none, register-driven (macOS 27's "SCodec" RTKit core is a separate display/camera streaming codec that can borrow it) | nothing |
-| JPEG ×2 | `jpeg0`, `jpeg1` | none, register-driven | nothing |
-| M2Scaler | `scaler0` | none, register-driven | nothing |
+| ProRes | `apr0` | none, register-driven (macOS 27's "SCodec" RTKit core is a separate display/camera streaming codec that can borrow it) | upstream nothing; Silicon Bakery's `apple-prores` encoder (`media.prores`, docs/prores-port.txt) |
+| JPEG ×2 | `jpeg0`, `jpeg1` | none, register-driven | upstream nothing; Silicon Bakery's `apple-jpeg` encoder and decoder (`media.jpeg`, docs/jpeg-port.txt) |
+| M2Scaler | `scaler0` | none, register-driven | nothing yet (docs/scaler-port.txt when it lands) |
 
 macOS advertises AVE encode for H.264 up to 4096×4096 at 2160p30 pixel rate
 and HEVC at 2160p60, 4:0:0 to 4:4:4. The AVE sits behind a `dart,t8110`
@@ -71,13 +71,16 @@ Upstream has no encoder for the M2 Pro: `aquarat/apple-m-series-ave-driver`
 (commit 9ab14e45, GPL-2.0, out of tree, a V4L2 stateful H.264/HEVC encoder)
 covers t8103, t8112 and t6000-t6002 on the 13.5 stub firmware, and calls
 itself beta, "almost entirely AI-generated" and able to hang or reset the
-machine; `aurora-silicon/linux` encodes only on T8140. Honeykrisp has no
+machine; `aurora-silicon/linux` encodes on T8140 and T6041 (M4 Pro), not t602x. Honeykrisp has no
 `VK_KHR_video_*`, and the VA-API driver decodes only.
 
 Silicon Bakery ports that driver to t6020 (`patches/apple-ave`, read from
 the 13.5 kext, firmware and device tree on this Mac; `docs/ave-port.txt` has
-every value's source and the staged bring-up). Statically: never compiled
-or run on the M2 Pro yet.
+every value's source and the staged bring-up), with feature patches
+beyond the community driver: VUI colour, CBR with filler, slices, realtime
+and throughput controls, suspend replay, and 4:2:2/4:4:4/mono input (all off
+by default, ave-port.txt §10). Compiled with clang against 7.2.14's headers;
+never run on the M2 Pro yet.
 
 ```nix
 hardware.siliconBakery.media.encode = {
