@@ -1,0 +1,92 @@
+Tap timings as macOS has them, and no taps right after a click.
+
+The timings of macOS 27.2's tap handling all come from one table in
+HSTouchHIDService (_gTimingPrefs_ at 0x16a858, loaded 91 times and never
+written; MTParameterFactory_::initGestureTimingParams is an empty function):
+
+- A tap must lift within 250 ms of its newest touchdown (+0x30 = 0.25 s,
+  MTChordCycling_::tapHasValidTimingAndStrength 0x879cc). libinput gave
+  180 ms (DEFAULT_TAP_TIMEOUT_PERIOD), which also sets when a resting finger
+  becomes a hold.
+- Tap-and-drag: after a tap macOS waits 200 ms (+0x40,
+  MTTapDragManager_::sendWaitingClickAtHalfTimeout 0x6be78) for the finger to
+  come back; then the button goes down and moving drags. libinput's one-
+  finger window was 160 + 20 ms; the base is now 180 ms, so one finger gets
+  200 ms (macOS only has one-finger tap-and-drag; two and three fingers keep
+  libinput's 20 ms steps on top).
+- A tap-and-drag survives 500 ms after the finger lifts (+0x48,
+  MTTapDragManager_::halfTapDragTimedOut 0x6bc84): libinput's drag lock in
+  timeout mode, whose timeout was 300 ms. (Without "drag lock" macOS behaves
+  like that mode; with it, like the sticky mode.)
+- No tap counts if it lifts within 250 ms of the physical button going down
+  or up: -[MTTrackpadUberAlg setDivingButtonState:] (0x8aa4c) stamps every
+  unblocked button change into the hand statistics' t_recentButtonActivity
+  (+0x30), and tapHasValidTimingAndStrength rejects a tap when that stamp is
+  under 0.25 s old (0x87a84..0x87a98). libinput only killed taps while the
+  button was down. A touch lifting that soon after a button change now
+  takes the tap state machine to DEAD first, as a button press does.
+
+Left as libinput has them: the 1.3 mm tap movement limit (macOS counts 10
+emitted 1/400 in counts for one finger, 5 for two, after the 0.169 mm
+deadband and the touchdown settling filter that libinput does not have, and
+also wants the fastest finger under 80 mm/s at the lift), the 20 ms minimum
+tap length and the 125 ms hover-to-touch limit.
+
+--- a/src/evdev-mt-touchpad-tap.c
++++ b/src/evdev-mt-touchpad-tap.c
+@@ -29,10 +29,16 @@
+ 
+ #include "evdev-mt-touchpad.h"
+ 
+-#define DEFAULT_TAP_TIMEOUT_PERIOD usec_from_millis(180)
+-#define DEFAULT_DRAG_TIMEOUT_PERIOD_BASE usec_from_millis(160)
++/* macOS 27.2 (HSTouchHIDService, the _gTimingPrefs_ table at 0x16a858): a tap
++ * lifts within 250 ms of its newest touchdown (+0x30), a tap-and-drag needs the
++ * finger back within 200 ms of the tap's lift (+0x40), a drag survives 500 ms
++ * after the finger lifts (+0x48), and no tap counts within 250 ms of the
++ * physical button going down or up (+0x30, against t_recentButtonActivity). */
++#define DEFAULT_TAP_TIMEOUT_PERIOD usec_from_millis(250)
++#define DEFAULT_DRAG_TIMEOUT_PERIOD_BASE usec_from_millis(180)
+ #define DEFAULT_DRAG_TIMEOUT_PERIOD_PERFINGER usec_from_millis(20)
+-#define DEFAULT_DRAGLOCK_TIMEOUT_PERIOD usec_from_millis(300)
++#define DEFAULT_DRAGLOCK_TIMEOUT_PERIOD usec_from_millis(500)
++#define DEFAULT_TAP_BUTTON_QUIET_PERIOD usec_from_millis(250)
+ #define DEFAULT_TAP_MOVE_THRESHOLD 1.3 /* mm */
+ 
+ enum tap_event {
+@@ -1221,6 +1227,10 @@
+ 	if (tp->buttons.is_clickpad && tp->queued & TOUCHPAD_EVENT_BUTTON_PRESS)
+ 		tp_tap_handle_event(tp, NULL, TAP_EVENT_BUTTON, time);
+ 
++	if (tp->buttons.is_clickpad &&
++	    tp->queued & (TOUCHPAD_EVENT_BUTTON_PRESS | TOUCHPAD_EVENT_BUTTON_RELEASE))
++		tp->tap.button_time = time;
++
+ 	tp_for_each_touch(tp, t) {
+ 		if (!t->dirty || t->state == TOUCH_NONE)
+ 			continue;
+@@ -1271,6 +1281,13 @@
+ 		} else if (t->state == TOUCH_END) {
+ 			if (t->was_down) {
+ 				assert(tp->tap.nfingers_down >= 1);
++				/* As on macOS, a touch lifting this soon after the
++				 * button went down or up is no tap */
++				if (tp->buttons.is_clickpad &&
++				    usec_cmp(time,
++					     usec_add(tp->tap.button_time,
++						      DEFAULT_TAP_BUTTON_QUIET_PERIOD)) < 0)
++					tp_tap_handle_event(tp, NULL, TAP_EVENT_BUTTON, time);
+ 				tp->tap.nfingers_down--;
+ 				tp_tap_handle_event(tp, t, TAP_EVENT_RELEASE, time);
+ 			}
+--- a/src/evdev-mt-touchpad.h
++++ b/src/evdev-mt-touchpad.h
+@@ -447,6 +447,8 @@
+ 		enum tp_tap_state state;
+ 		uint32_t buttons_pressed;
+ 		usec_t saved_press_time, saved_release_time;
++		/* when the physical button last went down or up */
++		usec_t button_time;
+ 
+ 		enum libinput_config_tap_button_map map;
+ 		enum libinput_config_tap_button_map want_map;
