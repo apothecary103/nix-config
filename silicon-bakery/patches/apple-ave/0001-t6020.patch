@@ -277,7 +277,7 @@ index 814eb9d..043dd67 100644
 + * What is new:
 + *  - firmware H14S (= H14C's build: same 1122 functions, same sizes) is
 + *    the multi-encoder build of the H14 family (PlatformIOPIPCManager,
-+ *    RTK_mbi_*, the *Mcore/*MultiCore paths). Its PlatformIOPIPCManager
++ *    RTK_mbi_*, the Mcore and MultiCore paths). Its PlatformIOPIPCManager
 + *    looks up the boot handshake's DevID in its own table (_AVE_FindByDevID,
 + *    DATA+0x2760 for DevID 19) and sets up remote encoders only when that
 + *    row's perGroup is 2 or more [FW]. DevID 19 has perGroup 1, so the row
