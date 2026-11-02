@@ -1,0 +1,139 @@
+Three-finger drag as macOS has it: 625 ms grace, only after motion, no swipes.
+
+macOS 27.2 (HSTouchHIDService) runs three-finger drag as the "Drag & Click"
+chord, and the parts libinput can follow are:
+
+- When the fingers lift, the drag is kept only if it moved during the last
+  750 ms (MTChordIntegrating_::sendLiftSlideEvents 0x6d5f0 compares the
+  slide's last emitted motion with _gTimingPrefs_ +0x50 = 0.75 s); then the
+  button stays down until 625 ms after the lift (+0x58,
+  MTTapDragManager_::halfTapDragTimedOut 0x6bc84) unless fingers come back.
+  A drag that was held still ends with the lift ("Primary Up" on Lift).
+  libinput kept every drag 700 ms. Now: 625 ms, and a drag that has not
+  moved for 750 ms releases at the lift.
+- While three-finger drag is on, macOS installs no three-finger swipes at
+  all (configureTrackpadGestureParser 0x1ac0 skips "Resting 3F Swipe" when
+  the drag mode is 1, 0x2ca4), so three fingers always drag. libinput
+  waited 80 ms and swiped instead if the fingers had moved 5 mm. On Apple
+  trackpads the drag finger count now drags at once.
+
+Not done here: macOS also starts the drag after 450 ms of holding three
+fingers still (HoldTime 450, MTChordGestureSet_::chk4ChordTimein), starts it
+at its first emitted count (0.32 mm of travel past the deadband) rather than
+libinput's 1 mm, and continues it when any number of fingers touch again
+within the 625 ms (MTTapDragManager_::shouldSustainDrag 0x6bda0), where
+libinput releases the button if one or two fingers come back.
+
+--- a/src/evdev-mt-touchpad-gestures.c
++++ b/src/evdev-mt-touchpad-gestures.c
+@@ -39,6 +39,13 @@
+ #define DEFAULT_GESTURE_SWIPE_TIMEOUT usec_from_millis(150)
+ #define DEFAULT_GESTURE_PINCH_TIMEOUT usec_from_millis(300)
+ #define DRAG_3FG_OR_SWIPE_TIMEOUT usec_from_millis(80)
++/* macOS 27.2 (HSTouchHIDService, _gTimingPrefs_ at 0x16a858): a three-finger
++ * drag outlives the fingers by 625 ms (+0x58, MTTapDragManager_::
++ * halfTapDragTimedOut), but only if it moved during the last 750 ms before
++ * they lifted (+0x50, MTChordIntegrating_::sendLiftSlideEvents); otherwise
++ * the button comes up with the fingers. */
++#define DRAG_3FG_RELEASE_TIMEOUT usec_from_millis(625)
++#define DRAG_3FG_SUSTAIN_MOTION_PERIOD usec_from_millis(750)
+ 
+ #define HOLD_AND_MOTION_THRESHOLD 0.5 /* mm */
+ #define PINCH_DISAMBIGUATION_MOVE_THRESHOLD 1.5 /* mm */
+@@ -1139,7 +1146,8 @@
+ tp_gesture_set_3fg_drag_timer(struct tp_dispatch *tp, usec_t time)
+ {
+ 	tp->gesture.drag_3fg_release_time = time;
+-	libinput_timer_set(&tp->gesture.drag_3fg_timer, usec_add_millis(time, 700));
++	libinput_timer_set(&tp->gesture.drag_3fg_timer,
++			   usec_add(time, DRAG_3FG_RELEASE_TIMEOUT));
+ }
+ 
+ static void
+@@ -1160,6 +1168,18 @@
+ 		tp->gesture.state = GESTURE_STATE_NONE;
+ 		break;
+ 	case GESTURE_EVENT_END:
++		/* A drag that has not moved for a while ends with the
++		 * fingers, as on macOS */
++		if (usec_cmp(time,
++			     usec_add(tp->gesture.drag_3fg_motion_time,
++				      DRAG_3FG_SUSTAIN_MOTION_PERIOD)) >= 0) {
++			evdev_pointer_notify_button(tp->device,
++						    time,
++						    evdev_usage_from(EVDEV_BTN_LEFT),
++						    LIBINPUT_BUTTON_STATE_RELEASED);
++			tp->gesture.state = GESTURE_STATE_NONE;
++			break;
++		}
+ 		/* If the gesture ends we start the timer so we
+ 		 * can keep dragging */
+ 		tp_gesture_set_3fg_drag_timer(tp, time);
+@@ -1245,6 +1265,7 @@
+ 	case GESTURE_EVENT_SWIPE_START:
+ 	case GESTURE_EVENT_PINCH_START:
+ 		libinput_timer_cancel(&tp->gesture.drag_3fg_timer);
++		tp->gesture.drag_3fg_motion_time = time;
+ 		tp->gesture.state = GESTURE_STATE_3FG_DRAG;
+ 		break;
+ 	case GESTURE_EVENT_3FG_DRAG_OR_SWIPE_START:
+@@ -1867,14 +1888,20 @@
+ 				    evdev_usage_from(EVDEV_BTN_LEFT),
+ 				    LIBINPUT_BUTTON_STATE_PRESSED);
+ 	/* FIXME: immediately send a motion event? */
++	tp->gesture.drag_3fg_motion_time = time;
+ 	tp->gesture.state = GESTURE_STATE_3FG_DRAG;
+ }
+ 
+ static void
+ tp_gesture_handle_state_3fg_drag(struct tp_dispatch *tp, usec_t time)
+ {
+-	if (tp->queued & TOUCHPAD_EVENT_MOTION)
++	if (tp->queued & TOUCHPAD_EVENT_MOTION) {
++		struct device_float_coords raw = tp_get_raw_pointer_motion(tp);
++
++		if (!device_float_is_zero(raw))
++			tp->gesture.drag_3fg_motion_time = time;
+ 		tp_gesture_post_pointer_motion(tp, time);
++	}
+ }
+ 
+ static void
+@@ -1909,6 +1936,15 @@
+ tp_gesture_handle_state_3fg_drag_or_swipe_start(struct tp_dispatch *tp, usec_t time)
+ {
+ 	const struct normalized_coords zero = { 0.0, 0.0 };
++
++	/* macOS: while three-finger drag is on, three fingers have no swipes
++	 * (configureTrackpadGestureParser installs "Drag & Click" instead of
++	 * any three-finger swipe set), so they drag at once. */
++	if (tp->gesture.drag_3fg_only) {
++		tp_gesture_handle_state_3fg_drag_start(tp, time);
++		return;
++	}
++
+ 	gesture_notify_swipe(&tp->device->base,
+ 			     time,
+ 			     LIBINPUT_EVENT_GESTURE_SWIPE_BEGIN,
+@@ -2413,6 +2449,8 @@
+ 
+ 	tp->gesture.state = GESTURE_STATE_NONE;
+ 	tp->gesture.hold_enabled = tp_gesture_are_gestures_enabled(tp);
++	tp->gesture.drag_3fg_only =
++		evdev_device_has_model_quirk(tp->device, QUIRK_MODEL_APPLE_TOUCHPAD);
+ 
+ 	snprintf(timer_name,
+ 		 sizeof(timer_name),
+--- a/src/evdev-mt-touchpad.h
++++ b/src/evdev-mt-touchpad.h
+@@ -379,6 +379,10 @@
+ 
+ 		struct libinput_timer drag_3fg_timer;
+ 		usec_t drag_3fg_release_time;
++		/* when the three-finger drag last moved */
++		usec_t drag_3fg_motion_time;
++		/* the drag finger count never swipes (Apple, as macOS) */
++		bool drag_3fg_only;
+ 
+ 		struct libinput_timer drag_3fg_or_swipe_timer;
+ 	} gesture;

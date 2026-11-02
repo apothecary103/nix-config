@@ -5,8 +5,9 @@
 # What the overlay takes comes from a profile's measurements (the module
 # passes them); without them it is upstream's behaviour plus the patches.
 {
-  # How long a three-finger drag outlives the fingers on macOS, in ms
-  # (tools/mt-probe); libinput keeps it 700.
+  # How long a three-finger drag outlives the fingers, in ms, if measured
+  # (tools/mt-probe) to differ from the 625 ms patches/libinput/0005 takes
+  # from macOS.
   threeFingerDragReleaseMs ? null,
 }:
 final: prev:
@@ -46,8 +47,8 @@ in
       // lib.optionalAttrs (threeFingerDragReleaseMs != null) {
         postPatch = (old.postPatch or "") + ''
           substituteInPlace src/evdev-mt-touchpad-gestures.c \
-            --replace-fail "usec_add_millis(time, 700)" \
-                           "usec_add_millis(time, ${toString threeFingerDragReleaseMs})"
+            --replace-fail "#define DRAG_3FG_RELEASE_TIMEOUT usec_from_millis(625)" \
+                           "#define DRAG_3FG_RELEASE_TIMEOUT usec_from_millis(${toString threeFingerDragReleaseMs})"
         '';
       }
     );
