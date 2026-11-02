@@ -35,7 +35,16 @@ H.264, HEVC and VP9 on t6020, NV12/P010/NV16 out. No AV1 on the M2 Pro.
   codec stays on whatever the setting.)
 - mpv zero-copy (`hwdec=vaapi`) with `vo=gpu-next` shows wrong colours: Honeykrisp
   imports the frames without error but ignores the plane offset (Mesa #16429),
-  so mpv never falls back. Use `hwdec=vaapi-copy`, still decoded on AVD.
+  so mpv never falls back. The same report has `--vo=gpu --gpu-api=opengl`
+  (EGL import) zero-copy and correct; otherwise `hwdec=vaapi-copy`, still
+  decoded on AVD.
+- VA-API offers less than the V4L2 decoder: H.264 Constrained Baseline, Main
+  and High, HEVC Main and Main10, VP9 profiles 0 and 2. H.264 10-bit, 4:2:2
+  and VP9 profiles 1 and 3 are V4L2 only, and HEVC 4:2:2 10-bit comes out
+  labelled P010 (the kernel has no P210 yet). No 4:4:4, no interlaced H.264.
+- asahi-va-driver#6: `vaDestroyContext` frees surfaces still in use, so
+  ffmpeg's `hwdownload` path can corrupt or crash on the last frames.
+- One frame in flight on the whole decoder; a second player waits its turn.
 - Firefox needs `MOZ_DISABLE_RDD_SANDBOX=1` for VA-API, a sandbox trade-off.
 - GStreamer can use the V4L2 decoders directly (`v4l2slh264dec` and friends
   in gst-plugins-bad), without libva.
