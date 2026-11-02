@@ -47,6 +47,18 @@ in
       '';
     };
 
+    decodeFixes = lib.mkEnableOption ''
+      Silicon Bakery's fixes to the AVD driver (patches/linux-avd), built out
+      of tree as apple_avd_bakery in place of the in-tree apple_avd, without a
+      kernel rebuild: the codec mask where avd-fw 0.2 writes it, a failed job
+      reset at once instead of after a 2 s watchdog, streams the hardware
+      cannot decode refused, buffer reuse. Untested on hardware; compare with
+      tools/avd-bench before and after (docs/avd-port.txt)'';
+
+    decodeP210 = lib.mkEnableOption ''
+      the V4L2 P210 pixel format (patches/linux-avd/0003), so decodeFixes can
+      output HEVC 4:2:2 10-bit instead of refusing it. Rebuilds the kernel'';
+
     encode = {
       enable = lib.mkEnableOption ''
         the media engine's hardware video encoder (AVE): the community
@@ -122,6 +134,16 @@ in
         pkgs.v4l-utils
         (lib.lowPrio pkgs.siliconBakery.ffmpeg-ave)
       ];
+    })
+
+    (lib.mkIf (cfg.enable && media.decode && media.decodeFixes) {
+      boot.extraModulePackages = [ (config.boot.kernelPackages.callPackage ../pkgs/apple-avd.nix { }) ];
+      # Same compatibles and driver name: udev then loads apple_avd_bakery.
+      boot.blacklistedKernelModules = [ "apple_avd" ];
+      boot.kernelPatches = lib.optional media.decodeP210 {
+        name = "v4l2-p210";
+        patch = ../patches/linux-avd/0003-media-v4l2-add-the-P210-pixel-format.patch;
+      };
     })
 
     (lib.mkIf (cfg.enable && media.decode) (
