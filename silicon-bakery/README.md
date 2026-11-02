@@ -76,19 +76,52 @@ for a compositor to apply (Silicon Bakery's kwim does). In detail:
   As libinput applies them, the pointer stays within 4.5 % of macOS and
   scrolling within 8.5 % at every speed, most of it in the first few mm/s
   (also tested).
-- Speeds are in the trackpad's own units (the sensor's span over its width),
-  not the whole number the kernel advertises.
+- Speeds are in the trackpad's own units, hundredths of a millimetre.
 
-`patches/libinput`:
+`patches/libinput`, read from macOS's gesture engine (HSTouchHIDService):
 
-- `0001-typing-palms`: palm rejection as macOS does it, by where a hand rests
-  (the outer 5 % either side shortly after typing, the bottom 4 % always),
-  not by whether a key is held; fingers keep moving, scrolling and gesturing
-  while typing. Measured over 945 touches on a Mac14,9.
-- `0002-apple-no-wobble-hysteresis`: libinput switches on a quarter-millimetre
-  hysteresis for good the first time a resting finger reads as a left-right-left
-  wobble, swallowing fine movements macOS keeps. Apple's trackpads filter in
-  firmware; for them it stays off.
+- `0001-typing-palms`: typing no longer freezes the pointer, and, for kernels
+  that don't pass on the firmware's palms, hands at rest are told apart by
+  where they land (measured over 945 touches on a Mac14,9).
+- `0002-apple-no-wobble-hysteresis`: libinput's wobble detector never turns
+  its quarter-millimetre ellipse on for good.
+- `0003-apple-macos-deadband`: macOS's own deadband instead, 0.169 mm per
+  axis from the first touch.
+- `0004-macos-tap-timings`: taps lift within 250 ms, tap-and-drag waits
+  200 ms and survives 500 ms, and no tap counts within 250 ms of a click.
+- `0005-macos-three-finger-drag`: the drag outlives the fingers by 625 ms
+  only if it moved in the last 750 ms, and three fingers always drag.
+- `0006-macos-resting-finger`: macOS's one resting finger, nearest the
+  front edge (`docs/palm-rejection.md`).
+
+`patches/libinput-1.32` is the same set for libinput 1.32.
+
+Scrolling as WindowServer finishes it: 10 points a line, every event rounded
+up to a whole point, so the slowest scroll moves a point per count of finger
+travel (15.75 per mm). Momentum is the compositor's or toolkit's on Linux;
+macOS's (0.975 per 8 ms when fast, down to 0.91, at most 2.2 s) is in the
+findings for when one wants it.
+
+`patches/linux` for the trackpad itself:
+
+- `hid-magicmouse-mtp-palms-from-firmware`: the trackpad's firmware
+  identifies every contact as one of five fingers or not, and macOS rejects
+  whatever is not a finger; Linux dropped those bytes. Contacts the firmware
+  calls something else are now reported as palms (`trackpad.firmwarePalms`).
+  `docs/palm-rejection.md` has how macOS does it.
+
+- `hid-magicmouse-mtp-hundredths`: positions are hundredths of a millimetre
+  (macOS's multitouch stack divides by 100); the kernel advertised 98 and 97
+  units/mm, so libinput's distances were 1.4-2 % off and vertical motion 1 %
+  faster than horizontal.
+- `hid-magicmouse-mtp-click-feel` (with `hid-dockchannel-set-report-type`,
+  AsahiLinux/linux#573's fix): the haptic waveforms macOS gives the
+  firmware's own clicks for Light, Medium or Firm (feature reports 0x22 and
+  0x23, decoded from MultitouchSupport's actuator table; the medium press is
+  byte for byte what #573 captured from macOS), per `trackpad.click`. Where
+  a click triggers stays the firmware's: macOS decides that in userspace from
+  the force in grams (125 g x 0.8, 1 or 1.2; Force Click at 300 g), which
+  needs host click control Linux does not have yet.
 
 The profile's palm sizes become libinput quirks, and `bakery-trackpad`
 prints the curves in finger units or runs `libinput debug-events` with them.
