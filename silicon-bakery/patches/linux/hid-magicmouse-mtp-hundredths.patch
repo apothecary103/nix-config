@@ -1,0 +1,52 @@
+From: apothecary <evororentals@gmail.com>
+Subject: [PATCH] HID: magicmouse: MTP positions are hundredths of a millimetre
+
+The MTP trackpads report touch positions in 0.01 mm: macOS's multitouch
+stack turns them into millimetres by dividing by 100. The resolution was
+instead taken as the reported span over the surface's width and height
+from the sensor dimensions report, which are the whole surface, wider
+than the span touches are reported in. On the J414s that gives 98 units
+per mm across and 97 up, 1.4 % and 2 % short, so every distance libinput
+derives (tap and drag thresholds, palm and edge zones) is that far off,
+and its scaling of y to x's resolution (98/97) makes vertical motion 1 %
+faster than horizontal, which the hardware does not do. Report 100 on
+both axes.
+
+Not yet tested on hardware.
+
+diff --git a/drivers/hid/hid-magicmouse.c b/drivers/hid/hid-magicmouse.c
+index 2dd3f828441..fda66ee4f32 100644
+--- a/drivers/hid/hid-magicmouse.c
++++ b/drivers/hid/hid-magicmouse.c
+@@ -368,7 +368,6 @@ static int magicmouse_open(struct input_dev *dev)
+ 			__le16 max_x;
+ 			__le16 max_y;
+ 		} dim;
+-		uint32_t x_span, y_span;
+ 
+ 		ret = hid_hw_raw_request(hdev, SENSOR_DIMENSIONS_REPORT_ID, buf, sizeof(buf), HID_FEATURE_REPORT, HID_REQ_GET_REPORT);
+ 		if (ret < (int)(1 + sizeof(dim))) {
+@@ -384,12 +383,17 @@ static int magicmouse_open(struct input_dev *dev)
+ 		/* Y axis is inverted */
+ 		input_set_abs_params(input, ABS_MT_POSITION_Y,
+ 				     -le16_to_int(dim.max_y), -le16_to_int(dim.min_y), 0, 0);
+-		x_span = le16_to_int(dim.max_x) - le16_to_int(dim.min_x);
+-		y_span = le16_to_int(dim.max_y) - le16_to_int(dim.min_y);
+-
+-		/* X/Y resolution */
+-		input_abs_set_res(input, ABS_MT_POSITION_X, 100 * x_span / le32_to_cpu(dim.width) );
+-		input_abs_set_res(input, ABS_MT_POSITION_Y, 100 * y_span / le32_to_cpu(dim.height) );
++		/*
++		 * X/Y resolution. Positions are in hundredths of a millimetre:
++		 * macOS's multitouch stack divides them by 100 for millimetres.
++		 * The report's width and height are the whole surface, wider
++		 * than the span the sensor reports touches in, so dividing the
++		 * span by them under-states the resolution (98 and 97 on the
++		 * J414s), and libinput then scales y by a ratio the hardware
++		 * does not have.
++		 */
++		input_abs_set_res(input, ABS_MT_POSITION_X, 100);
++		input_abs_set_res(input, ABS_MT_POSITION_Y, 100);
+ 
+ 		/* copy info, as input_mt_init_slots() does */
+ 		dev->absinfo[ABS_X] = dev->absinfo[ABS_MT_POSITION_X];

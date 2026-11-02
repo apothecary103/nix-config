@@ -248,11 +248,14 @@ let
   # Logical pixels per ms.
   scrollPixels = v: scrollLines v * pixelsPerLine;
 
-  # The trackpad's own units per mm along x, which libinput's speeds are in:
-  # the sensor's span over its width. (The kernel advertises this rounded down
-  # to a whole number, but the positions it passes on are these units.)
+  # The trackpad's own units per mm, which libinput's speeds are in. The MTP
+  # trackpads report hundredths of a millimetre (macOS's multitouch stack
+  # divides positions by 100), which a profile records as
+  # trackpad.positionUnitsPerMM; without it, the sensor's span over its
+  # surface, a little short (the surface is wider than the sensed span).
   sensor = tp.sensor;
-  unitsPerMM = (sensor.maxX - sensor.minX) / (sensor.widthHundredthsMM / 100.0);
+  unitsPerMM =
+    tp.positionUnitsPerMM or ((sensor.maxX - sensor.minX) / (sensor.widthHundredthsMM / 100.0));
   unitsPerInch = unitsPerMM * 25.4;
 
   # libinput interpolates from 0 to the first sample, so below it the gain is
